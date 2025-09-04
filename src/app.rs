@@ -31,6 +31,36 @@ impl App {
         }
     }
 
+    fn branch_color(branch_name: &str) -> (ratatui::style::Color, bool) {
+        use ratatui::style::Color;
+        
+        // Main and master get special treatment - bold green
+        if branch_name == "main" || branch_name == "master" {
+            return (Color::Green, true); // bold green
+        }
+        
+        // Use a simple hash function to assign consistent colors to branch names
+        let mut hash: u32 = 0;
+        for byte in branch_name.bytes() {
+            hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
+        }
+        
+        // Map to a set of colors (avoiding red which might indicate errors)
+        let colors = [
+            Color::Cyan,
+            Color::Yellow, 
+            Color::Blue,
+            Color::Magenta,
+            Color::LightCyan,
+            Color::LightYellow,
+            Color::LightBlue,
+            Color::LightMagenta,
+        ];
+        
+        let color = colors[(hash % colors.len() as u32) as usize];
+        (color, false) // regular weight
+    }
+
     pub fn prepare_repository_display_with_status(
         &self,
         repositories: &[Repository],
@@ -101,7 +131,7 @@ impl App {
             layout::{Constraint, Direction, Layout},
             prelude::Stylize,
             style::{Color, Modifier, Style},
-            text::Line,
+            text::{Line, Span},
             widgets::{Block, Borders, Paragraph},
         };
         
@@ -122,68 +152,70 @@ impl App {
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         f.render_widget(title, chunks[0]);
 
-        // Main content - show repositories with git status and grouping
-        let content_text = if self.repositories.is_empty() {
+        // Main content - show repositories with git status and grouping (with colored branches)
+        let content_lines = if self.repositories.is_empty() {
             if self.scan_complete {
-                "No Git repositories found in base directory.".to_string()
+                vec![Line::from("No Git repositories found in base directory.")]
             } else {
-                "Scanning for repositories...".to_string()
+                vec![Line::from("Scanning for repositories...")]
             }
         } else {
-            // Restore grouping functionality
+            // Restore grouping functionality with rich text support
             let grouped_repos = crate::scan::group_repositories(&self.repositories);
-            let mut text = Vec::new();
+            let mut lines = Vec::new();
             
             for (group_name, repos) in grouped_repos {
-                text.push(format!("▼ {}", group_name));
+                lines.push(Line::from(format!("▼ {}", group_name)));
                 for repo in repos {
                     // Use cached git status if available, otherwise show loading
-                    let (status_indicator, branch_info) = if let Some(status) = self.git_statuses.get(&repo.name) {
+                    if let Some(status) = self.git_statuses.get(&repo.name) {
                         let indicator = if status.is_dirty { "●" } else { "✓" };
                         
-                        let mut parts = Vec::new();
-                        if let Some(branch) = &status.branch_name {
-                            parts.push(branch.clone());
-                        }
-                        if status.ahead_count > 0 {
-                            parts.push(format!("↑{}", status.ahead_count));
-                        }
-                        if status.behind_count > 0 {
-                            parts.push(format!("↓{}", status.behind_count));
-                        }
-                        let branch_info = if parts.is_empty() { 
-                            "".to_string() 
-                        } else { 
-                            format!(" ({})", parts.join(" ")) 
-                        };
+                        let mut spans = vec![
+                            Span::raw(format!("  {} {}", indicator, repo.name)),
+                        ];
                         
-                        (indicator, branch_info)
+                        // Add colored branch information
+                        if let Some(branch) = &status.branch_name {
+                            let (color, is_bold) = Self::branch_color(branch);
+                            let mut style = Style::default().fg(color);
+                            if is_bold {
+                                style = style.add_modifier(Modifier::BOLD);
+                            }
+                            spans.push(Span::raw(" ("));
+                            spans.push(Span::styled(branch.clone(), style));
+                            
+                            // Add ahead/behind indicators
+                            if status.ahead_count > 0 {
+                                spans.push(Span::raw(format!(" ↑{}", status.ahead_count)));
+                            }
+                            if status.behind_count > 0 {
+                                spans.push(Span::raw(format!(" ↓{}", status.behind_count)));
+                            }
+                            
+                            spans.push(Span::raw(")"));
+                        }
+                        
+                        lines.push(Line::from(spans));
                     } else if self.git_status_loading {
-                        ("⋯", " (loading...)".to_string())
+                        lines.push(Line::from(format!("  ⋯ {}", repo.name)));
                     } else {
-                        ("?", "".to_string())
-                    };
-                    
-                    text.push(format!("  {} {} ({}){}", 
-                        status_indicator, 
-                        repo.name, 
-                        repo.path.display(),
-                        branch_info
-                    ));
+                        lines.push(Line::from(format!("  ? {}", repo.name)));
+                    }
                 }
-                text.push("".to_string()); // Empty line between groups
+                lines.push(Line::from("")); // Empty line between groups
             }
             
             if !self.scan_complete {
-                text.push("Scanning for more repositories...".to_string());
+                lines.push(Line::from("Scanning for more repositories..."));
             } else if self.git_status_loading {
-                text.push("Loading git status...".to_string());
+                lines.push(Line::from("Loading git status..."));
             }
             
-            text.join("\n")
+            lines
         };
 
-        let main_content = Paragraph::new(content_text)
+        let main_content = Paragraph::new(content_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
