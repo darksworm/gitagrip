@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -90,9 +91,11 @@ repos = [
 fn test_xdg_config_path_resolution() -> Result<()> {
     let config_path = yarg::config::get_default_config_path()?;
     
-    // Should end with .config/yarg/yarg.toml
+    // Should end with yarg/yarg.toml (may be in different locations on different OS)
     assert!(config_path.ends_with("yarg/yarg.toml"));
-    assert!(config_path.to_string_lossy().contains(".config"));
+    // On macOS it might be in ~/Library/Application Support instead of ~/.config
+    let path_str = config_path.to_string_lossy();
+    assert!(path_str.contains("yarg") && path_str.ends_with("yarg.toml"));
     
     Ok(())
 }

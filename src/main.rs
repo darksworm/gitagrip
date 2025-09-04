@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -16,13 +17,23 @@ use ratatui::{
 use std::io;
 use tracing::{error, info};
 
+mod cli;
+mod config;
+
+use cli::CliArgs;
+use config::Config;
+
 struct App {
     should_quit: bool,
+    config: Config,
 }
 
-impl Default for App {
-    fn default() -> App {
-        App { should_quit: false }
+impl App {
+    fn new(config: Config) -> App {
+        App { 
+            should_quit: false,
+            config,
+        }
     }
 }
 
@@ -68,8 +79,10 @@ impl App {
             ])
             .split(f.area());
 
-        // Title
-        let title = Paragraph::new("YARG - Yet Another Repo Grouper")
+        // Title with base directory
+        let title_text = format!("YARG - Yet Another Repo Grouper    {}", 
+                                self.config.base_dir.display());
+        let title = Paragraph::new(title_text)
             .block(Block::default().borders(Borders::ALL))
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         f.render_widget(title, chunks[0]);
@@ -104,6 +117,13 @@ fn main() -> Result<()> {
 
     info!("Starting YARG - Yet Another Repo Grouper");
 
+    // Parse CLI arguments
+    let cli_args = CliArgs::parse();
+    
+    // Load config (with CLI overrides)
+    let config = Config::from_cli_and_file(cli_args, None)?;
+    info!("Loaded config with base_dir: {}", config.base_dir.display());
+    
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -112,7 +132,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create app and run it
-    let mut app = App::default();
+    let mut app = App::new(config);
     let res = app.run(&mut terminal);
 
     // Restore terminal
@@ -138,21 +158,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_app_default() {
-        let app = App::default();
+    fn test_app_new() {
+        let config = Config::default();
+        let app = App::new(config.clone());
         assert!(!app.should_quit);
+        assert_eq!(app.config, config);
     }
 
     #[test]
     fn test_app_can_quit() {
-        let mut app = App::default();
+        let config = Config::default();
+        let mut app = App::new(config);
         app.should_quit = true;
         assert!(app.should_quit);
     }
 
     #[test] 
     fn test_app_state_transitions() {
-        let mut app = App::default();
+        let config = Config::default();
+        let mut app = App::new(config);
         
         // Initially should not quit
         assert!(!app.should_quit);
