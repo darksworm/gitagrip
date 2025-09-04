@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use crossbeam_channel::Receiver;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -15,17 +16,22 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::io;
+use std::time::Duration;
 use tracing::{error, info};
 
 mod cli;
 mod config;
+mod scan;
 
 use cli::CliArgs;
 use config::Config;
+use scan::{Repository, ScanEvent};
 
 struct App {
     should_quit: bool,
     config: Config,
+    repositories: Vec<Repository>,
+    scan_complete: bool,
 }
 
 impl App {
@@ -33,31 +39,57 @@ impl App {
         App { 
             should_quit: false,
             config,
+            repositories: Vec::new(),
+            scan_complete: false,
         }
     }
 }
 
 impl App {
-    fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+    fn run<B: Backend>(
+        &mut self, 
+        terminal: &mut Terminal<B>,
+        scan_receiver: Receiver<ScanEvent>
+    ) -> Result<()> {
         loop {
             terminal.draw(|f| self.ui(f))?;
 
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') => {
-                            info!("Quit requested by user");
-                            self.should_quit = true;
+            // Check for scan events (non-blocking)
+            while let Ok(event) = scan_receiver.try_recv() {
+                match event {
+                    ScanEvent::RepoDiscovered(repo) => {
+                        info!("Discovered repository: {}", repo.name);
+                        self.repositories.push(repo);
+                    }
+                    ScanEvent::ScanCompleted => {
+                        info!("Repository scan completed");
+                        self.scan_complete = true;
+                    }
+                    ScanEvent::ScanError(err) => {
+                        error!("Scan error: {}", err);
+                    }
+                }
+            }
+
+            // Handle user input with timeout to allow UI updates
+            if event::poll(Duration::from_millis(100))? {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Char('q') => {
+                                info!("Quit requested by user");
+                                self.should_quit = true;
+                            }
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                info!("Ctrl+C pressed, quitting");
+                                self.should_quit = true;
+                            }
+                            KeyCode::Esc => {
+                                info!("Escape pressed, quitting");
+                                self.should_quit = true;
+                            }
+                            _ => {}
                         }
-                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            info!("Ctrl+C pressed, quitting");
-                            self.should_quit = true;
-                        }
-                        KeyCode::Esc => {
-                            info!("Escape pressed, quitting");
-                            self.should_quit = true;
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -87,8 +119,33 @@ impl App {
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         f.render_widget(title, chunks[0]);
 
-        // Main content placeholder
-        let main_content = Paragraph::new("Repository discovery and status will appear here...")
+        // Main content - show repositories
+        let content_text = if self.repositories.is_empty() {
+            if self.scan_complete {
+                "No Git repositories found in base directory.".to_string()
+            } else {
+                "Scanning for repositories...".to_string()
+            }
+        } else {
+            let grouped_repos = scan::group_repositories(&self.repositories);
+            let mut text = Vec::new();
+            
+            for (group_name, repos) in grouped_repos {
+                text.push(format!("▼ {}", group_name));
+                for repo in repos {
+                    text.push(format!("  {} ({})", repo.name, repo.path.display()));
+                }
+                text.push("".to_string()); // Empty line between groups
+            }
+            
+            if !self.scan_complete {
+                text.push("Scanning for more repositories...".to_string());
+            }
+            
+            text.join("\n")
+        };
+
+        let main_content = Paragraph::new(content_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -131,9 +188,21 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app and run it
-    let mut app = App::new(config);
-    let res = app.run(&mut terminal);
+    // Create app and background scanning
+    let mut app = App::new(config.clone());
+    
+    // Setup background repository scanning
+    let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
+    let base_dir = config.base_dir.clone();
+    
+    // Spawn background scan
+    std::thread::spawn(move || {
+        if let Err(e) = scan::scan_repositories_background(base_dir, scan_sender) {
+            error!("Background scan failed: {}", e);
+        }
+    });
+    
+    let res = app.run(&mut terminal, scan_receiver);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -163,6 +232,8 @@ mod tests {
         let app = App::new(config.clone());
         assert!(!app.should_quit);
         assert_eq!(app.config, config);
+        assert!(app.repositories.is_empty());
+        assert!(!app.scan_complete);
     }
 
     #[test]
@@ -188,6 +259,31 @@ mod tests {
         // Can reset quit state
         app.should_quit = false;
         assert!(!app.should_quit);
+    }
+    
+    #[test]
+    fn test_app_repository_management() {
+        let config = Config::default();
+        let mut app = App::new(config);
+        
+        // Initially empty
+        assert!(app.repositories.is_empty());
+        assert!(!app.scan_complete);
+        
+        // Can add repositories
+        let repo = Repository {
+            name: "test-repo".to_string(),
+            path: std::path::PathBuf::from("/test"),
+            auto_group: "Ungrouped".to_string(),
+        };
+        app.repositories.push(repo.clone());
+        
+        assert_eq!(app.repositories.len(), 1);
+        assert_eq!(app.repositories[0], repo);
+        
+        // Can mark scan as complete
+        app.scan_complete = true;
+        assert!(app.scan_complete);
     }
 
     // Note: Testing the actual TUI rendering and key handling would require 

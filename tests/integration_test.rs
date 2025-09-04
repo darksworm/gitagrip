@@ -120,3 +120,192 @@ fn test_cli_parsing() -> Result<()> {
     
     Ok(())
 }
+
+// M2 Guiding Star Test: Repository Discovery & Background Scanning
+#[test]
+fn test_m2_repository_discovery_integration() -> Result<()> {
+    // Setup: Create a temporary directory structure with Git repos
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create directory structure:
+    // temp/
+    // ├── work/
+    // │   ├── project-a/  (.git)
+    // │   └── project-b/  (.git)
+    // ├── personal/
+    // │   └── dotfiles/   (.git)
+    // └── ungrouped-repo/ (.git)
+    
+    let work_dir = base_path.join("work");
+    let personal_dir = base_path.join("personal");
+    fs::create_dir_all(&work_dir)?;
+    fs::create_dir_all(&personal_dir)?;
+    
+    // Create actual Git repositories using git2
+    let repos = vec![
+        work_dir.join("project-a"),
+        work_dir.join("project-b"), 
+        personal_dir.join("dotfiles"),
+        base_path.join("ungrouped-repo"),
+    ];
+    
+    for repo_path in &repos {
+        fs::create_dir_all(repo_path)?;
+        let repo = git2::Repository::init(repo_path)?;
+        
+        // Create a commit so the repo has some content
+        let sig = git2::Signature::now("Test User", "test@example.com")?;
+        let tree_id = {
+            let mut index = repo.index()?;
+            // Create a test file
+            std::fs::write(repo_path.join("README.md"), "# Test Repo")?;
+            index.add_path(std::path::Path::new("README.md"))?;
+            index.write()?;
+            index.write_tree()?
+        };
+        let tree = repo.find_tree(tree_id)?;
+        repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+    }
+    
+    // Test 1: Repository discovery should find all repos
+    let discovered_repos = yarg::scan::find_repos(base_path)?;
+    
+    assert_eq!(discovered_repos.len(), 4);
+    
+    // Check that all repos were found
+    let repo_paths: Vec<_> = discovered_repos.iter().map(|r| &r.path).collect();
+    for expected_repo in &repos {
+        assert!(repo_paths.contains(&expected_repo), 
+                "Repository not found: {}", expected_repo.display());
+    }
+    
+    // Test 2: Auto-grouping should work based on parent directory
+    let grouped_repos = yarg::scan::group_repositories(&discovered_repos);
+    
+    // Should have: Auto: work (2), Auto: personal (1), Ungrouped (1)
+    assert_eq!(grouped_repos.len(), 3);
+    
+    let work_group = grouped_repos.get("Auto: work").expect("Work group should exist");
+    assert_eq!(work_group.len(), 2);
+    
+    let personal_group = grouped_repos.get("Auto: personal").expect("Personal group should exist");
+    assert_eq!(personal_group.len(), 1);
+    
+    let ungrouped = grouped_repos.get("Ungrouped").expect("Ungrouped should exist");
+    assert_eq!(ungrouped.len(), 1);
+    
+    // Test 3: Background scanning with channels should work
+    let (tx, rx) = crossbeam_channel::unbounded();
+    
+    // Spawn background scan
+    let base_path_clone = base_path.to_path_buf();
+    std::thread::spawn(move || {
+        if let Err(e) = yarg::scan::scan_repositories_background(base_path_clone, tx) {
+            eprintln!("Background scan failed: {}", e);
+        }
+    });
+    
+    // Collect events from channel
+    let mut received_repos = Vec::new();
+    let mut scan_completed = false;
+    
+    // Timeout to avoid infinite wait
+    let timeout = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    
+    while start.elapsed() < timeout && !scan_completed {
+        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(event) => {
+                match event {
+                    yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                        received_repos.push(repo);
+                    }
+                    yarg::scan::ScanEvent::ScanCompleted => {
+                        scan_completed = true;
+                    }
+                    yarg::scan::ScanEvent::ScanError(err) => {
+                        panic!("Scan error: {}", err);
+                    }
+                }
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                // Continue waiting
+                continue;
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                break;
+            }
+        }
+    }
+    
+    assert!(scan_completed, "Scan should complete");
+    assert_eq!(received_repos.len(), 4, "Should receive all 4 repositories");
+    
+    // Test 4: Repository metadata should be populated
+    for repo in &received_repos {
+        assert!(!repo.name.is_empty(), "Repository name should not be empty");
+        assert!(repo.path.exists(), "Repository path should exist");
+        assert!(!repo.auto_group.is_empty(), "Auto group should be populated");
+        
+        // Check that .git directory exists
+        assert!(repo.path.join(".git").exists(), "Should have .git directory");
+    }
+    
+    Ok(())
+}
+
+// Test Repository struct serialization for config persistence
+#[test]
+fn test_repository_struct() -> Result<()> {
+    let repo = yarg::scan::Repository {
+        name: "test-repo".to_string(),
+        path: PathBuf::from("/path/to/repo"),
+        auto_group: "Auto: parent".to_string(),
+    };
+    
+    // Test Display trait
+    let display_str = format!("{}", repo);
+    assert!(display_str.contains("test-repo"));
+    
+    // Test cloning and equality
+    let repo_clone = repo.clone();
+    assert_eq!(repo, repo_clone);
+    
+    Ok(())
+}
+
+// Test edge cases for repository discovery
+#[test]
+fn test_repository_discovery_edge_cases() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Test 1: Empty directory
+    let repos = yarg::scan::find_repos(base_path)?;
+    assert!(repos.is_empty(), "Should find no repos in empty directory");
+    
+    // Test 2: Directory with nested .git (should not descend into repo)
+    let outer_repo = base_path.join("outer-repo");
+    let inner_dir = outer_repo.join("inner");
+    fs::create_dir_all(&inner_dir)?;
+    
+    // Create outer repo
+    git2::Repository::init(&outer_repo)?;
+    
+    // Create what looks like an inner repo
+    fs::create_dir_all(inner_dir.join(".git"))?;
+    
+    let repos = yarg::scan::find_repos(base_path)?;
+    assert_eq!(repos.len(), 1, "Should only find outer repo, not descend into it");
+    assert_eq!(repos[0].path, outer_repo);
+    
+    Ok(())
+}
