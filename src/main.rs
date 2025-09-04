@@ -51,11 +51,19 @@ impl App {
         terminal: &mut Terminal<B>,
         scan_receiver: Receiver<ScanEvent>
     ) -> Result<()> {
+        let mut needs_redraw = true; // Initial draw needed
+        
         loop {
-            terminal.draw(|f| self.ui(f))?;
+            // Only redraw if something changed
+            if needs_redraw {
+                terminal.draw(|f| self.ui(f))?;
+                needs_redraw = false;
+            }
 
             // Check for scan events (non-blocking)
+            let mut events_received = false;
             while let Ok(event) = scan_receiver.try_recv() {
+                events_received = true;
                 match event {
                     ScanEvent::RepoDiscovered(repo) => {
                         info!("Discovered repository: {}", repo.name);
@@ -69,6 +77,11 @@ impl App {
                         error!("Scan error: {}", err);
                     }
                 }
+            }
+            
+            // If we received scan events, we need to redraw
+            if events_received {
+                needs_redraw = true;
             }
 
             // Handle user input with timeout to allow UI updates

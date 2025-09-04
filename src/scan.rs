@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -72,12 +72,17 @@ pub fn find_repos<P: AsRef<Path>>(base_path: P) -> Result<Vec<Repository>> {
     Ok(repositories)
 }
 
-pub fn group_repositories(repositories: &[Repository]) -> HashMap<String, Vec<Repository>> {
-    let mut groups = HashMap::new();
+pub fn group_repositories(repositories: &[Repository]) -> BTreeMap<String, Vec<Repository>> {
+    let mut groups = BTreeMap::new();
     
     for repo in repositories {
         let group_name = repo.auto_group.clone();
         groups.entry(group_name).or_insert_with(Vec::new).push(repo.clone());
+    }
+    
+    // Sort repositories within each group by name for stable ordering
+    for repos_in_group in groups.values_mut() {
+        repos_in_group.sort_by(|a, b| a.name.cmp(&b.name));
     }
     
     groups
@@ -198,13 +203,13 @@ mod tests {
                 auto_group: "Ungrouped".to_string(),
             },
             Repository {
-                name: "repo2".to_string(),
-                path: PathBuf::from("/base/work/repo2"),
+                name: "repo3".to_string(), // Name starts with 3 to test sorting
+                path: PathBuf::from("/base/work/repo3"),
                 auto_group: "Auto: work".to_string(),
             },
             Repository {
-                name: "repo3".to_string(),
-                path: PathBuf::from("/base/work/repo3"),
+                name: "repo2".to_string(), // Name starts with 2 to test sorting
+                path: PathBuf::from("/base/work/repo2"),
                 auto_group: "Auto: work".to_string(),
             },
         ];
@@ -214,6 +219,15 @@ mod tests {
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped["Ungrouped"].len(), 1);
         assert_eq!(grouped["Auto: work"].len(), 2);
+        
+        // Test that groups are returned in sorted order (BTreeMap)
+        let group_names: Vec<_> = grouped.keys().collect();
+        assert_eq!(group_names, vec!["Auto: work", "Ungrouped"]); // Alphabetical order
+        
+        // Test that repos within groups are sorted by name
+        let work_repos = &grouped["Auto: work"];
+        assert_eq!(work_repos[0].name, "repo2"); // Should come before repo3
+        assert_eq!(work_repos[1].name, "repo3");
     }
 
     #[test]
