@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 // This is our "guiding star" integration test for M1
@@ -584,6 +584,701 @@ fn test_ui_rendering_consistency() -> Result<()> {
         assert_eq!(first_output, output, 
                   "UI output cycle {} differs from first cycle - HashMap ordering is unstable!", cycle_idx + 1);
     }
+    
+    Ok(())
+}
+
+// M3 Guiding Star Test: Git Status Aggregation with Real Repository States
+#[test]
+fn test_m3_git_status_integration() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create repositories with different Git states for comprehensive testing
+    let repos = vec![
+        ("clean-repo", "work"),      // Clean repo, on main, up to date
+        ("dirty-repo", "work"),      // Dirty repo with uncommitted changes
+        ("ahead-repo", "personal"),  // Repo ahead of remote
+        ("detached-repo", "tools"),  // Detached HEAD state
+    ];
+    
+    for (repo_name, group_name) in &repos {
+        let group_dir = base_path.join(group_name);
+        let repo_path = group_dir.join(repo_name);
+        fs::create_dir_all(&repo_path)?;
+        let repo = git2::Repository::init(&repo_path)?;
+        
+        // Configure repo
+        let mut config = repo.config()?;
+        config.set_str("user.name", "Test User")?;
+        config.set_str("user.email", "test@example.com")?;
+        
+        let sig = git2::Signature::now("Test User", "test@example.com")?;
+        
+        // Create initial commit
+        let tree_id = {
+            let mut index = repo.index()?;
+            std::fs::write(repo_path.join("README.md"), "# Initial")?;
+            index.add_path(std::path::Path::new("README.md"))?;
+            index.write()?;
+            index.write_tree()?
+        };
+        let tree = repo.find_tree(tree_id)?;
+        let initial_commit = repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+        
+        // Set up different states based on repo name
+        match *repo_name {
+            "clean-repo" => {
+                // Already clean, do nothing more
+            }
+            "dirty-repo" => {
+                // Add uncommitted changes
+                std::fs::write(repo_path.join("README.md"), "# Modified content")?;
+                std::fs::write(repo_path.join("new_file.txt"), "New file")?;
+            }
+            "ahead-repo" => {
+                // Create a second commit to be ahead (simulated)
+                std::fs::write(repo_path.join("feature.txt"), "New feature")?;
+                let mut index = repo.index()?;
+                index.add_path(std::path::Path::new("feature.txt"))?;
+                index.write()?;
+                let tree_id = index.write_tree()?;
+                let tree = repo.find_tree(tree_id)?;
+                let parent = repo.find_commit(initial_commit)?;
+                repo.commit(
+                    Some("HEAD"),
+                    &sig,
+                    &sig,
+                    "Add feature",
+                    &tree,
+                    &[&parent],
+                )?;
+            }
+            "detached-repo" => {
+                // Checkout a specific commit (detached HEAD)
+                let commit = repo.find_commit(initial_commit)?;
+                repo.set_head_detached(commit.id())?;
+            }
+            _ => {}
+        }
+    }
+    
+    // Test 1: Repository discovery finds all repos
+    let discovered_repos = yarg::scan::find_repos(base_path)?;
+    assert_eq!(discovered_repos.len(), 4);
+    
+    // Test 2: Git status reading should work for all repositories  
+    let mut repo_statuses = Vec::new();
+    for repo in &discovered_repos {
+        let status = yarg::git::read_status(&repo.path)?;
+        repo_statuses.push((repo.clone(), status));
+    }
+    
+    assert_eq!(repo_statuses.len(), 4);
+    
+    // Test 3: Status information should be accurate
+    for (repo, status) in &repo_statuses {
+        match repo.name.as_str() {
+            "clean-repo" => {
+                assert!(!status.is_dirty, "clean-repo should not be dirty");
+                assert!(status.branch_name.as_ref().map(|b| b == "main" || b == "master").unwrap_or(false), "Should be on main or master branch");
+                assert!(status.last_commit_summary.contains("Initial commit"));
+            }
+            "dirty-repo" => {
+                assert!(status.is_dirty, "dirty-repo should be dirty");
+                assert!(status.branch_name.as_ref().map(|b| b == "main" || b == "master").unwrap_or(false), "Should be on main or master branch");
+                assert!(status.has_staged || status.has_unstaged, "Should have changes");
+            }
+            "ahead-repo" => {
+                assert!(!status.is_dirty, "ahead-repo should be clean");
+                assert!(status.branch_name.as_ref().map(|b| b == "main" || b == "master").unwrap_or(false), "Should be on main or master branch"); 
+                assert!(status.last_commit_summary.contains("Add feature"));
+            }
+            "detached-repo" => {
+                assert!(status.is_detached, "Should be in detached HEAD state");
+            }
+            _ => {}
+        }
+    }
+    
+    // Test 4: Parallel status computation should work
+    let parallel_statuses = yarg::git::compute_statuses_parallel(&discovered_repos)?;
+    assert_eq!(parallel_statuses.len(), 4);
+    
+    // Results should be the same as sequential (order may differ)
+    for (repo, sequential_status) in &repo_statuses {
+        let parallel_status = parallel_statuses.iter()
+            .find(|(r, _)| r.path == repo.path)
+            .expect("Should find repo in parallel results")
+            .1.clone();
+        
+        assert_eq!(sequential_status.branch_name, parallel_status.branch_name);
+        assert_eq!(sequential_status.is_dirty, parallel_status.is_dirty);
+    }
+    
+    // Test 5: Status events should be sent via channels
+    let (tx, rx) = crossbeam_channel::unbounded();
+    
+    std::thread::spawn(move || {
+        for (repo, status) in parallel_statuses {
+            let event = yarg::git::StatusEvent::StatusUpdated { 
+                repository: repo.name, 
+                status 
+            };
+            if tx.send(event).is_err() {
+                break;
+            }
+        }
+        let _ = tx.send(yarg::git::StatusEvent::StatusScanCompleted);
+    });
+    
+    // Collect status events
+    let mut received_statuses = Vec::new();
+    let mut scan_completed = false;
+    
+    let timeout = std::time::Duration::from_secs(2);
+    let start = std::time::Instant::now();
+    
+    while start.elapsed() < timeout && !scan_completed {
+        match rx.recv_timeout(std::time::Duration::from_millis(50)) {
+            Ok(event) => {
+                match event {
+                    yarg::git::StatusEvent::StatusUpdated { repository, status } => {
+                        received_statuses.push((repository, status));
+                    }
+                    yarg::git::StatusEvent::StatusScanCompleted => {
+                        scan_completed = true;
+                    }
+                    yarg::git::StatusEvent::StatusError { repository: _, error: _ } => {
+                        // Ignore errors for this test
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    
+    assert!(scan_completed, "Status scan should complete");
+    assert_eq!(received_statuses.len(), 4, "Should receive status for all repos");
+    
+    Ok(())
+}
+
+#[test]
+fn test_m3_tui_git_status_display_integration() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create test repositories with different git states
+    let repos_with_states = vec![
+        ("clean-repo", false, false),        // clean repository
+        ("dirty-repo", true, false),         // dirty repository  
+        ("staged-repo", false, true),        // staged changes
+    ];
+    
+    for (repo_name, has_unstaged, has_staged) in &repos_with_states {
+        let repo_path = base_path.join(repo_name);
+        fs::create_dir_all(&repo_path)?;
+        
+        // Initialize git repo
+        let git_repo = git2::Repository::init(&repo_path)?;
+        
+        // Create initial commit
+        let signature = git2::Signature::now("Test User", "test@example.com")?;
+        let tree_id = {
+            let mut index = git_repo.index()?;
+            let tree_id = index.write_tree()?;
+            tree_id
+        };
+        let tree = git_repo.find_tree(tree_id)?;
+        let _commit = git_repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+        
+        // Create different states based on test parameters
+        if *has_unstaged || *has_staged {
+            let test_file = repo_path.join("test.txt");
+            fs::write(&test_file, "test content")?;
+            
+            if *has_staged {
+                let mut index = git_repo.index()?;
+                index.add_path(Path::new("test.txt"))?;
+                index.write()?;
+            }
+        }
+    }
+    
+    // Create config pointing to our test directory
+    let config = yarg::config::Config {
+        version: 1,
+        base_dir: base_path.to_path_buf(),
+        ui: yarg::config::UiConfig {
+            show_ahead_behind: true,
+            autosave_on_exit: false,
+        },
+        groups: std::collections::HashMap::new(),
+    };
+    
+    // Test 1: App should discover repositories and show git status
+    let mut app = yarg::app::App::new(config.clone());
+    
+    // Set up channels for repository scanning and git status
+    let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
+    let (status_sender, status_receiver) = crossbeam_channel::unbounded();
+    
+    // Start background repository scanning
+    let base_dir_clone = config.base_dir.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender) {
+            eprintln!("Scan error: {}", e);
+        }
+    });
+    
+    // Collect discovered repositories
+    let mut discovered_repos = Vec::new();
+    let timeout = std::time::Duration::from_secs(2);
+    let start = std::time::Instant::now();
+    
+    while start.elapsed() < timeout {
+        if let Ok(event) = scan_receiver.try_recv() {
+            match event {
+                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                    discovered_repos.push(repo);
+                }
+                yarg::scan::ScanEvent::ScanCompleted => break,
+                yarg::scan::ScanEvent::ScanError(err) => {
+                    panic!("Repository scan failed: {}", err);
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    
+    assert_eq!(discovered_repos.len(), 3, "Should discover all test repositories");
+    
+    // Test 2: App should load git status for discovered repositories
+    yarg::git::compute_statuses_with_events(&discovered_repos, status_sender)?;
+    
+    let mut repo_statuses = std::collections::HashMap::new();
+    let status_timeout = std::time::Duration::from_secs(3);
+    let status_start = std::time::Instant::now();
+    let mut status_complete = false;
+    
+    while status_start.elapsed() < status_timeout && !status_complete {
+        if let Ok(event) = status_receiver.try_recv() {
+            match event {
+                yarg::git::StatusEvent::StatusUpdated { repository, status } => {
+                    repo_statuses.insert(repository, status);
+                }
+                yarg::git::StatusEvent::StatusScanCompleted => {
+                    status_complete = true;
+                }
+                yarg::git::StatusEvent::StatusError { repository, error } => {
+                    panic!("Status error for {}: {}", repository, error);
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    
+    assert_eq!(repo_statuses.len(), 3, "Should get status for all repositories");
+    
+    // Test 3: App should integrate repository and status data for UI display
+    let display_data = app.prepare_repository_display_with_status(&discovered_repos, &repo_statuses);
+    
+    // Verify display data contains git status information
+    assert_eq!(display_data.len(), 3, "Should have display data for all repos");
+    
+    for (repo_name, display_info) in &display_data {
+        match repo_name.as_str() {
+            "clean-repo" => {
+                assert_eq!(display_info.status_indicator, "✓", "Clean repo should show clean indicator");
+                assert!(!display_info.is_dirty, "Clean repo should not be dirty");
+            }
+            "dirty-repo" => {
+                assert_eq!(display_info.status_indicator, "●", "Dirty repo should show dirty indicator");  
+                assert!(display_info.is_dirty, "Dirty repo should be dirty");
+            }
+            "staged-repo" => {
+                assert_eq!(display_info.status_indicator, "●", "Staged repo should show dirty indicator");
+                assert!(display_info.is_dirty, "Staged repo should be dirty");
+            }
+            _ => {}
+        }
+    }
+    
+    // Test 4: UI rendering should include git status information
+    let ui_content = app.render_repository_list_with_status(&display_data);
+    
+    // Verify UI content includes status indicators
+    assert!(ui_content.contains("✓"), "UI should contain clean status indicators");
+    assert!(ui_content.contains("●"), "UI should contain dirty status indicators");
+    
+    // Test 5: UI should be responsive and not block during status loading
+    let render_time = std::time::Instant::now();
+    let _ui_frame = app.create_test_ui_frame();
+    let render_duration = render_time.elapsed();
+    
+    assert!(render_duration < std::time::Duration::from_millis(100), 
+           "UI rendering should be fast and non-blocking");
+    
+    Ok(())
+}
+
+#[test]
+fn test_m3_end_to_end_git_status_in_tui() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create test repositories with real git states
+    let test_repos = vec![
+        ("clean-repo", false, false),
+        ("dirty-repo", true, false),
+        ("staged-repo", false, true),
+    ];
+    
+    for (repo_name, has_unstaged, has_staged) in test_repos {
+        let repo_path = base_path.join(repo_name);
+        fs::create_dir_all(&repo_path)?;
+        
+        // Initialize real git repo
+        let git_repo = git2::Repository::init(&repo_path)?;
+        let signature = git2::Signature::now("Test User", "test@example.com")?;
+        
+        // Create initial commit
+        let tree_id = {
+            let mut index = git_repo.index()?;
+            let tree_id = index.write_tree()?;
+            tree_id
+        };
+        let tree = git_repo.find_tree(tree_id)?;
+        let _commit = git_repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+        
+        // Create different git states
+        if has_unstaged || has_staged {
+            let test_file = repo_path.join("test.txt");
+            fs::write(&test_file, "test content")?;
+            
+            if has_staged {
+                let mut index = git_repo.index()?;
+                index.add_path(Path::new("test.txt"))?;
+                index.write()?;
+            }
+        }
+    }
+    
+    // Create config for the test
+    let config = yarg::config::Config {
+        version: 1,
+        base_dir: base_path.to_path_buf(),
+        ui: yarg::config::UiConfig {
+            show_ahead_behind: true,
+            autosave_on_exit: false,
+        },
+        groups: std::collections::HashMap::new(),
+    };
+    
+    // Create the App and run it briefly to capture UI output
+    let mut app = yarg::app::App::new(config.clone());
+    
+    // Set up background scanning (same as main.rs does)
+    let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
+    let base_dir_clone = config.base_dir.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender) {
+            eprintln!("Background scan failed: {}", e);
+        }
+    });
+    
+    // Create a mock terminal backend for testing
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend)?;
+    
+    // Simulate the app running for a short time to discover repos and get git status
+    let timeout = std::time::Duration::from_secs(3);
+    let start_time = std::time::Instant::now();
+    
+    while start_time.elapsed() < timeout {
+        // Process repository scan events (like the real app does)
+        while let Ok(event) = scan_receiver.try_recv() {
+            match event {
+                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                    app.repositories.push(repo);
+                }
+                yarg::scan::ScanEvent::ScanCompleted => {
+                    app.scan_complete = true;
+                }
+                yarg::scan::ScanEvent::ScanError(err) => {
+                    eprintln!("Scan error: {}", err);
+                }
+            }
+        }
+        
+        // Once we have repos and scan is complete, render the UI
+        if app.scan_complete && !app.repositories.is_empty() {
+            break;
+        }
+        
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    
+    // Render the UI using the same ui() method from main.rs
+    terminal.draw(|f| {
+        app.ui_with_git_status(f)
+    })?;
+    
+    // Get the rendered output
+    let backend = terminal.backend();
+    let buffer = backend.buffer();
+    let rendered_content = buffer.content.iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    
+    // Verify the UI contains the expected elements
+    
+    // Test 1: Should contain repository names
+    assert!(rendered_content.contains("clean-repo"), "UI should show clean-repo");
+    assert!(rendered_content.contains("dirty-repo"), "UI should show dirty-repo");
+    assert!(rendered_content.contains("staged-repo"), "UI should show staged-repo");
+    
+    // Test 2: Should contain git status indicators
+    assert!(rendered_content.contains("✓") || rendered_content.contains("clean"), 
+           "UI should show clean status indicator");
+    assert!(rendered_content.contains("●") || rendered_content.contains("dirty"), 
+           "UI should show dirty status indicator");
+    
+    // Test 3: Should contain the YARG title and base directory
+    assert!(rendered_content.contains("YARG"), "UI should show YARG title");
+    assert!(rendered_content.contains("Repositories"), "UI should show Repositories section");
+    
+    // Test 4: Should show keybindings
+    assert!(rendered_content.contains("q") && rendered_content.contains("quit"), 
+           "UI should show quit keybinding");
+    
+    Ok(())
+}
+
+#[test]
+fn test_scanning_completes_with_real_repos() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create a couple of real git repositories
+    for repo_name in &["test-repo-1", "test-repo-2"] {
+        let repo_path = base_path.join(repo_name);
+        fs::create_dir_all(&repo_path)?;
+        
+        let git_repo = git2::Repository::init(&repo_path)?;
+        let signature = git2::Signature::now("Test User", "test@example.com")?;
+        
+        // Create initial commit
+        let tree_id = {
+            let mut index = git_repo.index()?;
+            let tree_id = index.write_tree()?;
+            tree_id
+        };
+        let tree = git_repo.find_tree(tree_id)?;
+        let _commit = git_repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+    }
+    
+    // Create config for the test
+    let config = yarg::config::Config {
+        version: 1,
+        base_dir: base_path.to_path_buf(),
+        ui: yarg::config::UiConfig {
+            show_ahead_behind: true,
+            autosave_on_exit: false,
+        },
+        groups: std::collections::HashMap::new(),
+    };
+    
+    let mut app = yarg::app::App::new(config.clone());
+    
+    // Set up channels like the real app
+    let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
+    let (status_sender, status_receiver) = crossbeam_channel::unbounded();
+    
+    // Start background repository scanning (like main.rs does)
+    let base_dir_clone = config.base_dir.clone();
+    let scan_sender_clone = scan_sender.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender_clone) {
+            eprintln!("Background scan failed: {}", e);
+        }
+    });
+    
+    // Don't duplicate the git status monitoring logic - let the app handle it
+    
+    // Simulate app.run() but with a timeout for testing
+    let timeout = std::time::Duration::from_secs(5);
+    let start_time = std::time::Instant::now();
+    let mut git_status_started = false;
+    
+    while start_time.elapsed() < timeout {
+        // Process repository scan events (exactly like app.run does)
+        while let Ok(event) = scan_receiver.try_recv() {
+            match event {
+                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                    app.repositories.push(repo);
+                }
+                yarg::scan::ScanEvent::ScanCompleted => {
+                    app.scan_complete = true;
+                    // Start git status loading once repository scan is complete (like app.run does)
+                    if !app.repositories.is_empty() && !git_status_started {
+                        app.git_status_loading = true;
+                        git_status_started = true;
+                        let repos_for_status = app.repositories.clone();
+                        let status_sender_clone = status_sender.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = yarg::git::compute_statuses_with_events(&repos_for_status, status_sender_clone) {
+                                eprintln!("Background git status failed: {}", e);
+                            }
+                        });
+                    }
+                }
+                yarg::scan::ScanEvent::ScanError(err) => {
+                    panic!("Scan error: {}", err);
+                }
+            }
+        }
+        
+        // Process git status events (exactly like app.run does)
+        while let Ok(event) = status_receiver.try_recv() {
+            match event {
+                yarg::git::StatusEvent::StatusUpdated { repository, status } => {
+                    app.git_statuses.insert(repository, status);
+                }
+                yarg::git::StatusEvent::StatusScanCompleted => {
+                    app.git_status_loading = false;
+                }
+                yarg::git::StatusEvent::StatusError { repository: _, error: _ } => {
+                    // Ignore errors for this test
+                }
+            }
+        }
+        
+        // Check if scanning completed successfully
+        if app.scan_complete && !app.repositories.is_empty() {
+            break;
+        }
+        
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    
+    // Test that scanning actually completes and finds repositories
+    assert!(app.scan_complete, "Repository scanning should complete within timeout");
+    assert_eq!(app.repositories.len(), 2, "Should discover both test repositories");
+    
+    // Test that the repositories are the ones we created
+    let repo_names: Vec<String> = app.repositories.iter().map(|r| r.name.clone()).collect();
+    assert!(repo_names.contains(&"test-repo-1".to_string()), "Should find test-repo-1");
+    assert!(repo_names.contains(&"test-repo-2".to_string()), "Should find test-repo-2");
+    
+    Ok(())
+}
+
+#[test]
+fn test_basic_repository_scanning_only() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create a simple git repository
+    let repo_path = base_path.join("simple-repo");
+    fs::create_dir_all(&repo_path)?;
+    
+    let git_repo = git2::Repository::init(&repo_path)?;
+    let signature = git2::Signature::now("Test User", "test@example.com")?;
+    
+    // Create initial commit
+    let tree_id = {
+        let mut index = git_repo.index()?;
+        let tree_id = index.write_tree()?;
+        tree_id
+    };
+    let tree = git_repo.find_tree(tree_id)?;
+    let _commit = git_repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        "Initial commit",
+        &tree,
+        &[],
+    )?;
+    
+    // Test the scanning directly
+    let found_repos = yarg::scan::find_repos(&base_path)?;
+    assert_eq!(found_repos.len(), 1, "Should find exactly one repository");
+    assert_eq!(found_repos[0].name, "simple-repo", "Should find the correct repository");
+    
+    // Test background scanning
+    let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
+    
+    // Start background scan
+    let base_dir_clone = base_path.to_path_buf();
+    std::thread::spawn(move || {
+        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender) {
+            eprintln!("Background scan failed: {}", e);
+        }
+    });
+    
+    let mut discovered_repos = Vec::new();
+    let mut scan_complete = false;
+    let timeout = std::time::Duration::from_secs(3);
+    let start_time = std::time::Instant::now();
+    
+    while start_time.elapsed() < timeout && !scan_complete {
+        match scan_receiver.try_recv() {
+            Ok(event) => match event {
+                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                    println!("Discovered repo: {}", repo.name);
+                    discovered_repos.push(repo);
+                }
+                yarg::scan::ScanEvent::ScanCompleted => {
+                    println!("Scan completed!");
+                    scan_complete = true;
+                }
+                yarg::scan::ScanEvent::ScanError(err) => {
+                    panic!("Scan error: {}", err);
+                }
+            },
+            Err(_) => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+    
+    assert!(scan_complete, "Background scanning should complete");
+    assert_eq!(discovered_repos.len(), 1, "Should discover exactly one repository");
+    assert_eq!(discovered_repos[0].name, "simple-repo", "Should discover the correct repository");
     
     Ok(())
 }

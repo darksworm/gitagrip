@@ -8,11 +8,6 @@ use crossterm::{
 };
 use ratatui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
-    prelude::Stylize,
-    style::{Color, Modifier, Style},
-    text::Line,
-    widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
 use std::io;
@@ -21,36 +16,25 @@ use tracing::{error, info};
 
 mod cli;
 mod config;
+mod git;
 mod scan;
+mod app;
 
 use cli::CliArgs;
 use config::Config;
-use scan::{Repository, ScanEvent};
-
-struct App {
-    should_quit: bool,
-    config: Config,
-    repositories: Vec<Repository>,
-    scan_complete: bool,
-}
-
-impl App {
-    fn new(config: Config) -> App {
-        App { 
-            should_quit: false,
-            config,
-            repositories: Vec::new(),
-            scan_complete: false,
-        }
-    }
-}
+use scan::ScanEvent;
+use git::StatusEvent;
+use app::App;
 
 impl App {
     fn run<B: Backend>(
         &mut self, 
         terminal: &mut Terminal<B>,
-        scan_receiver: Receiver<ScanEvent>
+        scan_receiver: Receiver<ScanEvent>,
+        status_receiver: Receiver<StatusEvent>,
+        status_sender: crossbeam_channel::Sender<StatusEvent>
     ) -> Result<()> {
+        let mut git_status_started = false;
         let mut needs_redraw = true; // Initial draw needed
         
         loop {
@@ -72,6 +56,18 @@ impl App {
                     ScanEvent::ScanCompleted => {
                         info!("Repository scan completed");
                         self.scan_complete = true;
+                        // Start git status loading once repository scan is complete
+                        if !self.repositories.is_empty() && !git_status_started {
+                            self.git_status_loading = true;
+                            git_status_started = true;
+                            let repos_for_status = self.repositories.clone();
+                            let status_sender_clone = status_sender.clone();
+                            std::thread::spawn(move || {
+                                if let Err(e) = git::compute_statuses_with_events(&repos_for_status, status_sender_clone) {
+                                    error!("Background git status failed: {}", e);
+                                }
+                            });
+                        }
                     }
                     ScanEvent::ScanError(err) => {
                         error!("Scan error: {}", err);
@@ -79,7 +75,25 @@ impl App {
                 }
             }
             
-            // If we received scan events, we need to redraw
+            // Check for git status events (non-blocking)
+            while let Ok(event) = status_receiver.try_recv() {
+                events_received = true;
+                match event {
+                    StatusEvent::StatusUpdated { repository, status } => {
+                        info!("Git status updated for repository: {}", repository);
+                        self.git_statuses.insert(repository, status);
+                    }
+                    StatusEvent::StatusScanCompleted => {
+                        info!("Git status scan completed");
+                        self.git_status_loading = false;
+                    }
+                    StatusEvent::StatusError { repository, error } => {
+                        error!("Git status error for {}: {}", repository, error);
+                    }
+                }
+            }
+            
+            // If we received any events, we need to redraw
             if events_received {
                 needs_redraw = true;
             }
@@ -115,67 +129,8 @@ impl App {
     }
 
     fn ui(&self, f: &mut Frame) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Min(1),    // Main content
-                Constraint::Length(3), // Footer
-            ])
-            .split(f.area());
-
-        // Title with base directory
-        let title_text = format!("YARG - Yet Another Repo Grouper    {}", 
-                                self.config.base_dir.display());
-        let title = Paragraph::new(title_text)
-            .block(Block::default().borders(Borders::ALL))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
-        f.render_widget(title, chunks[0]);
-
-        // Main content - show repositories
-        let content_text = if self.repositories.is_empty() {
-            if self.scan_complete {
-                "No Git repositories found in base directory.".to_string()
-            } else {
-                "Scanning for repositories...".to_string()
-            }
-        } else {
-            let grouped_repos = scan::group_repositories(&self.repositories);
-            let mut text = Vec::new();
-            
-            for (group_name, repos) in grouped_repos {
-                text.push(format!("▼ {}", group_name));
-                for repo in repos {
-                    text.push(format!("  {} ({})", repo.name, repo.path.display()));
-                }
-                text.push("".to_string()); // Empty line between groups
-            }
-            
-            if !self.scan_complete {
-                text.push("Scanning for more repositories...".to_string());
-            }
-            
-            text.join("\n")
-        };
-
-        let main_content = Paragraph::new(content_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Repositories"),
-            )
-            .style(Style::default().fg(Color::White));
-        f.render_widget(main_content, chunks[1]);
-
-        // Footer with keybindings
-        let footer = Paragraph::new(Line::from(vec![
-            "Press ".into(),
-            "q".fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            " to quit".into(),
-        ]))
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(Color::Gray));
-        f.render_widget(footer, chunks[2]);
+        // Delegate to the new ui_with_git_status method
+        self.ui_with_git_status(f);
     }
 }
 
@@ -206,16 +161,21 @@ fn main() -> Result<()> {
     
     // Setup background repository scanning
     let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
+    let (status_sender, status_receiver) = crossbeam_channel::unbounded();
     let base_dir = config.base_dir.clone();
     
     // Spawn background scan
+    let scan_sender_clone = scan_sender.clone();
     std::thread::spawn(move || {
-        if let Err(e) = scan::scan_repositories_background(base_dir, scan_sender) {
+        if let Err(e) = scan::scan_repositories_background(base_dir, scan_sender_clone) {
             error!("Background scan failed: {}", e);
         }
     });
     
-    let res = app.run(&mut terminal, scan_receiver);
+    // We'll trigger git status loading from within the main loop after scan completes
+    // This avoids the competing receiver problem
+    
+    let res = app.run(&mut terminal, scan_receiver, status_receiver, status_sender);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -235,71 +195,3 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_app_new() {
-        let config = Config::default();
-        let app = App::new(config.clone());
-        assert!(!app.should_quit);
-        assert_eq!(app.config, config);
-        assert!(app.repositories.is_empty());
-        assert!(!app.scan_complete);
-    }
-
-    #[test]
-    fn test_app_can_quit() {
-        let config = Config::default();
-        let mut app = App::new(config);
-        app.should_quit = true;
-        assert!(app.should_quit);
-    }
-
-    #[test] 
-    fn test_app_state_transitions() {
-        let config = Config::default();
-        let mut app = App::new(config);
-        
-        // Initially should not quit
-        assert!(!app.should_quit);
-        
-        // Can set to quit state
-        app.should_quit = true;
-        assert!(app.should_quit);
-        
-        // Can reset quit state
-        app.should_quit = false;
-        assert!(!app.should_quit);
-    }
-    
-    #[test]
-    fn test_app_repository_management() {
-        let config = Config::default();
-        let mut app = App::new(config);
-        
-        // Initially empty
-        assert!(app.repositories.is_empty());
-        assert!(!app.scan_complete);
-        
-        // Can add repositories
-        let repo = Repository {
-            name: "test-repo".to_string(),
-            path: std::path::PathBuf::from("/test"),
-            auto_group: "Ungrouped".to_string(),
-        };
-        app.repositories.push(repo.clone());
-        
-        assert_eq!(app.repositories.len(), 1);
-        assert_eq!(app.repositories[0], repo);
-        
-        // Can mark scan as complete
-        app.scan_complete = true;
-        assert!(app.scan_complete);
-    }
-
-    // Note: Testing the actual TUI rendering and key handling would require 
-    // more complex integration tests with mock terminals, which we'll add 
-    // as we build more functionality
-}
