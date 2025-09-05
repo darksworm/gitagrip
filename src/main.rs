@@ -115,6 +115,14 @@ impl App {
                                 info!("Escape pressed, quitting");
                                 self.should_quit = true;
                             }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                self.scroll_down();
+                                needs_redraw = true;
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                self.scroll_up();
+                                needs_redraw = true;
+                            }
                             _ => {}
                         }
                     }

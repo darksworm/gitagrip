@@ -1256,3 +1256,92 @@ fn test_basic_repository_scanning_only() -> Result<()> {
     
     Ok(())
 }
+
+// This is our "guiding star" integration test for scrollable UI
+// It tests the complete flow: many repositories -> scrollable display -> navigation
+#[test]
+fn test_scrollable_repository_list_integration() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create many repositories to exceed screen height
+    let repo_names: Vec<String> = (0..25).map(|i| format!("repo-{:02}", i)).collect();
+    
+    for repo_name in &repo_names {
+        let repo_path = base_path.join(repo_name);
+        fs::create_dir_all(&repo_path)?;
+        
+        let git_repo = git2::Repository::init(&repo_path)?;
+        let signature = git2::Signature::now("Test User", "test@example.com")?;
+        
+        // Create initial commit
+        let tree_id = {
+            let mut index = git_repo.index()?;
+            let tree_id = index.write_tree()?;
+            tree_id
+        };
+        let tree = git_repo.find_tree(tree_id)?;
+        git_repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+    }
+    
+    // Create config for the test
+    let config = gitagrip::config::Config {
+        version: 1,
+        base_dir: base_path.to_path_buf(),
+        ui: gitagrip::config::UiConfig {
+            show_ahead_behind: true,
+            autosave_on_exit: false,
+        },
+        groups: std::collections::HashMap::new(),
+    };
+    
+    // Test 1: App should handle many repositories without crashing
+    let mut app = gitagrip::app::App::new(config.clone());
+    
+    // Discover all repositories (like the real app does)
+    let discovered_repos = gitagrip::scan::find_repos(base_path)?;
+    assert_eq!(discovered_repos.len(), 25, "Should discover all test repositories");
+    
+    // Add repositories to app (simulating background scan completion)
+    for repo in discovered_repos {
+        app.repositories.push(repo);
+    }
+    app.scan_complete = true;
+    
+    // Test 2: App should support scrolling state
+    assert_eq!(app.repositories.len(), 25, "App should hold all repositories");
+    
+    // Test 3: App should have scroll state (this SHOULD fail and drive implementation)
+    assert_eq!(app.scroll_offset, 0, "App should have scroll_offset field starting at 0");
+    
+    // Test 4: App should support scroll operations (this SHOULD fail)
+    app.scroll_down();
+    assert_eq!(app.scroll_offset, 1, "scroll_down should increment scroll_offset");
+    
+    app.scroll_up();
+    assert_eq!(app.scroll_offset, 0, "scroll_up should decrement scroll_offset");
+    
+    // Test 5: UI should be able to render a windowed view
+    let mock_terminal_height = 20usize;
+    let mock_content_height = mock_terminal_height - 6; // Minus title, footer, borders
+    let visible_repo_count = mock_content_height.saturating_sub(2); // Minus group headers
+    
+    assert!(app.repositories.len() > visible_repo_count, 
+            "Should have more repos than can fit in viewport");
+    
+    // Test 6: Scroll functionality should be functional
+    app.scroll_down();
+    assert_eq!(app.scroll_offset, 1, "Should be able to scroll down");
+    
+    app.scroll_up();
+    assert_eq!(app.scroll_offset, 0, "Should be able to scroll back up");
+    
+    Ok(())
+}

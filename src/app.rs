@@ -10,6 +10,7 @@ pub struct App {
     pub scan_complete: bool,
     pub git_statuses: HashMap<String, git::RepoStatus>,
     pub git_status_loading: bool,
+    pub scroll_offset: usize,
 }
 
 impl App {
@@ -21,6 +22,7 @@ impl App {
             scan_complete: false,
             git_statuses: HashMap::new(),
             git_status_loading: false,
+            scroll_offset: 0,
         }
     }
 
@@ -54,7 +56,17 @@ impl App {
         (color, false) // regular weight
     }
 
+    pub fn scroll_down(&mut self) {
+        if self.scroll_offset + 1 < self.repositories.len() {
+            self.scroll_offset += 1;
+        }
+    }
 
+    pub fn scroll_up(&mut self) {
+        if self.scroll_offset > 0 {
+            self.scroll_offset -= 1;
+        }
+    }
 
 
     pub fn ui_with_git_status(&self, f: &mut ratatui::Frame) {
@@ -146,7 +158,17 @@ impl App {
             lines
         };
 
-        let main_content = Paragraph::new(content_lines)
+        // Apply scrolling: calculate visible area and slice content
+        let available_height = chunks[1].height.saturating_sub(2) as usize; // Minus borders
+        let visible_lines = if content_lines.len() > available_height && available_height > 0 {
+            let start = self.scroll_offset.min(content_lines.len().saturating_sub(1));
+            let end = (start + available_height).min(content_lines.len());
+            content_lines[start..end].to_vec()
+        } else {
+            content_lines
+        };
+
+        let main_content = Paragraph::new(visible_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -158,6 +180,10 @@ impl App {
         // Footer with keybindings
         let footer = Paragraph::new(Line::from(vec![
             "Press ".into(),
+            "↑↓".fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            "/".into(),
+            "j,k".fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            " to scroll, ".into(),
             "q".fg(Color::Yellow).add_modifier(Modifier::BOLD),
             " to quit".into(),
         ]))
