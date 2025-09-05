@@ -48,11 +48,11 @@ impl Default for UiConfig {
 }
 
 pub fn get_default_config_path() -> Result<PathBuf> {
-    let proj_dirs = ProjectDirs::from("", "", "yarg")
+    let proj_dirs = ProjectDirs::from("", "", "gitagrip")
         .context("Failed to determine project directories")?;
     
     let config_dir = proj_dirs.config_dir();
-    Ok(config_dir.join("yarg.toml"))
+    Ok(config_dir.join("gitagrip.toml"))
 }
 
 impl Config {
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn test_get_default_config_path() -> Result<()> {
         let path = get_default_config_path()?;
-        assert!(path.ends_with("yarg.toml"));
+        assert!(path.ends_with("gitagrip.toml"));
         Ok(())
     }
 }

@@ -145,7 +145,7 @@ impl App {
             .split(f.area());
 
         // Title with base directory
-        let title_text = format!("YARG - Yet Another Repo Grouper    {}", 
+        let title_text = format!("GitaGrip    {}", 
                                 self.config.base_dir.display());
         let title = Paragraph::new(title_text)
             .block(Block::default().borders(Borders::ALL))

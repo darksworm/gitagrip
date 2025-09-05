@@ -140,7 +140,7 @@ fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    info!("Starting YARG - Yet Another Repo Grouper");
+    info!("Starting GitaGrip");
 
     // Parse CLI arguments
     let cli_args = CliArgs::parse();
@@ -191,7 +191,7 @@ fn main() -> Result<()> {
         println!("Error: {}", err);
     }
 
-    info!("YARG shut down cleanly");
+    info!("GitaGrip shut down cleanly");
     Ok(())
 }
 

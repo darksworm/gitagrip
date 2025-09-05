@@ -10,10 +10,10 @@ use tempfile::TempDir;
 fn test_m1_config_and_cli_integration() -> Result<()> {
     // Setup: Create a temporary directory for our test config
     let temp_dir = TempDir::new()?;
-    let config_dir = temp_dir.path().join(".config").join("yarg");
+    let config_dir = temp_dir.path().join(".config").join("gitagrip");
     fs::create_dir_all(&config_dir)?;
     
-    let config_file = config_dir.join("yarg.toml");
+    let config_file = config_dir.join("gitagrip.toml");
     
     // Create a test config file with the expected schema
     let test_config = r#"
@@ -38,7 +38,7 @@ repos = [
     fs::write(&config_file, test_config)?;
     
     // Test 1: Load config from file
-    let config = yarg::config::Config::load(Some(config_file.clone()))?;
+    let config = gitagrip::config::Config::load(Some(config_file.clone()))?;
     
     assert_eq!(config.version, 1);
     assert_eq!(config.base_dir, PathBuf::from("/tmp/test/repos"));
@@ -55,12 +55,12 @@ repos = [
     assert!(work_group.repos.contains(&PathBuf::from("/tmp/test/repos/acme-api")));
     
     // Test 2: CLI override should work
-    let cli_args = yarg::cli::CliArgs {
+    let cli_args = gitagrip::cli::CliArgs {
         base_dir: Some(PathBuf::from("/override/path")),
         config: None,
     };
     
-    let final_config = yarg::config::Config::from_cli_and_file(cli_args, Some(config_file))?;
+    let final_config = gitagrip::config::Config::from_cli_and_file(cli_args, Some(config_file))?;
     assert_eq!(final_config.base_dir, PathBuf::from("/override/path")); // CLI should override
     assert_eq!(final_config.ui.show_ahead_behind, true); // Other settings preserved
     
@@ -69,12 +69,12 @@ repos = [
     final_config.save(&new_config_file)?;
     
     // Verify saved config can be loaded back
-    let reloaded_config = yarg::config::Config::load(Some(new_config_file))?;
+    let reloaded_config = gitagrip::config::Config::load(Some(new_config_file))?;
     assert_eq!(reloaded_config.base_dir, PathBuf::from("/override/path"));
     
     // Test 4: Default config creation
     let nonexistent_file = temp_dir.path().join("nonexistent.toml");
-    let default_config = yarg::config::Config::load(Some(nonexistent_file.clone()))?;
+    let default_config = gitagrip::config::Config::load(Some(nonexistent_file.clone()))?;
     
     // Should create default config
     assert_eq!(default_config.version, 1);
@@ -89,13 +89,13 @@ repos = [
 // Test the XDG config path resolution
 #[test] 
 fn test_xdg_config_path_resolution() -> Result<()> {
-    let config_path = yarg::config::get_default_config_path()?;
+    let config_path = gitagrip::config::get_default_config_path()?;
     
-    // Should end with yarg/yarg.toml (may be in different locations on different OS)
-    assert!(config_path.ends_with("yarg/yarg.toml"));
+    // Should end with gitagrip/gitagrip.toml (may be in different locations on different OS)
+    assert!(config_path.ends_with("gitagrip/gitagrip.toml"));
     // On macOS it might be in ~/Library/Application Support instead of ~/.config
     let path_str = config_path.to_string_lossy();
-    assert!(path_str.contains("yarg") && path_str.ends_with("yarg.toml"));
+    assert!(path_str.contains("gitagrip") && path_str.ends_with("gitagrip.toml"));
     
     Ok(())
 }
@@ -104,12 +104,12 @@ fn test_xdg_config_path_resolution() -> Result<()> {
 #[test]
 fn test_cli_parsing() -> Result<()> {
     // This will test that clap parsing works correctly
-    let args = yarg::cli::CliArgs::parse_from(&["yarg", "--base-dir", "/test/path"]);
+    let args = gitagrip::cli::CliArgs::parse_from(&["yarg", "--base-dir", "/test/path"]);
     
     assert_eq!(args.base_dir, Some(PathBuf::from("/test/path")));
     assert_eq!(args.config, None);
     
-    let args_with_config = yarg::cli::CliArgs::parse_from(&[
+    let args_with_config = gitagrip::cli::CliArgs::parse_from(&[
         "yarg", 
         "--base-dir", "/test/path",
         "--config", "/custom/config.toml"
@@ -176,7 +176,7 @@ fn test_m2_repository_discovery_integration() -> Result<()> {
     }
     
     // Test 1: Repository discovery should find all repos
-    let discovered_repos = yarg::scan::find_repos(base_path)?;
+    let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     
     assert_eq!(discovered_repos.len(), 4);
     
@@ -188,7 +188,7 @@ fn test_m2_repository_discovery_integration() -> Result<()> {
     }
     
     // Test 2: Auto-grouping should work based on parent directory
-    let grouped_repos = yarg::scan::group_repositories(&discovered_repos);
+    let grouped_repos = gitagrip::scan::group_repositories(&discovered_repos);
     
     // Should have: Auto: work (2), Auto: personal (1), Ungrouped (1)
     assert_eq!(grouped_repos.len(), 3);
@@ -208,7 +208,7 @@ fn test_m2_repository_discovery_integration() -> Result<()> {
     // Spawn background scan
     let base_path_clone = base_path.to_path_buf();
     std::thread::spawn(move || {
-        if let Err(e) = yarg::scan::scan_repositories_background(base_path_clone, tx) {
+        if let Err(e) = gitagrip::scan::scan_repositories_background(base_path_clone, tx) {
             eprintln!("Background scan failed: {}", e);
         }
     });
@@ -225,13 +225,13 @@ fn test_m2_repository_discovery_integration() -> Result<()> {
         match rx.recv_timeout(std::time::Duration::from_millis(100)) {
             Ok(event) => {
                 match event {
-                    yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                    gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                         received_repos.push(repo);
                     }
-                    yarg::scan::ScanEvent::ScanCompleted => {
+                    gitagrip::scan::ScanEvent::ScanCompleted => {
                         scan_completed = true;
                     }
-                    yarg::scan::ScanEvent::ScanError(err) => {
+                    gitagrip::scan::ScanEvent::ScanError(err) => {
                         panic!("Scan error: {}", err);
                     }
                 }
@@ -265,7 +265,7 @@ fn test_m2_repository_discovery_integration() -> Result<()> {
 // Test Repository struct serialization for config persistence
 #[test]
 fn test_repository_struct() -> Result<()> {
-    let repo = yarg::scan::Repository {
+    let repo = gitagrip::scan::Repository {
         name: "test-repo".to_string(),
         path: PathBuf::from("/path/to/repo"),
         auto_group: "Auto: parent".to_string(),
@@ -289,7 +289,7 @@ fn test_repository_discovery_edge_cases() -> Result<()> {
     let base_path = temp_dir.path();
     
     // Test 1: Empty directory
-    let repos = yarg::scan::find_repos(base_path)?;
+    let repos = gitagrip::scan::find_repos(base_path)?;
     assert!(repos.is_empty(), "Should find no repos in empty directory");
     
     // Test 2: Directory with nested .git (should not descend into repo)
@@ -303,7 +303,7 @@ fn test_repository_discovery_edge_cases() -> Result<()> {
     // Create what looks like an inner repo
     fs::create_dir_all(inner_dir.join(".git"))?;
     
-    let repos = yarg::scan::find_repos(base_path)?;
+    let repos = gitagrip::scan::find_repos(base_path)?;
     assert_eq!(repos.len(), 1, "Should only find outer repo, not descend into it");
     assert_eq!(repos[0].path, outer_repo);
     
@@ -346,7 +346,7 @@ fn test_repository_discovery_stability() -> Result<()> {
     let mut all_discoveries = Vec::new();
     
     for i in 0..5 {
-        let discovered = yarg::scan::find_repos(base_path)?;
+        let discovered = gitagrip::scan::find_repos(base_path)?;
         println!("Discovery run {}: found {} repos", i + 1, discovered.len());
         
         // Check that we always find the same number
@@ -405,11 +405,11 @@ fn test_background_scanning_no_duplicates() -> Result<()> {
         // Start background scan
         let base_path_clone = base_path.to_path_buf();
         let handle = std::thread::spawn(move || {
-            yarg::scan::scan_repositories_background(base_path_clone, tx)
+            gitagrip::scan::scan_repositories_background(base_path_clone, tx)
         });
         
         // Collect all events
-        let mut discovered_repos: Vec<yarg::scan::Repository> = Vec::new();
+        let mut discovered_repos: Vec<gitagrip::scan::Repository> = Vec::new();
         let mut scan_completed = false;
         let mut scan_errors = Vec::new();
         
@@ -420,7 +420,7 @@ fn test_background_scanning_no_duplicates() -> Result<()> {
             match rx.recv_timeout(std::time::Duration::from_millis(50)) {
                 Ok(event) => {
                     match event {
-                        yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                        gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                             // Check for duplicates as they come in
                             for existing in &discovered_repos {
                                 assert_ne!(existing.path, repo.path, 
@@ -428,10 +428,10 @@ fn test_background_scanning_no_duplicates() -> Result<()> {
                             }
                             discovered_repos.push(repo);
                         }
-                        yarg::scan::ScanEvent::ScanCompleted => {
+                        gitagrip::scan::ScanEvent::ScanCompleted => {
                             scan_completed = true;
                         }
-                        yarg::scan::ScanEvent::ScanError(err) => {
+                        gitagrip::scan::ScanEvent::ScanError(err) => {
                             scan_errors.push(err);
                         }
                     }
@@ -473,7 +473,7 @@ fn test_ui_update_stability() -> Result<()> {
     // Start background scan
     let base_path_clone = base_path.to_path_buf();
     std::thread::spawn(move || {
-        yarg::scan::scan_repositories_background(base_path_clone, tx)
+        gitagrip::scan::scan_repositories_background(base_path_clone, tx)
     });
     
     let mut app_repos = Vec::new();
@@ -484,12 +484,12 @@ fn test_ui_update_stability() -> Result<()> {
         match rx.try_recv() {
             Ok(event) => {
                 match event {
-                    yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                    gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                         app_repos.push(repo);
                         update_count += 1;
                         
                         // This simulates what the app does - group repositories for UI
-                        let grouped = yarg::scan::group_repositories(&app_repos);
+                        let grouped = gitagrip::scan::group_repositories(&app_repos);
                         
                         // Verify grouping is stable and doesn't cause issues
                         assert!(!grouped.is_empty(), "Grouping should never be empty when repos exist");
@@ -498,10 +498,10 @@ fn test_ui_update_stability() -> Result<()> {
                         assert_eq!(total_in_groups, app_repos.len(), 
                                   "All repos should be in groups");
                     }
-                    yarg::scan::ScanEvent::ScanCompleted => {
+                    gitagrip::scan::ScanEvent::ScanCompleted => {
                         break;
                     }
-                    yarg::scan::ScanEvent::ScanError(_) => {
+                    gitagrip::scan::ScanEvent::ScanError(_) => {
                         // Ignore errors for this test
                     }
                 }
@@ -553,8 +553,8 @@ fn test_ui_rendering_consistency() -> Result<()> {
     let mut all_ui_outputs = Vec::new();
     
     for cycle in 0..5 {
-        let discovered_repos = yarg::scan::find_repos(base_path)?;
-        let grouped_repos = yarg::scan::group_repositories(&discovered_repos);
+        let discovered_repos = gitagrip::scan::find_repos(base_path)?;
+        let grouped_repos = gitagrip::scan::group_repositories(&discovered_repos);
         
         // Simulate what the UI does - convert to display text
         let mut ui_lines = Vec::new();
@@ -671,13 +671,13 @@ fn test_m3_git_status_integration() -> Result<()> {
     }
     
     // Test 1: Repository discovery finds all repos
-    let discovered_repos = yarg::scan::find_repos(base_path)?;
+    let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     assert_eq!(discovered_repos.len(), 4);
     
     // Test 2: Git status reading should work for all repositories  
     let mut repo_statuses = Vec::new();
     for repo in &discovered_repos {
-        let status = yarg::git::read_status(&repo.path)?;
+        let status = gitagrip::git::read_status(&repo.path)?;
         repo_statuses.push((repo.clone(), status));
     }
     
@@ -709,7 +709,7 @@ fn test_m3_git_status_integration() -> Result<()> {
     }
     
     // Test 4: Parallel status computation should work
-    let parallel_statuses = yarg::git::compute_statuses_parallel(&discovered_repos)?;
+    let parallel_statuses = gitagrip::git::compute_statuses_parallel(&discovered_repos)?;
     assert_eq!(parallel_statuses.len(), 4);
     
     // Results should be the same as sequential (order may differ)
@@ -728,7 +728,7 @@ fn test_m3_git_status_integration() -> Result<()> {
     
     std::thread::spawn(move || {
         for (repo, status) in parallel_statuses {
-            let event = yarg::git::StatusEvent::StatusUpdated { 
+            let event = gitagrip::git::StatusEvent::StatusUpdated { 
                 repository: repo.name, 
                 status 
             };
@@ -736,7 +736,7 @@ fn test_m3_git_status_integration() -> Result<()> {
                 break;
             }
         }
-        let _ = tx.send(yarg::git::StatusEvent::StatusScanCompleted);
+        let _ = tx.send(gitagrip::git::StatusEvent::StatusScanCompleted);
     });
     
     // Collect status events
@@ -750,13 +750,13 @@ fn test_m3_git_status_integration() -> Result<()> {
         match rx.recv_timeout(std::time::Duration::from_millis(50)) {
             Ok(event) => {
                 match event {
-                    yarg::git::StatusEvent::StatusUpdated { repository, status } => {
+                    gitagrip::git::StatusEvent::StatusUpdated { repository, status } => {
                         received_statuses.push((repository, status));
                     }
-                    yarg::git::StatusEvent::StatusScanCompleted => {
+                    gitagrip::git::StatusEvent::StatusScanCompleted => {
                         scan_completed = true;
                     }
-                    yarg::git::StatusEvent::StatusError { repository: _, error: _ } => {
+                    gitagrip::git::StatusEvent::StatusError { repository: _, error: _ } => {
                         // Ignore errors for this test
                     }
                 }
@@ -821,10 +821,10 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     }
     
     // Create config pointing to our test directory
-    let config = yarg::config::Config {
+    let config = gitagrip::config::Config {
         version: 1,
         base_dir: base_path.to_path_buf(),
-        ui: yarg::config::UiConfig {
+        ui: gitagrip::config::UiConfig {
             show_ahead_behind: true,
             autosave_on_exit: false,
         },
@@ -832,7 +832,7 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     };
     
     // Test 1: App should discover repositories and show git status
-    let mut app = yarg::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone());
     
     // Set up channels for repository scanning and git status
     let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
@@ -841,7 +841,7 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     // Start background repository scanning
     let base_dir_clone = config.base_dir.clone();
     std::thread::spawn(move || {
-        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender) {
+        if let Err(e) = gitagrip::scan::scan_repositories_background(base_dir_clone, scan_sender) {
             eprintln!("Scan error: {}", e);
         }
     });
@@ -854,11 +854,11 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     while start.elapsed() < timeout {
         if let Ok(event) = scan_receiver.try_recv() {
             match event {
-                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                     discovered_repos.push(repo);
                 }
-                yarg::scan::ScanEvent::ScanCompleted => break,
-                yarg::scan::ScanEvent::ScanError(err) => {
+                gitagrip::scan::ScanEvent::ScanCompleted => break,
+                gitagrip::scan::ScanEvent::ScanError(err) => {
                     panic!("Repository scan failed: {}", err);
                 }
             }
@@ -869,7 +869,7 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     assert_eq!(discovered_repos.len(), 3, "Should discover all test repositories");
     
     // Test 2: App should load git status for discovered repositories
-    yarg::git::compute_statuses_with_events(&discovered_repos, status_sender)?;
+    gitagrip::git::compute_statuses_with_events(&discovered_repos, status_sender)?;
     
     let mut repo_statuses = std::collections::HashMap::new();
     let status_timeout = std::time::Duration::from_secs(3);
@@ -879,13 +879,13 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     while status_start.elapsed() < status_timeout && !status_complete {
         if let Ok(event) = status_receiver.try_recv() {
             match event {
-                yarg::git::StatusEvent::StatusUpdated { repository, status } => {
+                gitagrip::git::StatusEvent::StatusUpdated { repository, status } => {
                     repo_statuses.insert(repository, status);
                 }
-                yarg::git::StatusEvent::StatusScanCompleted => {
+                gitagrip::git::StatusEvent::StatusScanCompleted => {
                     status_complete = true;
                 }
-                yarg::git::StatusEvent::StatusError { repository, error } => {
+                gitagrip::git::StatusEvent::StatusError { repository, error } => {
                     panic!("Status error for {}: {}", repository, error);
                 }
             }
@@ -987,10 +987,10 @@ fn test_m3_end_to_end_git_status_in_tui() -> Result<()> {
     }
     
     // Create config for the test
-    let config = yarg::config::Config {
+    let config = gitagrip::config::Config {
         version: 1,
         base_dir: base_path.to_path_buf(),
-        ui: yarg::config::UiConfig {
+        ui: gitagrip::config::UiConfig {
             show_ahead_behind: true,
             autosave_on_exit: false,
         },
@@ -998,13 +998,13 @@ fn test_m3_end_to_end_git_status_in_tui() -> Result<()> {
     };
     
     // Create the App and run it briefly to capture UI output
-    let mut app = yarg::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone());
     
     // Set up background scanning (same as main.rs does)
     let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
     let base_dir_clone = config.base_dir.clone();
     std::thread::spawn(move || {
-        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender) {
+        if let Err(e) = gitagrip::scan::scan_repositories_background(base_dir_clone, scan_sender) {
             eprintln!("Background scan failed: {}", e);
         }
     });
@@ -1024,13 +1024,13 @@ fn test_m3_end_to_end_git_status_in_tui() -> Result<()> {
         // Process repository scan events (like the real app does)
         while let Ok(event) = scan_receiver.try_recv() {
             match event {
-                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                     app.repositories.push(repo);
                 }
-                yarg::scan::ScanEvent::ScanCompleted => {
+                gitagrip::scan::ScanEvent::ScanCompleted => {
                     app.scan_complete = true;
                 }
-                yarg::scan::ScanEvent::ScanError(err) => {
+                gitagrip::scan::ScanEvent::ScanError(err) => {
                     eprintln!("Scan error: {}", err);
                 }
             }
@@ -1069,8 +1069,8 @@ fn test_m3_end_to_end_git_status_in_tui() -> Result<()> {
     assert!(rendered_content.contains("●") || rendered_content.contains("dirty"), 
            "UI should show dirty status indicator");
     
-    // Test 3: Should contain the YARG title and base directory
-    assert!(rendered_content.contains("YARG"), "UI should show YARG title");
+    // Test 3: Should contain the GitaGrip title and base directory
+    assert!(rendered_content.contains("GitaGrip"), "UI should show GitaGrip title");
     assert!(rendered_content.contains("Repositories"), "UI should show Repositories section");
     
     // Test 4: Should show keybindings
@@ -1111,17 +1111,17 @@ fn test_scanning_completes_with_real_repos() -> Result<()> {
     }
     
     // Create config for the test
-    let config = yarg::config::Config {
+    let config = gitagrip::config::Config {
         version: 1,
         base_dir: base_path.to_path_buf(),
-        ui: yarg::config::UiConfig {
+        ui: gitagrip::config::UiConfig {
             show_ahead_behind: true,
             autosave_on_exit: false,
         },
         groups: std::collections::HashMap::new(),
     };
     
-    let mut app = yarg::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone());
     
     // Set up channels like the real app
     let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
@@ -1131,7 +1131,7 @@ fn test_scanning_completes_with_real_repos() -> Result<()> {
     let base_dir_clone = config.base_dir.clone();
     let scan_sender_clone = scan_sender.clone();
     std::thread::spawn(move || {
-        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender_clone) {
+        if let Err(e) = gitagrip::scan::scan_repositories_background(base_dir_clone, scan_sender_clone) {
             eprintln!("Background scan failed: {}", e);
         }
     });
@@ -1147,10 +1147,10 @@ fn test_scanning_completes_with_real_repos() -> Result<()> {
         // Process repository scan events (exactly like app.run does)
         while let Ok(event) = scan_receiver.try_recv() {
             match event {
-                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                     app.repositories.push(repo);
                 }
-                yarg::scan::ScanEvent::ScanCompleted => {
+                gitagrip::scan::ScanEvent::ScanCompleted => {
                     app.scan_complete = true;
                     // Start git status loading once repository scan is complete (like app.run does)
                     if !app.repositories.is_empty() && !git_status_started {
@@ -1159,13 +1159,13 @@ fn test_scanning_completes_with_real_repos() -> Result<()> {
                         let repos_for_status = app.repositories.clone();
                         let status_sender_clone = status_sender.clone();
                         std::thread::spawn(move || {
-                            if let Err(e) = yarg::git::compute_statuses_with_events(&repos_for_status, status_sender_clone) {
+                            if let Err(e) = gitagrip::git::compute_statuses_with_events(&repos_for_status, status_sender_clone) {
                                 eprintln!("Background git status failed: {}", e);
                             }
                         });
                     }
                 }
-                yarg::scan::ScanEvent::ScanError(err) => {
+                gitagrip::scan::ScanEvent::ScanError(err) => {
                     panic!("Scan error: {}", err);
                 }
             }
@@ -1174,13 +1174,13 @@ fn test_scanning_completes_with_real_repos() -> Result<()> {
         // Process git status events (exactly like app.run does)
         while let Ok(event) = status_receiver.try_recv() {
             match event {
-                yarg::git::StatusEvent::StatusUpdated { repository, status } => {
+                gitagrip::git::StatusEvent::StatusUpdated { repository, status } => {
                     app.git_statuses.insert(repository, status);
                 }
-                yarg::git::StatusEvent::StatusScanCompleted => {
+                gitagrip::git::StatusEvent::StatusScanCompleted => {
                     app.git_status_loading = false;
                 }
-                yarg::git::StatusEvent::StatusError { repository: _, error: _ } => {
+                gitagrip::git::StatusEvent::StatusError { repository: _, error: _ } => {
                     // Ignore errors for this test
                 }
             }
@@ -1235,7 +1235,7 @@ fn test_basic_repository_scanning_only() -> Result<()> {
     )?;
     
     // Test the scanning directly
-    let found_repos = yarg::scan::find_repos(&base_path)?;
+    let found_repos = gitagrip::scan::find_repos(&base_path)?;
     assert_eq!(found_repos.len(), 1, "Should find exactly one repository");
     assert_eq!(found_repos[0].name, "simple-repo", "Should find the correct repository");
     
@@ -1245,7 +1245,7 @@ fn test_basic_repository_scanning_only() -> Result<()> {
     // Start background scan
     let base_dir_clone = base_path.to_path_buf();
     std::thread::spawn(move || {
-        if let Err(e) = yarg::scan::scan_repositories_background(base_dir_clone, scan_sender) {
+        if let Err(e) = gitagrip::scan::scan_repositories_background(base_dir_clone, scan_sender) {
             eprintln!("Background scan failed: {}", e);
         }
     });
@@ -1258,15 +1258,15 @@ fn test_basic_repository_scanning_only() -> Result<()> {
     while start_time.elapsed() < timeout && !scan_complete {
         match scan_receiver.try_recv() {
             Ok(event) => match event {
-                yarg::scan::ScanEvent::RepoDiscovered(repo) => {
+                gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
                     println!("Discovered repo: {}", repo.name);
                     discovered_repos.push(repo);
                 }
-                yarg::scan::ScanEvent::ScanCompleted => {
+                gitagrip::scan::ScanEvent::ScanCompleted => {
                     println!("Scan completed!");
                     scan_complete = true;
                 }
-                yarg::scan::ScanEvent::ScanError(err) => {
+                gitagrip::scan::ScanEvent::ScanError(err) => {
                     panic!("Scan error: {}", err);
                 }
             },

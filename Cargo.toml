@@ -1,7 +1,14 @@
 [package]
-name = "yarg"
+name = "gitagrip"
 version = "0.1.0"
 edition = "2024"
+description = "A fast terminal UI for discovering, grouping, and inspecting multiple Git repositories"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+
+[[bin]]
+name = "gitagrip"
+path = "src/main.rs"
 
 [dependencies]
 # TUI
