@@ -2,6 +2,15 @@ use crate::config::Config;
 use crate::scan::Repository;
 use crate::git;
 use std::collections::HashMap;
+use crossterm::event::KeyCode;
+use anyhow::Result;
+use tracing::info;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AppMode {
+    Normal,
+    Organize,
+}
 
 pub struct App {
     pub should_quit: bool,
@@ -11,6 +20,7 @@ pub struct App {
     pub git_statuses: HashMap<String, git::RepoStatus>,
     pub git_status_loading: bool,
     pub scroll_offset: usize,
+    pub mode: AppMode,
 }
 
 impl App {
@@ -23,6 +33,7 @@ impl App {
             git_statuses: HashMap::new(),
             git_status_loading: false,
             scroll_offset: 0,
+            mode: AppMode::Normal,
         }
     }
 
@@ -177,19 +188,133 @@ impl App {
             .style(Style::default().fg(Color::White));
         f.render_widget(main_content, chunks[1]);
 
-        // Footer with keybindings
+        // Footer with keybindings based on current mode
+        let mode_text = match self.mode {
+            AppMode::Normal => "NORMAL".fg(Color::Green),
+            AppMode::Organize => "ORGANIZE".fg(Color::Yellow),
+        };
+        
         let footer = Paragraph::new(Line::from(vec![
-            "Press ".into(),
+            "MODE: ".into(),
+            mode_text.add_modifier(Modifier::BOLD),
+            " | Press ".into(),
             "↑↓".fg(Color::Yellow).add_modifier(Modifier::BOLD),
             "/".into(),
             "j,k".fg(Color::Yellow).add_modifier(Modifier::BOLD),
             " to scroll, ".into(),
+            "o".fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            " organize, ".into(),
             "q".fg(Color::Yellow).add_modifier(Modifier::BOLD),
             " to quit".into(),
         ]))
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
         f.render_widget(footer, chunks[2]);
+    }
+
+    // Modal state management methods
+    pub fn current_mode(&self) -> AppMode {
+        self.mode
+    }
+
+    pub fn set_mode(&mut self, mode: AppMode) {
+        self.mode = mode;
+    }
+
+    pub fn toggle_mode(&mut self) {
+        self.mode = match self.mode {
+            AppMode::Normal => AppMode::Organize,
+            AppMode::Organize => AppMode::Normal,
+        };
+    }
+
+    pub fn handle_key_for_mode(&self, key: KeyCode) -> Result<()> {
+        match self.mode {
+            AppMode::Normal => {
+                // Handle normal mode keys (fetch, log, etc.)
+                match key {
+                    KeyCode::Char('f') => {
+                        // Placeholder for fetch functionality
+                        Ok(())
+                    },
+                    _ => Ok(()),
+                }
+            },
+            AppMode::Organize => {
+                // Handle organize mode keys (move, create groups, etc.)
+                match key {
+                    KeyCode::Char('f') => {
+                        // In organize mode, 'f' might do something different or nothing
+                        Ok(())
+                    },
+                    _ => Ok(()),
+                }
+            },
+        }
+    }
+
+    /// Handle mode-specific keys and return true if a redraw is needed
+    pub fn handle_mode_specific_key(&mut self, key: KeyCode) -> Result<bool> {
+        match self.mode {
+            AppMode::Normal => {
+                match key {
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.scroll_down();
+                        Ok(true) // Redraw needed
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.scroll_up();
+                        Ok(true) // Redraw needed
+                    }
+                    KeyCode::Char('f') => {
+                        // Placeholder for fetch functionality in normal mode
+                        info!("Fetch requested in normal mode");
+                        Ok(false) // No visual change yet
+                    }
+                    KeyCode::Char('l') => {
+                        // Placeholder for log functionality in normal mode
+                        info!("Log requested in normal mode");
+                        Ok(false) // No visual change yet
+                    }
+                    _ => Ok(false), // Key not handled
+                }
+            },
+            AppMode::Organize => {
+                match key {
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        // In organize mode, might be used for selection
+                        info!("Down/j in organize mode - placeholder for selection");
+                        Ok(false) // No visual change yet
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        // In organize mode, might be used for selection
+                        info!("Up/k in organize mode - placeholder for selection");
+                        Ok(false) // No visual change yet
+                    }
+                    KeyCode::Char(' ') => {
+                        // Space for selection in organize mode
+                        info!("Space in organize mode - placeholder for selection");
+                        Ok(false) // No visual change yet
+                    }
+                    KeyCode::Char('m') => {
+                        // Mark for moving
+                        info!("Mark for move in organize mode");
+                        Ok(false) // No visual change yet
+                    }
+                    KeyCode::Char('p') => {
+                        // Paste/move
+                        info!("Paste/move in organize mode");
+                        Ok(false) // No visual change yet
+                    }
+                    KeyCode::Char('g') => {
+                        // Create new group
+                        info!("Create group in organize mode");
+                        Ok(false) // No visual change yet
+                    }
+                    _ => Ok(false), // Key not handled
+                }
+            },
+        }
     }
 }
 

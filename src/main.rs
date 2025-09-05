@@ -102,6 +102,7 @@ impl App {
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
+                        // Handle global keys first (quit, mode toggle)
                         match key.code {
                             KeyCode::Char('q') => {
                                 info!("Quit requested by user");
@@ -115,15 +116,17 @@ impl App {
                                 info!("Escape pressed, quitting");
                                 self.should_quit = true;
                             }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                self.scroll_down();
+                            KeyCode::Char('o') => {
+                                info!("Mode toggle requested");
+                                self.toggle_mode();
                                 needs_redraw = true;
                             }
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                self.scroll_up();
-                                needs_redraw = true;
+                            // Handle mode-specific keys
+                            _ => {
+                                if self.handle_mode_specific_key(key.code)? {
+                                    needs_redraw = true;
+                                }
                             }
-                            _ => {}
                         }
                     }
                 }

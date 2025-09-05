@@ -107,3 +107,4 @@ Follow the milestone structure from `plan.md`:
 - Unit tests for core logic (grouping, config round-trip, status parsing)
 - Integration tests with temporary Git repos created via git2
 - Performance testing to ensure UI stays responsive with many repos
+- before making substantial code changes refer to the guidelines and philosophy of @STRATEGY.md and @DEVELOPMENT.md to ensure we do it right!
