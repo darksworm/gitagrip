@@ -67,7 +67,7 @@ fn test_modal_architecture_integration() -> Result<()> {
     let config = create_test_config(base_path.to_path_buf());
     
     // Test 1: App should start in NORMAL mode
-    let mut app = gitagrip::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone(), None);
     
     // Discover all repositories (like the real app does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
@@ -117,7 +117,7 @@ fn test_modal_architecture_integration() -> Result<()> {
 fn test_mode_switching_behavior() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let config = create_test_config(temp_dir.path().to_path_buf());
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
     
     // Test initial state
     assert_eq!(app.current_mode(), gitagrip::app::AppMode::Normal);
@@ -145,7 +145,7 @@ fn test_normal_mode_preserves_existing_functionality() -> Result<()> {
     // Create test repositories
     let _repo_names = create_test_repos(base_path, 3)?;
     let config = create_test_config(base_path.to_path_buf());
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
     
     // Add repositories
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
@@ -180,7 +180,7 @@ fn test_normal_mode_preserves_existing_functionality() -> Result<()> {
 fn test_modal_keymap_dispatch_behavior() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let config = create_test_config(temp_dir.path().to_path_buf());
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
 
     // Add some repositories for scrolling tests
     for i in 0..5 {
@@ -230,7 +230,7 @@ fn test_modal_keymap_dispatch_behavior() -> Result<()> {
 fn test_modal_ui_display() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let config = create_test_config(temp_dir.path().to_path_buf());
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
 
     // This is a smoke test - we can't easily test the UI rendering directly,
     // but we can verify the mode state affects the UI methods without panicking
@@ -276,7 +276,7 @@ fn test_repository_selection_and_movement_workflow() -> Result<()> {
     });
     config.groups = manual_groups;
     
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
     
     // Discover repositories (like the real app does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;

@@ -227,7 +227,7 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     };
     
     // Test 1: App should discover repositories and show git status
-    let mut app = gitagrip::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone(), None);
     
     // Discover all repositories (like the real app does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
