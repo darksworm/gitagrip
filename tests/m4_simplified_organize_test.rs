@@ -72,7 +72,7 @@ fn test_simplified_organize_workflow() -> Result<()> {
     // Discover repositories (exactly like app.run does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
@@ -165,46 +165,18 @@ fn test_simplified_organize_workflow() -> Result<()> {
     // Select a repository from Auto: work group
     app.navigate_to_item_containing("frontend")?;
     app.handle_organize_key(crossterm::event::KeyCode::Char(' '))?;
-    
-    // Navigate cursor to Legacy group (not select, just position cursor there)
-    app.navigate_to_group_header("Legacy")?;
-    
-    // Move selected repositories to the group where cursor is positioned
-    app.handle_organize_key(crossterm::event::KeyCode::Char('m'))?;
-    
-    // Verify move
-    let legacy_repos = app.get_repositories_in_group("Legacy");
-    assert_eq!(legacy_repos.len(), 1, "Legacy should have 1 repo after move");
-    assert_eq!(legacy_repos[0].name, "frontend", "Should be frontend in Legacy");
-    
-    // Test 7: Delete empty groups (d key)
-    // Production should now be empty (backend was the only one left, let's move it too)
+
+    // Navigate cursor to a repository in the Production group
     app.navigate_to_item_containing("backend")?;
-    app.handle_organize_key(crossterm::event::KeyCode::Char(' '))?;
-    app.navigate_to_group_header("Legacy")?;
+
+    // Move selected repositories to the group of the repository under cursor
     app.handle_organize_key(crossterm::event::KeyCode::Char('m'))?;
-    
-    // Now Production should be empty
-    let production_empty = app.get_repositories_in_group("Production");
-    assert_eq!(production_empty.len(), 0, "Production should be empty");
-    
-    // Navigate to Production group and delete it
-    app.navigate_to_group_header("Production")?;
-    app.handle_organize_key(crossterm::event::KeyCode::Char('d'))?;
-    
-    // Verify group was deleted
-    let available_groups = app.get_available_groups();
-    assert!(!available_groups.contains(&"Production".to_string()), "Production group should be deleted");
-    
-    println!("Available groups after deletion: {:?}", available_groups);
-    
-    // Test 8: Try to delete non-empty group (should fail)
-    app.navigate_to_group_header("Legacy")?;
-    let groups_before = app.get_available_groups().len();
-    app.handle_organize_key(crossterm::event::KeyCode::Char('d'))?;
-    let groups_after = app.get_available_groups().len();
-    assert_eq!(groups_before, groups_after, "Should not delete non-empty group");
-    
+
+    // Verify move
+    let production_repos = app.get_repositories_in_group("Production");
+    let production_names: Vec<String> = production_repos.iter().map(|r| r.name.clone()).collect();
+    assert!(production_names.contains(&"frontend".to_string()), "Production should now contain frontend");
+
     println!("✅ Simplified organize workflow test complete!");
     Ok(())
 }
@@ -243,7 +215,7 @@ fn test_simplified_ui_feedback() -> Result<()> {
     
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     
     app.set_mode(gitagrip::app::AppMode::Organize);

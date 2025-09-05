@@ -294,7 +294,7 @@ fn test_end_to_end_full_stack() -> Result<()> {
         while let Ok(event) = scan_receiver.try_recv() {
             match event {
                 gitagrip::scan::ScanEvent::RepoDiscovered(repo) => {
-                    app.repositories.push(repo);
+                    app.add_repository(repo);
                 }
                 gitagrip::scan::ScanEvent::ScanCompleted => {
                     app.scan_complete = true;

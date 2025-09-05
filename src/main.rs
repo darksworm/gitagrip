@@ -51,7 +51,7 @@ impl App {
                 match event {
                     ScanEvent::RepoDiscovered(repo) => {
                         info!("Discovered repository: {}", repo.name);
-                        self.repositories.push(repo);
+                        self.add_repository(repo);
                     }
                     ScanEvent::ScanCompleted => {
                         info!("Repository scan completed");

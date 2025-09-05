@@ -16,7 +16,7 @@ fn test_app_scroll_bounds_unit() {
     assert_eq!(app.scroll_offset, 0, "Should not scroll up from 0");
     
     // Add a single repository
-    app.repositories.push(gitagrip::scan::Repository {
+    app.add_repository(gitagrip::scan::Repository {
         name: "single-repo".to_string(),
         path: std::path::PathBuf::from("/test"),
         auto_group: "Test".to_string(),
@@ -28,7 +28,7 @@ fn test_app_scroll_bounds_unit() {
     
     // Add more repositories to test proper bounds
     for i in 2..=5 {
-        app.repositories.push(gitagrip::scan::Repository {
+        app.add_repository(gitagrip::scan::Repository {
             name: format!("repo-{}", i),
             path: std::path::PathBuf::from(format!("/test/repo-{}", i)),
             auto_group: "Test".to_string(),

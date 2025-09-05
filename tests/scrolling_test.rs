@@ -75,7 +75,7 @@ fn test_scrollable_repository_list_integration() -> Result<()> {
     
     // Add repositories to app (simulating background scan completion)
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
@@ -124,7 +124,7 @@ fn test_scroll_bounds_checking() -> Result<()> {
     // Add some repositories
     let discovered_repos = create_test_repos(temp_dir.path(), 3)?;
     for name in &discovered_repos {
-        app.repositories.push(gitagrip::scan::Repository {
+        app.add_repository(gitagrip::scan::Repository {
             name: name.clone(),
             path: temp_dir.path().join(name),
             auto_group: "Test".to_string(),
