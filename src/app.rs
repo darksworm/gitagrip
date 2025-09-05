@@ -45,6 +45,12 @@ pub struct App {
     pub current_group_index: usize,
     pub input_mode: InputMode,
     pub input_text: String,
+    
+    // Vim navigation state
+    pub pending_g_key: bool,  // Track if 'g' was pressed (for 'gg' sequence)
+    
+    // Display order mapping (UI position to storage index)
+    display_to_storage_mapping: Vec<usize>,
 }
 
 impl App {
@@ -70,7 +76,75 @@ impl App {
             current_group_index: 0,
             input_mode: InputMode::None,
             input_text: String::new(),
+            
+            // Initialize vim navigation state
+            pending_g_key: false,
+            
+            // Initialize display mapping
+            display_to_storage_mapping: Vec::new(),
         }
+    }
+    
+    /// Build the display-to-storage mapping based on current grouping
+    pub fn build_display_mapping(&mut self) {
+        self.display_to_storage_mapping.clear();
+        
+        // Create merged view of both auto groups AND manual groups
+        let mut all_groups = std::collections::BTreeMap::new();
+        
+        // First add manual groups from config
+        for group_name in self.config.groups.keys() {
+            let repos = self.get_repositories_in_group(group_name);
+            if !repos.is_empty() {
+                all_groups.insert(group_name.clone(), repos);
+            }
+        }
+        
+        // Then add auto groups (excluding repositories already in manual groups)
+        let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
+        for (group_name, _repos) in auto_grouped_repos {
+            if !all_groups.contains_key(&group_name) {
+                let filtered_repos = self.get_repositories_in_group(&group_name);
+                if !filtered_repos.is_empty() {
+                    all_groups.insert(group_name, filtered_repos);
+                }
+            }
+        }
+        
+        // Build the display mapping
+        for (_group_name, repos) in all_groups {
+            for repo in repos {
+                let storage_index = self.repositories.iter()
+                    .position(|r| r.path == repo.path)
+                    .unwrap_or(usize::MAX);
+                self.display_to_storage_mapping.push(storage_index);
+            }
+        }
+    }
+    
+    /// Convert display index to storage index
+    pub fn display_to_storage_index(&mut self, display_index: usize) -> usize {
+        // Build mapping if empty or if repositories changed
+        if self.display_to_storage_mapping.is_empty() {
+            self.build_display_mapping();
+        }
+        
+        self.display_to_storage_mapping.get(display_index)
+            .copied()
+            .unwrap_or(display_index) // Fallback to display_index if mapping fails
+    }
+    
+    /// Get the total number of repositories in display order
+    pub fn display_repository_count(&mut self) -> usize {
+        if self.display_to_storage_mapping.is_empty() {
+            self.build_display_mapping();
+        }
+        self.display_to_storage_mapping.len()
+    }
+    
+    /// Invalidate the display mapping (call when repositories or groups change)
+    pub fn invalidate_display_mapping(&mut self) {
+        self.display_to_storage_mapping.clear();
     }
 
     fn branch_color(branch_name: &str) -> (ratatui::style::Color, bool) {
@@ -222,7 +296,7 @@ impl App {
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         f.render_widget(title, chunks[0]);
 
-        // Main content - show repositories with git status and grouping (with colored branches)
+        // Main content - show repositories with git status and grouping (with colored branches)  
         let content_lines = if self.repositories.is_empty() {
             if self.scan_complete {
                 vec![Line::from("No Git repositories found in base directory.")]
@@ -256,12 +330,20 @@ impl App {
             
             let mut lines = Vec::new();
             let mut repo_index = 0; // Track repository index for selection indicators
+            let mut temp_display_mapping = Vec::new(); // Build display mapping during UI render
             
             for (group_name, repos) in all_groups {
                 lines.push(Line::from(format!("▼ {}", group_name)));
                 for repo in repos {
+                    // Find storage index for this repository and add to display mapping
+                    let storage_index = self.repositories.iter()
+                        .position(|r| r.path == repo.path)
+                        .unwrap_or(usize::MAX);
+                    temp_display_mapping.push(storage_index);
+                    
                     // Determine highlight style for selected repositories in ORGANIZE mode
-                    let is_selected = self.mode == AppMode::Organize && self.is_repository_selected(repo_index);
+                    // Use storage_index for selection check, but repo_index for current cursor position
+                    let is_selected = self.mode == AppMode::Organize && self.is_repository_selected(storage_index);
                     let is_current = self.mode == AppMode::Organize && self.current_selection == repo_index;
                     
                     // Choose background color for highlighting
@@ -389,8 +471,6 @@ impl App {
                     "MODE: ".into(),
                     mode_text.add_modifier(Modifier::BOLD),
                     " | ".into(),
-                    "↑↓/j,k".fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                    " scroll, ".into(),
                     "o".fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     " organize, ".into(),
                     "q".fg(Color::Yellow).add_modifier(Modifier::BOLD),
@@ -404,8 +484,6 @@ impl App {
                             "MODE: ".into(),
                             mode_text.add_modifier(Modifier::BOLD),
                             " | ".into(),
-                            "↑↓/j,k".fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                            " navigate, ".into(),
                             "Space".fg(Color::Yellow).add_modifier(Modifier::BOLD),
                             " select, ".into(),
                             "x".fg(Color::Yellow).add_modifier(Modifier::BOLD),
@@ -568,7 +646,9 @@ impl App {
         
         match key {
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
-                if self.current_selection + 1 < self.repositories.len() {
+                self.pending_g_key = false; // Cancel any pending 'g'
+                let display_count = self.display_repository_count();
+                if self.current_selection + 1 < display_count {
                     self.current_selection += 1;
                     self.ensure_selection_visible();
                     Ok(true)
@@ -577,6 +657,7 @@ impl App {
                 }
             }
             crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                self.pending_g_key = false; // Cancel any pending 'g'
                 if self.current_selection > 0 {
                     self.current_selection -= 1;
                     self.ensure_selection_visible();
@@ -586,11 +667,14 @@ impl App {
                 }
             }
             crossterm::event::KeyCode::Char(' ') => {
-                // Space toggles selection
-                self.toggle_repository_selection(self.current_selection);
+                self.pending_g_key = false; // Cancel any pending 'g'
+                // Space toggles selection - convert display index to storage index
+                let storage_index = self.display_to_storage_index(self.current_selection);
+                self.toggle_repository_selection(storage_index);
                 Ok(true)
             }
             crossterm::event::KeyCode::Char('n') => {
+                self.pending_g_key = false; // Cancel any pending 'g'
                 // Create new group from selected repositories
                 if !self.selected_repositories.is_empty() {
                     self.input_mode = InputMode::GroupName;
@@ -601,16 +685,92 @@ impl App {
                 }
             }
             crossterm::event::KeyCode::Char('x') => {
+                self.pending_g_key = false; // Cancel any pending 'g'
                 // Cut selected repositories (remove from current group)
                 self.cut_selected_repositories()
             }
             crossterm::event::KeyCode::Char('m') => {
+                self.pending_g_key = false; // Cancel any pending 'g'
                 // Move selected repositories to group at cursor position
                 self.move_selected_repositories()
             }
             crossterm::event::KeyCode::Char('d') => {
+                self.pending_g_key = false; // Cancel any pending 'g'
                 // Delete empty group at cursor position
                 self.delete_group_at_cursor()
+            }
+            // Vim navigation keys
+            crossterm::event::KeyCode::Char('g') => {
+                if self.pending_g_key {
+                    // Second 'g' - go to top (gg)
+                    self.pending_g_key = false;
+                    self.current_selection = 0;
+                    self.ensure_selection_visible();
+                    Ok(true)
+                } else {
+                    // First 'g' - wait for second 'g'
+                    self.pending_g_key = true;
+                    Ok(false) // No visual change yet
+                }
+            }
+            crossterm::event::KeyCode::Char('G') => {
+                // Go to bottom
+                self.pending_g_key = false; // Cancel any pending 'g'
+                let display_count = self.display_repository_count();
+                if display_count > 0 {
+                    self.current_selection = display_count - 1;
+                    self.ensure_selection_visible();
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            crossterm::event::KeyCode::PageDown => {
+                // Page down navigation (move by ~10 items)
+                self.pending_g_key = false; // Cancel any pending 'g'
+                let page_size = 10;
+                let old_selection = self.current_selection;
+                let display_count = self.display_repository_count();
+                
+                if display_count > 0 {
+                    self.current_selection = (self.current_selection + page_size)
+                        .min(display_count - 1);
+                    self.ensure_selection_visible();
+                    Ok(self.current_selection != old_selection)
+                } else {
+                    Ok(false)
+                }
+            }
+            crossterm::event::KeyCode::PageUp => {
+                // Page up navigation (move by ~10 items)  
+                self.pending_g_key = false; // Cancel any pending 'g'
+                let page_size = 10;
+                let old_selection = self.current_selection;
+                
+                self.current_selection = self.current_selection.saturating_sub(page_size);
+                self.ensure_selection_visible();
+                Ok(self.current_selection != old_selection)
+            }
+            crossterm::event::KeyCode::Home => {
+                // Home key - go to top (same as gg)
+                self.pending_g_key = false; // Cancel any pending 'g'
+                let old_selection = self.current_selection;
+                self.current_selection = 0;
+                self.ensure_selection_visible();
+                Ok(self.current_selection != old_selection)
+            }
+            crossterm::event::KeyCode::End => {
+                // End key - go to bottom (same as G)
+                self.pending_g_key = false; // Cancel any pending 'g'
+                let display_count = self.display_repository_count();
+                if display_count > 0 {
+                    let old_selection = self.current_selection;
+                    self.current_selection = display_count - 1;
+                    self.ensure_selection_visible();
+                    Ok(self.current_selection != old_selection)
+                } else {
+                    Ok(false)
+                }
             }
             crossterm::event::KeyCode::Enter => {
                 if self.input_mode == InputMode::GroupName {
@@ -628,7 +788,10 @@ impl App {
                     Ok(false)
                 }
             }
-            _ => Ok(false),
+            _ => {
+                self.pending_g_key = false; // Cancel any pending 'g'
+                Ok(false)
+            }
         }
     }
     
@@ -796,24 +959,101 @@ impl App {
             AppMode::Normal => {
                 match key {
                     KeyCode::Down | KeyCode::Char('j') => {
+                        self.pending_g_key = false; // Cancel any pending 'g'
                         self.scroll_down();
                         Ok(true) // Redraw needed
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
+                        self.pending_g_key = false; // Cancel any pending 'g'
                         self.scroll_up();
                         Ok(true) // Redraw needed
                     }
+                    // Vim navigation keys in normal mode
+                    KeyCode::Char('g') => {
+                        if self.pending_g_key {
+                            // Second 'g' - go to top (gg)
+                            self.pending_g_key = false;
+                            self.current_selection = 0;
+                            self.ensure_selection_visible();
+                            Ok(true)
+                        } else {
+                            // First 'g' - wait for second 'g'
+                            self.pending_g_key = true;
+                            Ok(false) // No visual change yet
+                        }
+                    }
+                    KeyCode::Char('G') => {
+                        // Go to bottom
+                        self.pending_g_key = false; // Cancel any pending 'g'
+                        if !self.repositories.is_empty() {
+                            self.current_selection = self.repositories.len() - 1;
+                            self.ensure_selection_visible();
+                            Ok(true)
+                        } else {
+                            Ok(false)
+                        }
+                    }
+                    KeyCode::PageDown => {
+                        // Page down navigation
+                        self.pending_g_key = false; // Cancel any pending 'g'
+                        let page_size = 10;
+                        let old_selection = self.current_selection;
+                        
+                        if !self.repositories.is_empty() {
+                            self.current_selection = (self.current_selection + page_size)
+                                .min(self.repositories.len() - 1);
+                            self.ensure_selection_visible();
+                            Ok(self.current_selection != old_selection)
+                        } else {
+                            Ok(false)
+                        }
+                    }
+                    KeyCode::PageUp => {
+                        // Page up navigation
+                        self.pending_g_key = false; // Cancel any pending 'g'
+                        let page_size = 10;
+                        let old_selection = self.current_selection;
+                        
+                        self.current_selection = self.current_selection.saturating_sub(page_size);
+                        self.ensure_selection_visible();
+                        Ok(self.current_selection != old_selection)
+                    }
+                    KeyCode::Home => {
+                        // Home key - go to top (same as gg)
+                        self.pending_g_key = false; // Cancel any pending 'g'
+                        let old_selection = self.current_selection;
+                        self.current_selection = 0;
+                        self.ensure_selection_visible();
+                        Ok(self.current_selection != old_selection)
+                    }
+                    KeyCode::End => {
+                        // End key - go to bottom (same as G)
+                        self.pending_g_key = false; // Cancel any pending 'g'
+                        if !self.repositories.is_empty() {
+                            let old_selection = self.current_selection;
+                            self.current_selection = self.repositories.len() - 1;
+                            self.ensure_selection_visible();
+                            Ok(self.current_selection != old_selection)
+                        } else {
+                            Ok(false)
+                        }
+                    }
                     KeyCode::Char('f') => {
+                        self.pending_g_key = false; // Cancel any pending 'g'
                         // Placeholder for fetch functionality in normal mode
                         info!("Fetch requested in normal mode");
                         Ok(false) // No visual change yet
                     }
                     KeyCode::Char('l') => {
+                        self.pending_g_key = false; // Cancel any pending 'g'
                         // Placeholder for log functionality in normal mode
                         info!("Log requested in normal mode");
                         Ok(false) // No visual change yet
                     }
-                    _ => Ok(false), // Key not handled
+                    _ => {
+                        self.pending_g_key = false; // Cancel any pending 'g'
+                        Ok(false) // Key not handled
+                    }
                 }
             },
             AppMode::Organize => {
@@ -1111,6 +1351,9 @@ impl App {
         
         // Clear selection after group creation
         self.selected_repositories.clear();
+        
+        // Invalidate display mapping since groups changed
+        self.invalidate_display_mapping();
         
         // Exit input mode
         self.input_mode = InputMode::None;

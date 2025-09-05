@@ -100,8 +100,10 @@ impl App {
 
             // Handle user input with timeout to allow UI updates
             if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
+                let event = event::read()?;
+                match event {
+                    Event::Key(key) => {
+                        if key.kind == KeyEventKind::Press {
                         // Check if we're in input mode first
                         if self.get_input_mode() != app::InputMode::None {
                             // In input mode - handle text input and special keys
@@ -178,6 +180,14 @@ impl App {
                                 }
                             }
                         }
+                    }
+                    }
+                    Event::Resize(_width, _height) => {
+                        // Terminal was resized, force a redraw
+                        needs_redraw = true;
+                    }
+                    _ => {
+                        // Other events (mouse, etc.) - ignore for now
                     }
                 }
             }
