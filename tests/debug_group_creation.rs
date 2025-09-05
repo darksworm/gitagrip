@@ -59,7 +59,7 @@ fn debug_real_application_flow() -> Result<()> {
     // Add repositories to app (simulate discovery)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
@@ -146,7 +146,7 @@ fn debug_group_creation_step_by_step() -> Result<()> {
     // Add repositories to app
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     

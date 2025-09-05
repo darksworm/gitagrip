@@ -53,7 +53,7 @@ fn debug_new_group_creation() -> Result<()> {
     // Add repository to app
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
@@ -113,7 +113,7 @@ fn debug_paste_functionality() -> Result<()> {
     // Add repositories to app
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
@@ -180,7 +180,7 @@ fn debug_scrolling_in_organize_mode() -> Result<()> {
     // Add repositories to app
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
@@ -244,7 +244,7 @@ fn test_move_repos_between_groups_with_persistence() -> Result<()> {
         // Discover repositories
         let discovered_repos = gitagrip::scan::find_repos(base_path)?;
         for repo in discovered_repos {
-            app.repositories.push(repo);
+            app.add_repository(repo);
         }
         app.scan_complete = true;
         
@@ -300,7 +300,7 @@ fn test_move_repos_between_groups_with_persistence() -> Result<()> {
         // Rediscover repositories (like app startup)
         let discovered_repos = gitagrip::scan::find_repos(base_path)?;
         for repo in discovered_repos {
-            app.repositories.push(repo);
+            app.add_repository(repo);
         }
         app.scan_complete = true;
         
@@ -368,7 +368,7 @@ fn test_move_repos_between_groups_with_persistence() -> Result<()> {
         
         let discovered_repos = gitagrip::scan::find_repos(base_path)?;
         for repo in discovered_repos {
-            app.repositories.push(repo);
+            app.add_repository(repo);
         }
         app.scan_complete = true;
         

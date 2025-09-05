@@ -63,7 +63,7 @@ fn test_exactly_like_main_rs() -> Result<()> {
     // Simulate repository discovery (exactly like main.rs does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     

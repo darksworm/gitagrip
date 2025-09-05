@@ -232,7 +232,7 @@ fn test_m3_tui_git_status_display_integration() -> Result<()> {
     // Discover all repositories (like the real app does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
     for repo in discovered_repos {
-        app.repositories.push(repo);
+        app.add_repository(repo);
     }
     app.scan_complete = true;
     
