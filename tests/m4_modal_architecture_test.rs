@@ -207,20 +207,20 @@ fn test_modal_keymap_dispatch_behavior() -> Result<()> {
 
     // Test ORGANIZE mode behavior  
     app.set_mode(gitagrip::app::AppMode::Organize);
-    let initial_scroll = app.scroll_offset;
+    let initial_selection = app.current_selection;
     
-    // Down arrow should NOT scroll in ORGANIZE mode (different behavior)
+    // Down arrow should navigate selection in ORGANIZE mode (different from NORMAL mode scrolling)
     let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Down)?;
-    assert!(!redraw_needed, "Down key should not require redraw in ORGANIZE mode (different behavior)");
-    assert_eq!(app.scroll_offset, initial_scroll, "Scroll should not change in ORGANIZE mode");
+    assert!(redraw_needed, "Down key should require redraw in ORGANIZE mode for navigation");
+    assert_eq!(app.current_selection, initial_selection + 1, "Current selection should change in ORGANIZE mode");
     
     // Test that organize-specific keys work
     let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?;
-    // Space key should be handled in organize mode (even if no visual change yet)
-    assert!(!redraw_needed, "Space key handled but no visual change implemented yet");
+    // Space key should toggle selection in organize mode 
+    assert!(redraw_needed, "Space key should toggle selection and trigger redraw");
 
     let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char('m'))?;
-    assert!(!redraw_needed, "Mark key handled but no visual change implemented yet");
+    assert!(redraw_needed, "Mark key should mark selected repositories and trigger redraw");
 
     Ok(())
 }
@@ -245,6 +245,102 @@ fn test_modal_ui_display() -> Result<()> {
 
     // UI should be able to render both modes without crashing
     // (The actual UI rendering test would require a more complex setup with terminals)
+    
+    Ok(())
+}
+
+// Phase 2: Repository Selection and Movement - Guiding Star Integration Test
+// This test defines the complete workflow for organizing repositories
+#[test]
+fn test_repository_selection_and_movement_workflow() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let base_path = temp_dir.path();
+    
+    // Create test repositories in different directories for auto-grouping
+    let work_dir = base_path.join("work");
+    let personal_dir = base_path.join("personal");
+    
+    fs::create_dir_all(&work_dir)?;
+    fs::create_dir_all(&personal_dir)?;
+    
+    create_test_git_repo(work_dir.join("project-a"))?;
+    create_test_git_repo(work_dir.join("project-b"))?;
+    create_test_git_repo(personal_dir.join("dotfiles"))?;
+    create_test_git_repo(personal_dir.join("scripts"))?;
+    
+    // Create config with manual groups
+    let mut config = create_test_config(base_path.to_path_buf());
+    let mut manual_groups = std::collections::HashMap::new();
+    manual_groups.insert("Important".to_string(), gitagrip::config::GroupConfig {
+        repos: vec![],
+    });
+    config.groups = manual_groups;
+    
+    let mut app = gitagrip::app::App::new(config);
+    
+    // Discover repositories (like the real app does)
+    let discovered_repos = gitagrip::scan::find_repos(base_path)?;
+    for repo in discovered_repos {
+        app.repositories.push(repo);
+    }
+    app.scan_complete = true;
+    
+    // Note: Repository discovery order is: dotfiles(0), scripts(1), project-b(2), project-a(3)
+    
+    // Test 1: Start in NORMAL mode, switch to ORGANIZE mode
+    assert_eq!(app.current_mode(), gitagrip::app::AppMode::Normal);
+    app.set_mode(gitagrip::app::AppMode::Organize);
+    
+    // Test 2: Repository selection with Space key
+    // Initially no repositories should be selected
+    assert!(!app.is_repository_selected(2), "No repositories should be selected initially");
+    
+    // Select work repositories (project-a and project-b are indices 2 and 3)
+    app.set_current_selection(2); // Navigate to project-b (work repo)
+    let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?;
+    assert!(redraw_needed, "Selection should trigger UI update");
+    assert!(app.is_repository_selected(2), "First work repository should be selected");
+    
+    // Select second work repository with multi-select  
+    app.set_current_selection(3); // Navigate to project-a (work repo)
+    let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?;
+    assert!(redraw_needed, "Multi-selection should trigger UI update");
+    assert!(app.is_repository_selected(3), "Second work repository should also be selected");
+    assert!(app.is_repository_selected(2), "First work repository should still be selected");
+    
+    // Test 3: Mark repositories for moving
+    let marked_count_before = app.get_marked_repositories().len();
+    let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char('m'))?;
+    assert!(redraw_needed, "Marking should trigger UI update");
+    
+    let marked_repos = app.get_marked_repositories();
+    assert_eq!(marked_repos.len(), marked_count_before + 2, "Both selected repositories should be marked");
+    
+    // Test 4: Navigate to target group and paste
+    // Navigate to "Important" group
+    app.navigate_to_group("Important")?;
+    let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char('p'))?;
+    assert!(redraw_needed, "Pasting should trigger UI update");
+    
+    // Test 5: Verify repositories moved to target group
+    let important_group_repos = app.get_repositories_in_group("Important");
+    assert_eq!(important_group_repos.len(), 2, "Important group should contain 2 moved repositories");
+    
+    // Original groups should have fewer repositories
+    let work_group_repos = app.get_repositories_in_group("Auto: work");
+    assert_eq!(work_group_repos.len(), 0, "Work group should now be empty");
+    
+    // Test 6: Selection and marking should be cleared after paste
+    assert_eq!(app.get_selected_repositories().len(), 0, "Selection should be cleared after paste");
+    assert_eq!(app.get_marked_repositories().len(), 0, "Marked repositories should be cleared after paste");
+    
+    // Test 7: Can deselect repositories
+    app.set_current_selection(0); // Navigate to personal repo (dotfiles)
+    app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?; // Select
+    assert!(app.is_repository_selected(0), "Repository should be selected");
+    
+    app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?; // Deselect
+    assert!(!app.is_repository_selected(0), "Repository should be deselected");
     
     Ok(())
 }
