@@ -146,15 +146,13 @@ impl App {
             return 1; // "Scanning..." or "No repos" message
         }
         
-        let grouped_repos = crate::scan::group_repositories(&self.repositories);
         let mut line_count = 0;
-        
-        for (_, repos) in grouped_repos {
+        for group_name in self.get_available_groups() {
             line_count += 1; // Group header
-            line_count += repos.len(); // Repository lines
+            line_count += self.get_repositories_in_group(&group_name).len();
             line_count += 1; // Empty line after group
         }
-        
+
         line_count
     }
     
@@ -163,24 +161,23 @@ impl App {
             return 0;
         }
         
-        let grouped_repos = crate::scan::group_repositories(&self.repositories);
         let mut line_index = 0;
         let mut repo_index = 0;
-        
-        for (_, repos) in grouped_repos {
+
+        for group_name in self.get_available_groups() {
             line_index += 1; // Group header
-            
-            for _ in &repos {
+
+            for _ in self.get_repositories_in_group(&group_name) {
                 if repo_index == self.current_selection {
                     return line_index;
                 }
                 line_index += 1;
                 repo_index += 1;
             }
-            
+
             line_index += 1; // Empty line after group
         }
-        
+
         line_index
     }
 
@@ -230,53 +227,45 @@ impl App {
                 vec![Line::from("Scanning for repositories...")]
             }
         } else {
-            // Restore grouping functionality with rich text support  
-            let grouped_repos = crate::scan::group_repositories(&self.repositories);
+            // Show both manual and auto groups
             let mut lines = Vec::new();
-            let mut repo_index = 0; // Track repository index for selection indicators
-            
-            for (group_name, repos) in grouped_repos {
+            let available_groups = self.get_available_groups();
+            for group_name in available_groups {
                 lines.push(Line::from(format!("▼ {}", group_name)));
-                for repo in repos {
-                    // Determine highlight style for selected repositories in ORGANIZE mode
-                    let is_selected = self.mode == AppMode::Organize && self.is_repository_selected(repo_index);
-                    let is_current = self.mode == AppMode::Organize && self.current_selection == repo_index;
-                    
-                    // Choose background color for highlighting
+                for repo in self.get_repositories_in_group(&group_name) {
+                    // Find repository index in master list for selection tracking
+                    let repo_index = self
+                        .repositories
+                        .iter()
+                        .position(|r| r.path == repo.path)
+                        .unwrap_or(0);
+
+                    let is_selected =
+                        self.mode == AppMode::Organize && self.is_repository_selected(repo_index);
+                    let is_current =
+                        self.mode == AppMode::Organize && self.current_selection == repo_index;
+
                     let line_style = if is_selected {
-                        // Selected/marked repository - green highlight
                         Style::default().bg(Color::Green).fg(Color::Black).add_modifier(Modifier::BOLD)
                     } else if is_current {
-                        // Current selection cursor - blue highlight
                         Style::default().bg(Color::Blue).fg(Color::White)
                     } else {
-                        // Normal line
                         Style::default()
                     };
 
-                    // Use cached git status if available, otherwise show loading
                     if let Some(status) = self.git_statuses.get(&repo.name) {
                         let indicator = if status.is_dirty { "●" } else { "✓" };
-                        
-                        // Create the base span with repository info
-                        let mut spans = vec![
-                            Span::raw(format!("  {} {}", indicator, repo.name)),
-                        ];
-                        
-                        // Add colored branch information (inherit line style if highlighted)
+                        let mut spans = vec![Span::raw(format!("  {} {}", indicator, repo.name))];
+
                         if let Some(branch) = &status.branch_name {
                             let (branch_color, is_bold) = Self::branch_color(branch);
-                            
-                            // If line is highlighted, adjust text color for visibility; otherwise use branch colors
                             let branch_style = if is_selected {
-                                // Selected: use black text on green background
                                 let mut style = Style::default().fg(Color::Black);
                                 if is_bold {
                                     style = style.add_modifier(Modifier::BOLD);
                                 }
                                 style
                             } else if is_current {
-                                // Current selection: use white text on blue background
                                 let mut style = Style::default().fg(Color::White);
                                 if is_bold {
                                     style = style.add_modifier(Modifier::BOLD);
@@ -289,29 +278,25 @@ impl App {
                                 }
                                 style
                             };
-                            
+
                             spans.push(Span::raw(" ("));
                             spans.push(Span::styled(branch.clone(), branch_style));
-                            
-                            // Add ahead/behind indicators
                             if status.ahead_count > 0 {
                                 spans.push(Span::raw(format!(" ↑{}", status.ahead_count)));
                             }
                             if status.behind_count > 0 {
                                 spans.push(Span::raw(format!(" ↓{}", status.behind_count)));
                             }
-                            
                             spans.push(Span::raw(")"));
                         }
-                        
-                        // Apply line style to all spans for full row highlighting
-                        let styled_spans: Vec<Span> = spans.into_iter().map(|span| {
-                            match span.style {
+
+                        let styled_spans: Vec<Span> = spans
+                            .into_iter()
+                            .map(|span| match span.style {
                                 s if s == Style::default() => span.style(line_style),
-                                _ => span.patch_style(line_style) // Merge with existing style
-                            }
-                        }).collect();
-                        
+                                _ => span.patch_style(line_style),
+                            })
+                            .collect();
                         lines.push(Line::from(styled_spans));
                     } else if self.git_status_loading {
                         let span = Span::styled(format!("  ⋯ {}", repo.name), line_style);
@@ -320,19 +305,16 @@ impl App {
                         let span = Span::styled(format!("  ? {}", repo.name), line_style);
                         lines.push(Line::from(vec![span]));
                     }
-                    
-                    // CRITICAL: Increment repo_index for each repository
-                    repo_index += 1;
                 }
-                lines.push(Line::from("")); // Empty line between groups
+                lines.push(Line::from(""));
             }
-            
+
             if !self.scan_complete {
                 lines.push(Line::from("Scanning for more repositories..."));
             } else if self.git_status_loading {
                 lines.push(Line::from("Loading git status..."));
             }
-            
+
             lines
         };
 
@@ -444,24 +426,50 @@ impl App {
     pub fn set_navigation_mode(&mut self, mode: NavigationMode) {
         self.navigation_mode = mode;
     }
-    
-    pub fn get_available_groups(&self) -> Vec<String> {
-        let mut groups = Vec::new();
-        
-        // Add auto groups from repository scanning
-        let grouped_repos = crate::scan::group_repositories(&self.repositories);
-        for group_name in grouped_repos.keys() {
-            groups.push(group_name.clone());
+
+    /// On first launch, convert automatically detected groups into manual groups
+    pub fn auto_create_initial_groups(&mut self) {
+        if !self.config.groups.is_empty() {
+            return;
         }
-        
-        // Add manual groups from config
-        for group_name in self.config.groups.keys() {
-            if !groups.contains(group_name) {
-                groups.push(group_name.clone());
+
+        for repo in &self.repositories {
+            if repo.auto_group != "Ungrouped" {
+                let group = self
+                    .config
+                    .groups
+                    .entry(repo.auto_group.clone())
+                    .or_insert_with(|| crate::config::GroupConfig { repos: vec![] });
+                if !group.repos.contains(&repo.path) {
+                    group.repos.push(repo.path.clone());
+                }
             }
         }
-        
-        // Sort for consistent ordering
+
+        if let Err(e) = self.save_config() {
+            info!("Failed to save config after initial group creation: {}", e);
+        }
+    }
+
+    pub fn get_available_groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = self.config.groups.keys().cloned().collect();
+
+        // Include Ungrouped if any repositories aren't in a group
+        let assigned_paths: HashSet<_> = self
+            .config
+            .groups
+            .values()
+            .flat_map(|g| g.repos.iter())
+            .collect();
+
+        if self
+            .repositories
+            .iter()
+            .any(|r| !assigned_paths.contains(&r.path))
+        {
+            groups.push("Ungrouped".to_string());
+        }
+
         groups.sort();
         groups
     }
@@ -666,26 +674,60 @@ impl App {
                 })
             });
         }
-        
+
+        // Add repositories back to their default groups
+        for &repo_index in &self.selected_repositories {
+            if let Some(repo) = self.repositories.get(repo_index) {
+                if repo.auto_group != "Ungrouped" {
+                    let group = self
+                        .config
+                        .groups
+                        .entry(repo.auto_group.clone())
+                        .or_insert_with(|| crate::config::GroupConfig { repos: vec![] });
+                    if !group.repos.contains(&repo.path) {
+                        group.repos.push(repo.path.clone());
+                    }
+                }
+            }
+        }
+
         // Clear selection after cut
         self.selected_repositories.clear();
+
+        // Persist changes
+        if let Err(e) = self.save_config() {
+            info!("Failed to save config after cut: {}", e);
+        }
+
         Ok(true)
     }
-    
+
+    fn repository_group(&self, repo_index: usize) -> String {
+        if let Some(repo) = self.repositories.get(repo_index) {
+            for (name, group) in &self.config.groups {
+                if group.repos.contains(&repo.path) {
+                    return name.clone();
+                }
+            }
+            repo.auto_group.clone()
+        } else {
+            "Ungrouped".to_string()
+        }
+    }
+
     fn move_selected_repositories(&mut self) -> Result<bool> {
         if self.selected_repositories.is_empty() {
             return Ok(false);
         }
-        
-        // Determine target group based on cursor position
-        // For now, use a placeholder - we'll implement proper group detection later
-        let target_group = "Legacy".to_string(); // Placeholder
-        
-        // Add selected repositories to target group
-        let target_group_config = self.config.groups
+
+        let target_group = self.repository_group(self.current_selection);
+
+        let target_group_config = self
+            .config
+            .groups
             .entry(target_group.clone())
             .or_insert_with(|| crate::config::GroupConfig { repos: vec![] });
-        
+
         for &repo_index in &self.selected_repositories {
             if let Some(repo) = self.repositories.get(repo_index) {
                 if !target_group_config.repos.contains(&repo.path) {
@@ -693,8 +735,7 @@ impl App {
                 }
             }
         }
-        
-        // Remove from other groups (cut behavior)
+
         for (group_name, group_config) in self.config.groups.iter_mut() {
             if group_name != &target_group {
                 group_config.repos.retain(|repo_path| {
@@ -708,9 +749,13 @@ impl App {
                 });
             }
         }
-        
-        // Clear selection after move
+
         self.selected_repositories.clear();
+
+        if let Err(e) = self.save_config() {
+            info!("Failed to save config after move: {}", e);
+        }
+
         Ok(true)
     }
     
@@ -739,7 +784,11 @@ impl App {
         // Delete the first empty manual group (for now)
         let group_to_delete = &groups_to_delete[0];
         self.config.groups.remove(group_to_delete);
-        
+
+        if let Err(e) = self.save_config() {
+            info!("Failed to save config after deleting group: {}", e);
+        }
+
         Ok(true) // Deletion successful
     }
 
@@ -982,32 +1031,32 @@ impl App {
     }
     
     pub fn get_repositories_in_group(&self, group_name: &str) -> Vec<Repository> {
-        // First check manual groups from config
+        if group_name == "Ungrouped" {
+            let assigned_paths: HashSet<_> = self
+                .config
+                .groups
+                .values()
+                .flat_map(|g| g.repos.iter())
+                .collect();
+
+            return self
+                .repositories
+                .iter()
+                .filter(|repo| !assigned_paths.contains(&repo.path))
+                .cloned()
+                .collect();
+        }
+
         if let Some(group_config) = self.config.groups.get(group_name) {
-            // Return repositories that are assigned to this manual group
-            return self.repositories.iter()
+            return self
+                .repositories
+                .iter()
                 .filter(|repo| group_config.repos.contains(&repo.path))
                 .cloned()
                 .collect();
         }
-        
-        // For auto groups, exclude repositories that are in manual groups
-        let grouped = crate::scan::group_repositories(&self.repositories);
-        if let Some(group_repos) = grouped.get(group_name) {
-            // Get all repository paths that are assigned to manual groups
-            let manually_assigned_paths: std::collections::HashSet<_> = self.config.groups
-                .values()
-                .flat_map(|group_config| &group_config.repos)
-                .collect();
-            
-            // Filter out repositories that are manually assigned to other groups
-            group_repos.iter()
-                .filter(|repo| !manually_assigned_paths.contains(&repo.path))
-                .cloned()
-                .collect()
-        } else {
-            vec![]
-        }
+
+        Vec::new()
     }
     
     pub fn navigate_to_group(&mut self, group_name: &str) -> Result<()> {
@@ -1123,35 +1172,56 @@ impl App {
         Ok(())
     }
     
-    pub fn paste_marked_repositories(&mut self) -> Result<bool> {
-        if !self.marked_repositories.is_empty() {
-            let target_group_name = self.get_current_target_group();
-            info!("Pasting {} marked repositories to {} group", self.marked_repositories.len(), target_group_name);
-            
-            // Get or create the target group config
-            let target_group = self.config.groups
-                .entry(target_group_name.clone())
-                .or_insert_with(|| crate::config::GroupConfig { repos: vec![] });
-            
-            // Add marked repositories to the target group
-            for &repo_index in &self.marked_repositories {
-                if let Some(repo) = self.repositories.get(repo_index) {
-                    // Add to the target group if not already there
-                    if !target_group.repos.contains(&repo.path) {
-                        target_group.repos.push(repo.path.clone());
-                    }
+
+pub fn paste_marked_repositories(&mut self) -> Result<bool> {
+    if !self.marked_repositories.is_empty() {
+        let target_group_name = self.get_current_target_group();
+        info!(
+            "Pasting {} marked repositories to {} group",
+            self.marked_repositories.len(),
+            target_group_name
+        );
+
+        let target_group = self
+            .config
+            .groups
+            .entry(target_group_name.clone())
+            .or_insert_with(|| crate::config::GroupConfig { repos: vec![] });
+
+        for &repo_index in &self.marked_repositories {
+            if let Some(repo) = self.repositories.get(repo_index) {
+                if !target_group.repos.contains(&repo.path) {
+                    target_group.repos.push(repo.path.clone());
                 }
             }
-            
-            // Clear selection and marking
-            self.marked_repositories.clear();
-            self.selected_repositories.clear();
-            
-            Ok(true) // Paste operation completed, redraw needed
-        } else {
-            Ok(false)
         }
+
+        for (group_name, group_config) in self.config.groups.iter_mut() {
+            if group_name != &target_group_name {
+                group_config.repos.retain(|repo_path| {
+                    !self.marked_repositories.iter().any(|&index| {
+                        if let Some(repo) = self.repositories.get(index) {
+                            &repo.path == repo_path
+                        } else {
+                            false
+                        }
+                    })
+                });
+            }
+        }
+
+        self.marked_repositories.clear();
+        self.selected_repositories.clear();
+
+        if let Err(e) = self.save_config() {
+            info!("Failed to save config after paste: {}", e);
+        }
+
+        Ok(true)
+    } else {
+        Ok(false)
     }
+}
 }
 
 #[cfg(test)]

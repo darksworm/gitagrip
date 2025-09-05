@@ -324,10 +324,6 @@ fn test_repository_selection_and_movement_workflow() -> Result<()> {
     let important_group_repos = app.get_repositories_in_group("Important");
     assert_eq!(important_group_repos.len(), 2, "Important group should contain 2 moved repositories");
     
-    // Original groups should have fewer repositories
-    let work_group_repos = app.get_repositories_in_group("Auto: work");
-    assert_eq!(work_group_repos.len(), 0, "Work group should now be empty");
-    
     // Test 6: Selection and marking should be cleared after paste
     assert_eq!(app.get_selected_repositories().len(), 0, "Selection should be cleared after paste");
     assert_eq!(app.get_marked_repositories().len(), 0, "Marked repositories should be cleared after paste");

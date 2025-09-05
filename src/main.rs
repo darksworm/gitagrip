@@ -56,6 +56,7 @@ impl App {
                     ScanEvent::ScanCompleted => {
                         info!("Repository scan completed");
                         self.scan_complete = true;
+                        self.auto_create_initial_groups();
                         // Start git status loading once repository scan is complete
                         if !self.repositories.is_empty() && !git_status_started {
                             self.git_status_loading = true;
