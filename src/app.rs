@@ -89,24 +89,33 @@ impl App {
     pub fn build_display_mapping(&mut self) {
         self.display_to_storage_mapping.clear();
         
-        // Create merged view of both auto groups AND manual groups
-        let mut all_groups = std::collections::BTreeMap::new();
+        // Create merged view with manual groups FIRST, then auto groups
+        let mut all_groups = Vec::new();
         
-        // First add manual groups from config
-        for group_name in self.config.groups.keys() {
+        // First add manual groups from config (sorted alphabetically)
+        let mut manual_groups: Vec<_> = self.config.groups.keys().collect();
+        manual_groups.sort();
+        
+        for group_name in manual_groups {
             let repos = self.get_repositories_in_group(group_name);
-            if !repos.is_empty() {
-                all_groups.insert(group_name.clone(), repos);
+            // In organize mode, include empty groups for move targets
+            // In normal mode, only show non-empty groups
+            if !repos.is_empty() || self.current_mode() == AppMode::Organize {
+                all_groups.push((group_name.clone(), repos));
             }
         }
         
         // Then add auto groups (excluding repositories already in manual groups)
         let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
-        for (group_name, _repos) in auto_grouped_repos {
-            if !all_groups.contains_key(&group_name) {
-                let filtered_repos = self.get_repositories_in_group(&group_name);
+        let mut auto_group_names: Vec<_> = auto_grouped_repos.keys().collect();
+        auto_group_names.sort();
+        
+        for group_name in auto_group_names {
+            // Only add auto group if no manual group with same name exists
+            if !self.config.groups.contains_key(group_name) {
+                let filtered_repos = self.get_repositories_in_group(group_name);
                 if !filtered_repos.is_empty() {
-                    all_groups.insert(group_name, filtered_repos);
+                    all_groups.push((group_name.clone(), filtered_repos));
                 }
             }
         }
@@ -145,6 +154,60 @@ impl App {
     /// Invalidate the display mapping (call when repositories or groups change)
     pub fn invalidate_display_mapping(&mut self) {
         self.display_to_storage_mapping.clear();
+    }
+    
+    /// Get the group name that contains the repository at the given display position
+    /// Also returns the group name if position points to a group header (to allow moving to empty groups)
+    pub fn get_group_at_display_position(&mut self, display_position: usize) -> Option<String> {
+        // Build the same group structure as the UI rendering (manual groups first)
+        let mut all_groups = Vec::new();
+        
+        // First add manual groups from config (including empty ones for move targets, sorted alphabetically)
+        let mut manual_groups: Vec<_> = self.config.groups.keys().collect();
+        manual_groups.sort();
+        
+        for group_name in manual_groups {
+            let repos = self.get_repositories_in_group(group_name);
+            // Use the same filtering logic as UI rendering
+            if !repos.is_empty() || self.current_mode() == AppMode::Organize {
+                all_groups.push((group_name.clone(), repos));
+            }
+        }
+        
+        // Then add auto groups (excluding repositories already in manual groups)
+        let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
+        let mut auto_group_names: Vec<_> = auto_grouped_repos.keys().collect();
+        auto_group_names.sort();
+        
+        for group_name in auto_group_names {
+            // Only add auto group if no manual group with same name exists
+            if !self.config.groups.contains_key(group_name) {
+                let filtered_repos = self.get_repositories_in_group(group_name);
+                if !filtered_repos.is_empty() {
+                    all_groups.push((group_name.clone(), filtered_repos));
+                }
+            }
+        }
+        
+        // Walk through display positions to find which group contains the target position
+        let mut current_position = 0;
+        for (group_name, repos) in all_groups {
+            // Check if display_position is on the group header
+            if current_position == display_position {
+                return Some(group_name.clone());
+            }
+            current_position += 1; // Group header takes one line
+            
+            // Check if display_position falls within this group's repositories
+            for _repo in repos {
+                if current_position == display_position {
+                    return Some(group_name.clone());
+                }
+                current_position += 1;
+            }
+        }
+        
+        None
     }
 
     fn branch_color(branch_name: &str) -> (ratatui::style::Color, bool) {
@@ -305,25 +368,33 @@ impl App {
             }
         } else {
             // Restore grouping functionality with rich text support
-            // Create merged view of both auto groups AND manual groups (like get_available_groups does)
-            let mut all_groups = std::collections::BTreeMap::new();
+            // Create merged view with manual groups FIRST, then auto groups
+            let mut all_groups = Vec::new();
             
-            // First add manual groups from config
-            for group_name in self.config.groups.keys() {
+            // First add manual groups from config (sorted alphabetically)
+            let mut manual_groups: Vec<_> = self.config.groups.keys().collect();
+            manual_groups.sort();
+            
+            for group_name in manual_groups {
                 let repos = self.get_repositories_in_group(group_name);
-                if !repos.is_empty() {
-                    all_groups.insert(group_name.clone(), repos);
+                // In organize mode, show empty groups as move targets
+                // In normal mode, only show non-empty groups
+                if !repos.is_empty() || self.current_mode() == AppMode::Organize {
+                    all_groups.push((group_name.clone(), repos));
                 }
             }
             
             // Then add auto groups (excluding repositories already in manual groups)
             let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
-            for (group_name, _repos) in auto_grouped_repos {
-                if !all_groups.contains_key(&group_name) {
-                    // Only add auto group if no manual group with same name exists
-                    let filtered_repos = self.get_repositories_in_group(&group_name);
+            let mut auto_group_names: Vec<_> = auto_grouped_repos.keys().collect();
+            auto_group_names.sort();
+            
+            for group_name in auto_group_names {
+                // Only add auto group if no manual group with same name exists
+                if !self.config.groups.contains_key(group_name) {
+                    let filtered_repos = self.get_repositories_in_group(group_name);
                     if !filtered_repos.is_empty() {
-                        all_groups.insert(group_name, filtered_repos);
+                        all_groups.push((group_name.clone(), filtered_repos));
                     }
                 }
             }
@@ -480,23 +551,32 @@ impl App {
             AppMode::Organize => {
                 match self.input_mode {
                     InputMode::None => {
-                        Line::from(vec![
+                        let mut footer_spans = vec![
                             "MODE: ".into(),
                             mode_text.add_modifier(Modifier::BOLD),
                             " | ".into(),
                             "Space".fg(Color::Yellow).add_modifier(Modifier::BOLD),
                             " select, ".into(),
-                            "x".fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                            " cut, ".into(),
-                            "m".fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                            " move, ".into(),
+                        ];
+                        
+                        // Only show move option if repositories are selected
+                        if !self.selected_repositories.is_empty() {
+                            footer_spans.extend(vec![
+                                "m".fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                                " move, ".into(),
+                            ]);
+                        }
+                        
+                        footer_spans.extend(vec![
                             "n".fg(Color::Yellow).add_modifier(Modifier::BOLD),
                             " new group, ".into(),
                             "d".fg(Color::Yellow).add_modifier(Modifier::BOLD),
                             " delete, ".into(),
-                            "o".fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            "q".fg(Color::Yellow).add_modifier(Modifier::BOLD),
                             " exit".into(),
-                        ])
+                        ]);
+                        
+                        Line::from(footer_spans)
                     },
                     InputMode::GroupName => {
                         Line::from(vec![
@@ -684,11 +764,7 @@ impl App {
                     Ok(false)
                 }
             }
-            crossterm::event::KeyCode::Char('x') => {
-                self.pending_g_key = false; // Cancel any pending 'g'
-                // Cut selected repositories (remove from current group)
-                self.cut_selected_repositories()
-            }
+            // 'x' key removed - we don't need cut functionality
             crossterm::event::KeyCode::Char('m') => {
                 self.pending_g_key = false; // Cancel any pending 'g'
                 // Move selected repositories to group at cursor position
@@ -833,53 +909,45 @@ impl App {
     }
     
     // Implementation methods for the simplified operations
-    fn cut_selected_repositories(&mut self) -> Result<bool> {
-        if self.selected_repositories.is_empty() {
-            return Ok(false);
-        }
-        
-        // Remove selected repositories from all manual groups
-        for group_config in self.config.groups.values_mut() {
-            group_config.repos.retain(|repo_path| {
-                // Check if this repo path belongs to any selected repository
-                !self.selected_repositories.iter().any(|&index| {
-                    if let Some(repo) = self.repositories.get(index) {
-                        &repo.path == repo_path
-                    } else {
-                        false
-                    }
-                })
-            });
-        }
-        
-        // Clear selection after cut
-        self.selected_repositories.clear();
-        Ok(true)
-    }
+    // Removed cut_selected_repositories - no longer needed
     
-    fn move_selected_repositories(&mut self) -> Result<bool> {
+    pub fn move_selected_repositories(&mut self) -> Result<bool> {
         if self.selected_repositories.is_empty() {
             return Ok(false);
         }
         
         // Determine target group based on cursor position
-        // For now, use a placeholder - we'll implement proper group detection later
-        let target_group = "Legacy".to_string(); // Placeholder
+        let target_group = match self.get_group_at_display_position(self.current_selection) {
+            Some(group_name) => group_name,
+            None => {
+                info!("Cannot move: cursor is not positioned over a valid group");
+                return Ok(false);
+            }
+        };
+        
+        // Check if target group is an auto-generated group (cannot move to these)
+        let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
+        if auto_grouped_repos.contains_key(&target_group) && !self.config.groups.contains_key(&target_group) {
+            info!("Cannot move to auto-generated group '{}'. Create a manual group instead.", target_group);
+            return Ok(false);
+        }
         
         // Add selected repositories to target group
         let target_group_config = self.config.groups
             .entry(target_group.clone())
             .or_insert_with(|| crate::config::GroupConfig { repos: vec![] });
         
+        let mut moved_count = 0;
         for &repo_index in &self.selected_repositories {
             if let Some(repo) = self.repositories.get(repo_index) {
                 if !target_group_config.repos.contains(&repo.path) {
                     target_group_config.repos.push(repo.path.clone());
+                    moved_count += 1;
                 }
             }
         }
         
-        // Remove from other groups (cut behavior)
+        // Remove from other manual groups (cut behavior)
         for (group_name, group_config) in self.config.groups.iter_mut() {
             if group_name != &target_group {
                 group_config.repos.retain(|repo_path| {
@@ -894,8 +962,18 @@ impl App {
             }
         }
         
+        // Invalidate display mapping since groups changed
+        self.invalidate_display_mapping();
+        
         // Clear selection after move
         self.selected_repositories.clear();
+        
+        // Save config after move to persist changes
+        if let Err(e) = self.save_config() {
+            info!("Failed to save config after move: {}", e);
+        }
+        
+        info!("Moved {} repositories to group '{}'", moved_count, target_group);
         Ok(true)
     }
     
