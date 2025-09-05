@@ -102,29 +102,79 @@ impl App {
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        // Handle global keys first (quit, mode toggle)
-                        match key.code {
-                            KeyCode::Char('q') => {
-                                info!("Quit requested by user");
-                                self.should_quit = true;
-                            }
-                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                info!("Ctrl+C pressed, quitting");
-                                self.should_quit = true;
-                            }
-                            KeyCode::Esc => {
-                                info!("Escape pressed, quitting");
-                                self.should_quit = true;
-                            }
-                            KeyCode::Char('o') => {
-                                info!("Mode toggle requested");
-                                self.toggle_mode();
-                                needs_redraw = true;
-                            }
-                            // Handle mode-specific keys
-                            _ => {
-                                if self.handle_mode_specific_key(key.code)? {
+                        // Check if we're in input mode first
+                        if self.get_input_mode() != app::InputMode::None {
+                            // In input mode - handle text input and special keys
+                            match key.code {
+                                KeyCode::Char(c) => {
+                                    // Add character to input
+                                    self.handle_text_input(&c.to_string())?;
                                     needs_redraw = true;
+                                }
+                                KeyCode::Backspace => {
+                                    // Remove last character
+                                    let mut current_text = self.get_current_input_text();
+                                    current_text.pop();
+                                    self.clear_input();
+                                    self.handle_text_input(&current_text)?;
+                                    needs_redraw = true;
+                                }
+                                // Let mode-specific handler deal with Enter/Esc in input mode
+                                _ => {
+                                    if self.current_mode() == app::AppMode::Organize {
+                                        // Use simplified organize key handler
+                                        if self.handle_organize_key(key.code)? {
+                                            needs_redraw = true;
+                                        }
+                                    } else {
+                                        // Use old handler for normal mode
+                                        if self.handle_mode_specific_key(key.code)? {
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Not in input mode - handle normal keys
+                            match key.code {
+                                KeyCode::Char('q') => {
+                                    info!("Quit requested by user");
+                                    self.should_quit = true;
+                                }
+                                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                    info!("Ctrl+C pressed, quitting");
+                                    self.should_quit = true;
+                                }
+                                KeyCode::Esc => {
+                                    // Only quit with Esc if not in organize mode
+                                    if self.current_mode() == app::AppMode::Normal {
+                                        info!("Escape pressed, quitting");
+                                        self.should_quit = true;
+                                    } else {
+                                        // In organize mode, let simplified handler deal with Esc
+                                        if self.handle_organize_key(key.code)? {
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('o') => {
+                                    info!("Mode toggle requested");
+                                    self.toggle_mode();
+                                    needs_redraw = true;
+                                }
+                                // Handle mode-specific keys
+                                _ => {
+                                    if self.current_mode() == app::AppMode::Organize {
+                                        // Use simplified organize key handler
+                                        if self.handle_organize_key(key.code)? {
+                                            needs_redraw = true;
+                                        }
+                                    } else {
+                                        // Use old handler for normal mode
+                                        if self.handle_mode_specific_key(key.code)? {
+                                            needs_redraw = true;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -167,8 +217,8 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app and background scanning
-    let mut app = App::new(config.clone());
+    // Create app and background scanning  
+    let mut app = App::new(config.clone(), None); // Use default config path
     
     // Setup background repository scanning
     let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();

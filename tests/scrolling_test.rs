@@ -67,7 +67,7 @@ fn test_scrollable_repository_list_integration() -> Result<()> {
     let config = create_test_config(base_path.to_path_buf());
     
     // Test 1: App should handle many repositories without crashing
-    let mut app = gitagrip::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone(), None);
     
     // Discover all repositories (like the real app does)
     let discovered_repos = gitagrip::scan::find_repos(base_path)?;
@@ -114,7 +114,7 @@ fn test_scrollable_repository_list_integration() -> Result<()> {
 fn test_scroll_bounds_checking() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let config = create_test_config(temp_dir.path().to_path_buf());
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
     
     // Test scrolling with no repositories
     assert_eq!(app.scroll_offset, 0);
@@ -153,7 +153,7 @@ fn test_scroll_bounds_checking() -> Result<()> {
 fn test_scroll_with_empty_repository_list() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let config = create_test_config(temp_dir.path().to_path_buf());
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
     
     // No repositories added
     assert_eq!(app.repositories.len(), 0);

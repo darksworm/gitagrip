@@ -5,7 +5,7 @@ use anyhow::Result;
 #[test]
 fn test_app_scroll_bounds_unit() {
     let config = gitagrip::config::Config::default();
-    let mut app = gitagrip::app::App::new(config);
+    let mut app = gitagrip::app::App::new(config, None);
     
     // Test bounds with empty repository list
     assert_eq!(app.scroll_offset, 0);
@@ -60,7 +60,7 @@ fn test_branch_color_consistency() {
     // Main and master should always be special
     // This tests the logic through the UI rendering, which is tricky but important
     let config = gitagrip::config::Config::default();
-    let app = gitagrip::app::App::new(config);
+    let app = gitagrip::app::App::new(config, None);
     
     // We can't directly test branch_color since it's private, but we know:
     // 1. main/master should be treated specially (bold green)

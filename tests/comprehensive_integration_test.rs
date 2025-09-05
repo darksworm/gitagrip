@@ -271,7 +271,7 @@ fn test_end_to_end_full_stack() -> Result<()> {
     };
     
     // Initialize app (like main.rs does)
-    let mut app = gitagrip::app::App::new(config.clone());
+    let mut app = gitagrip::app::App::new(config.clone(), None);
     
     // Set up background scanning (like main.rs does)
     let (scan_sender, scan_receiver) = crossbeam_channel::unbounded();
