@@ -124,30 +124,68 @@ impl App {
                 vec![Line::from("Scanning for repositories...")]
             }
         } else {
-            // Restore grouping functionality with rich text support
+            // Restore grouping functionality with rich text support  
             let grouped_repos = crate::scan::group_repositories(&self.repositories);
             let mut lines = Vec::new();
+            let mut repo_index = 0; // Track repository index for selection indicators
             
             for (group_name, repos) in grouped_repos {
                 lines.push(Line::from(format!("▼ {}", group_name)));
                 for repo in repos {
+                    // Determine highlight style for selected repositories in ORGANIZE mode
+                    let is_selected = self.mode == AppMode::Organize && self.is_repository_selected(repo_index);
+                    let is_current = self.mode == AppMode::Organize && self.current_selection == repo_index;
+                    
+                    // Choose background color for highlighting
+                    let line_style = if is_selected {
+                        // Selected/marked repository - green highlight
+                        Style::default().bg(Color::Green).fg(Color::Black).add_modifier(Modifier::BOLD)
+                    } else if is_current {
+                        // Current selection cursor - blue highlight
+                        Style::default().bg(Color::Blue).fg(Color::White)
+                    } else {
+                        // Normal line
+                        Style::default()
+                    };
+
                     // Use cached git status if available, otherwise show loading
                     if let Some(status) = self.git_statuses.get(&repo.name) {
                         let indicator = if status.is_dirty { "●" } else { "✓" };
                         
+                        // Create the base span with repository info
                         let mut spans = vec![
                             Span::raw(format!("  {} {}", indicator, repo.name)),
                         ];
                         
-                        // Add colored branch information
+                        // Add colored branch information (inherit line style if highlighted)
                         if let Some(branch) = &status.branch_name {
-                            let (color, is_bold) = Self::branch_color(branch);
-                            let mut style = Style::default().fg(color);
-                            if is_bold {
-                                style = style.add_modifier(Modifier::BOLD);
-                            }
+                            let (branch_color, is_bold) = Self::branch_color(branch);
+                            
+                            // If line is highlighted, adjust text color for visibility; otherwise use branch colors
+                            let branch_style = if is_selected {
+                                // Selected: use black text on green background
+                                let mut style = Style::default().fg(Color::Black);
+                                if is_bold {
+                                    style = style.add_modifier(Modifier::BOLD);
+                                }
+                                style
+                            } else if is_current {
+                                // Current selection: use white text on blue background
+                                let mut style = Style::default().fg(Color::White);
+                                if is_bold {
+                                    style = style.add_modifier(Modifier::BOLD);
+                                }
+                                style
+                            } else {
+                                let mut style = Style::default().fg(branch_color);
+                                if is_bold {
+                                    style = style.add_modifier(Modifier::BOLD);
+                                }
+                                style
+                            };
+                            
                             spans.push(Span::raw(" ("));
-                            spans.push(Span::styled(branch.clone(), style));
+                            spans.push(Span::styled(branch.clone(), branch_style));
                             
                             // Add ahead/behind indicators
                             if status.ahead_count > 0 {
@@ -160,12 +198,25 @@ impl App {
                             spans.push(Span::raw(")"));
                         }
                         
-                        lines.push(Line::from(spans));
+                        // Apply line style to all spans for full row highlighting
+                        let styled_spans: Vec<Span> = spans.into_iter().map(|span| {
+                            match span.style {
+                                s if s == Style::default() => span.style(line_style),
+                                _ => span.patch_style(line_style) // Merge with existing style
+                            }
+                        }).collect();
+                        
+                        lines.push(Line::from(styled_spans));
                     } else if self.git_status_loading {
-                        lines.push(Line::from(format!("  ⋯ {}", repo.name)));
+                        let span = Span::styled(format!("  ⋯ {}", repo.name), line_style);
+                        lines.push(Line::from(vec![span]));
                     } else {
-                        lines.push(Line::from(format!("  ? {}", repo.name)));
+                        let span = Span::styled(format!("  ? {}", repo.name), line_style);
+                        lines.push(Line::from(vec![span]));
                     }
+                    
+                    // CRITICAL: Increment repo_index for each repository
+                    repo_index += 1;
                 }
                 lines.push(Line::from("")); // Empty line between groups
             }
@@ -310,12 +361,21 @@ impl App {
                         }
                     }
                     KeyCode::Char(' ') => {
-                        // Space for selection in organize mode
-                        let redraw_needed = self.toggle_repository_selection(self.current_selection);
-                        Ok(redraw_needed)
+                        // Space for selection and marking in organize mode
+                        let selection_changed = self.toggle_repository_selection(self.current_selection);
+                        if selection_changed {
+                            // If we selected a repository, also mark it for moving
+                            if self.is_repository_selected(self.current_selection) {
+                                self.marked_repositories.insert(self.current_selection);
+                            } else {
+                                // If we deselected, also unmark it
+                                self.marked_repositories.remove(&self.current_selection);
+                            }
+                        }
+                        Ok(selection_changed)
                     }
                     KeyCode::Char('m') => {
-                        // Mark selected repositories for moving
+                        // Alternative: mark all currently selected repositories
                         let redraw_needed = self.mark_selected_repositories();
                         Ok(redraw_needed)
                     }

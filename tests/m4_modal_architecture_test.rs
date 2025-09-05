@@ -216,11 +216,11 @@ fn test_modal_keymap_dispatch_behavior() -> Result<()> {
     
     // Test that organize-specific keys work
     let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?;
-    // Space key should toggle selection in organize mode 
-    assert!(redraw_needed, "Space key should toggle selection and trigger redraw");
+    // Space key should toggle selection and automatically mark in organize mode 
+    assert!(redraw_needed, "Space key should toggle selection/marking and trigger redraw");
 
     let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char('m'))?;
-    assert!(redraw_needed, "Mark key should mark selected repositories and trigger redraw");
+    assert!(redraw_needed, "Mark key should mark currently selected repositories and trigger redraw");
 
     Ok(())
 }
@@ -308,13 +308,11 @@ fn test_repository_selection_and_movement_workflow() -> Result<()> {
     assert!(app.is_repository_selected(3), "Second work repository should also be selected");
     assert!(app.is_repository_selected(2), "First work repository should still be selected");
     
-    // Test 3: Mark repositories for moving
-    let marked_count_before = app.get_marked_repositories().len();
-    let redraw_needed = app.handle_mode_specific_key(crossterm::event::KeyCode::Char('m'))?;
-    assert!(redraw_needed, "Marking should trigger UI update");
-    
+    // Test 3: Verify repositories are automatically marked when selected
     let marked_repos = app.get_marked_repositories();
-    assert_eq!(marked_repos.len(), marked_count_before + 2, "Both selected repositories should be marked");
+    assert_eq!(marked_repos.len(), 2, "Both selected repositories should be automatically marked");
+    assert!(marked_repos.contains(&2), "First work repository should be marked");
+    assert!(marked_repos.contains(&3), "Second work repository should be marked");
     
     // Test 4: Navigate to target group and paste
     // Navigate to "Important" group
@@ -334,13 +332,15 @@ fn test_repository_selection_and_movement_workflow() -> Result<()> {
     assert_eq!(app.get_selected_repositories().len(), 0, "Selection should be cleared after paste");
     assert_eq!(app.get_marked_repositories().len(), 0, "Marked repositories should be cleared after paste");
     
-    // Test 7: Can deselect repositories
+    // Test 7: Can deselect repositories and verify unmarking
     app.set_current_selection(0); // Navigate to personal repo (dotfiles)
-    app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?; // Select
+    app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?; // Select and mark
     assert!(app.is_repository_selected(0), "Repository should be selected");
+    assert!(app.get_marked_repositories().contains(&0), "Repository should be marked when selected");
     
-    app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?; // Deselect
+    app.handle_mode_specific_key(crossterm::event::KeyCode::Char(' '))?; // Deselect and unmark
     assert!(!app.is_repository_selected(0), "Repository should be deselected");
+    assert!(!app.get_marked_repositories().contains(&0), "Repository should be unmarked when deselected");
     
     Ok(())
 }
