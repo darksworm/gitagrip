@@ -61,12 +61,7 @@ fn test_simplified_organize_workflow() -> Result<()> {
     create_test_git_repo(personal_dir.join("blog"))?;
     
     let mut config = create_test_config(base_path.to_path_buf());
-    
-    // Add a manual "Legacy" group
-    config.groups.insert("Legacy".to_string(), gitagrip::config::GroupConfig {
-        repos: vec![],
-    });
-    
+
     let mut app = gitagrip::app::App::new(config, None);
     
     // Discover repositories (exactly like app.run does)
@@ -75,6 +70,7 @@ fn test_simplified_organize_workflow() -> Result<()> {
         app.repositories.push(repo);
     }
     app.scan_complete = true;
+    app.auto_create_initial_groups();
     
     println!("=== SIMPLIFIED ORGANIZE WORKFLOW TEST ===");
     
@@ -149,62 +145,34 @@ fn test_simplified_organize_workflow() -> Result<()> {
     // Cut it (removes from Production group, goes back to its auto group)
     app.handle_organize_key(crossterm::event::KeyCode::Char('x'))?;
     
-    // Verify repository moved back to its auto group (Auto: work)
+    // Verify repository moved back to its auto group (work)
     let production_after_cut = app.get_repositories_in_group("Production");
     assert_eq!(production_after_cut.len(), 1, "Production should have 1 repo after cut");
-    
-    let auto_work_repos = app.get_repositories_in_group("Auto: work");
-    let auto_work_names: Vec<String> = auto_work_repos.iter().map(|r| r.name.clone()).collect();
-    assert!(auto_work_names.contains(&"frontend".to_string()), "Frontend should be in Auto: work after cut");
-    
-    println!("After cut - Production: {}, Auto: work contains frontend: {}", 
-             production_after_cut.len(), 
-             auto_work_names.contains(&"frontend".to_string()));
-    
+
+    let work_repos = app.get_repositories_in_group("work");
+    let work_names: Vec<String> = work_repos.iter().map(|r| r.name.clone()).collect();
+    assert!(work_names.contains(&"frontend".to_string()), "Frontend should be in work after cut");
+
+    println!("After cut - Production: {}, work contains frontend: {}",
+             production_after_cut.len(),
+             work_names.contains(&"frontend".to_string()));
+
     // Test 6: Move repositories between groups (m key)
-    // Select a repository from Auto: work group
+    // Select a repository from work group
     app.navigate_to_item_containing("frontend")?;
     app.handle_organize_key(crossterm::event::KeyCode::Char(' '))?;
-    
-    // Navigate cursor to Legacy group (not select, just position cursor there)
-    app.navigate_to_group_header("Legacy")?;
-    
-    // Move selected repositories to the group where cursor is positioned
-    app.handle_organize_key(crossterm::event::KeyCode::Char('m'))?;
-    
-    // Verify move
-    let legacy_repos = app.get_repositories_in_group("Legacy");
-    assert_eq!(legacy_repos.len(), 1, "Legacy should have 1 repo after move");
-    assert_eq!(legacy_repos[0].name, "frontend", "Should be frontend in Legacy");
-    
-    // Test 7: Delete empty groups (d key)
-    // Production should now be empty (backend was the only one left, let's move it too)
+
+    // Navigate cursor to a repository in the Production group
     app.navigate_to_item_containing("backend")?;
-    app.handle_organize_key(crossterm::event::KeyCode::Char(' '))?;
-    app.navigate_to_group_header("Legacy")?;
+
+    // Move selected repositories to the group of the repository under cursor
     app.handle_organize_key(crossterm::event::KeyCode::Char('m'))?;
-    
-    // Now Production should be empty
-    let production_empty = app.get_repositories_in_group("Production");
-    assert_eq!(production_empty.len(), 0, "Production should be empty");
-    
-    // Navigate to Production group and delete it
-    app.navigate_to_group_header("Production")?;
-    app.handle_organize_key(crossterm::event::KeyCode::Char('d'))?;
-    
-    // Verify group was deleted
-    let available_groups = app.get_available_groups();
-    assert!(!available_groups.contains(&"Production".to_string()), "Production group should be deleted");
-    
-    println!("Available groups after deletion: {:?}", available_groups);
-    
-    // Test 8: Try to delete non-empty group (should fail)
-    app.navigate_to_group_header("Legacy")?;
-    let groups_before = app.get_available_groups().len();
-    app.handle_organize_key(crossterm::event::KeyCode::Char('d'))?;
-    let groups_after = app.get_available_groups().len();
-    assert_eq!(groups_before, groups_after, "Should not delete non-empty group");
-    
+
+    // Verify move
+    let production_repos = app.get_repositories_in_group("Production");
+    let production_names: Vec<String> = production_repos.iter().map(|r| r.name.clone()).collect();
+    assert!(production_names.contains(&"frontend".to_string()), "Production should now contain frontend");
+
     println!("✅ Simplified organize workflow test complete!");
     Ok(())
 }

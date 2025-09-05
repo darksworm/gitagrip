@@ -122,12 +122,12 @@ fn determine_auto_group(repo_path: &Path, base_path: &Path) -> String {
             // Get the first component after base_path for grouping
             if let Some(first_component) = parent.components().next() {
                 if let Some(name) = first_component.as_os_str().to_str() {
-                    return format!("Auto: {}", name);
+                    return name.to_string();
                 }
             }
         }
     }
-    
+
     "Ungrouped".to_string()
 }
 
@@ -142,7 +142,7 @@ mod tests {
         let repo = Repository {
             name: "test-repo".to_string(),
             path: PathBuf::from("/path/to/repo"),
-            auto_group: "Auto: parent".to_string(),
+            auto_group: "parent".to_string(),
         };
         
         let display_str = format!("{}", repo);
@@ -160,11 +160,11 @@ mod tests {
         
         // In subdirectory
         let repo2 = Path::new("/base/work/repo2");
-        assert_eq!(determine_auto_group(repo2, base), "Auto: work");
-        
+        assert_eq!(determine_auto_group(repo2, base), "work");
+
         // Nested deeper
         let repo3 = Path::new("/base/projects/frontend/repo3");
-        assert_eq!(determine_auto_group(repo3, base), "Auto: projects");
+        assert_eq!(determine_auto_group(repo3, base), "projects");
     }
 
     #[test]
@@ -205,12 +205,12 @@ mod tests {
             Repository {
                 name: "repo3".to_string(), // Name starts with 3 to test sorting
                 path: PathBuf::from("/base/work/repo3"),
-                auto_group: "Auto: work".to_string(),
+                auto_group: "work".to_string(),
             },
             Repository {
                 name: "repo2".to_string(), // Name starts with 2 to test sorting
                 path: PathBuf::from("/base/work/repo2"),
-                auto_group: "Auto: work".to_string(),
+                auto_group: "work".to_string(),
             },
         ];
         
@@ -218,14 +218,14 @@ mod tests {
         
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped["Ungrouped"].len(), 1);
-        assert_eq!(grouped["Auto: work"].len(), 2);
-        
+        assert_eq!(grouped["work"].len(), 2);
+
         // Test that groups are returned in sorted order (BTreeMap)
         let group_names: Vec<_> = grouped.keys().collect();
-        assert_eq!(group_names, vec!["Auto: work", "Ungrouped"]); // Alphabetical order
-        
+        assert_eq!(group_names, vec!["Ungrouped", "work"]); // Alphabetical order
+
         // Test that repos within groups are sorted by name
-        let work_repos = &grouped["Auto: work"];
+        let work_repos = &grouped["work"];
         assert_eq!(work_repos[0].name, "repo2"); // Should come before repo3
         assert_eq!(work_repos[1].name, "repo3");
     }

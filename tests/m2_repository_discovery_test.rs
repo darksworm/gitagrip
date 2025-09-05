@@ -59,15 +59,15 @@ fn test_m2_repository_discovery_integration() -> Result<()> {
     
     // Test 2: Auto-grouping should work based on parent directory
     let grouped_repos = gitagrip::scan::group_repositories(&discovered_repos);
-    
-    // Should have: Auto: work (2), Auto: personal (1), Ungrouped (1)
+
+    // Should have: work (2), personal (1), Ungrouped (1)
     assert_eq!(grouped_repos.len(), 3);
-    assert!(grouped_repos.contains_key("Auto: work"));
-    assert!(grouped_repos.contains_key("Auto: personal"));  
+    assert!(grouped_repos.contains_key("work"));
+    assert!(grouped_repos.contains_key("personal"));
     assert!(grouped_repos.contains_key("Ungrouped"));
-    
-    assert_eq!(grouped_repos["Auto: work"].len(), 2);
-    assert_eq!(grouped_repos["Auto: personal"].len(), 1);
+
+    assert_eq!(grouped_repos["work"].len(), 2);
+    assert_eq!(grouped_repos["personal"].len(), 1);
     assert_eq!(grouped_repos["Ungrouped"].len(), 1);
     
     // Test 3: Background scanning should work
@@ -155,12 +155,12 @@ fn test_repository_struct() -> Result<()> {
     let repo = gitagrip::scan::Repository {
         name: "test-repo".to_string(),
         path: std::path::PathBuf::from("/path/to/repo"),
-        auto_group: "Auto: parent".to_string(),
+        auto_group: "parent".to_string(),
     };
     
     assert_eq!(repo.name, "test-repo");
     assert_eq!(repo.path, std::path::PathBuf::from("/path/to/repo"));
-    assert_eq!(repo.auto_group, "Auto: parent");
+    assert_eq!(repo.auto_group, "parent");
     
     Ok(())
 }
