@@ -230,12 +230,34 @@ impl App {
                 vec![Line::from("Scanning for repositories...")]
             }
         } else {
-            // Restore grouping functionality with rich text support  
-            let grouped_repos = crate::scan::group_repositories(&self.repositories);
+            // Restore grouping functionality with rich text support
+            // Create merged view of both auto groups AND manual groups (like get_available_groups does)
+            let mut all_groups = std::collections::BTreeMap::new();
+            
+            // First add manual groups from config
+            for group_name in self.config.groups.keys() {
+                let repos = self.get_repositories_in_group(group_name);
+                if !repos.is_empty() {
+                    all_groups.insert(group_name.clone(), repos);
+                }
+            }
+            
+            // Then add auto groups (excluding repositories already in manual groups)
+            let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
+            for (group_name, _repos) in auto_grouped_repos {
+                if !all_groups.contains_key(&group_name) {
+                    // Only add auto group if no manual group with same name exists
+                    let filtered_repos = self.get_repositories_in_group(&group_name);
+                    if !filtered_repos.is_empty() {
+                        all_groups.insert(group_name, filtered_repos);
+                    }
+                }
+            }
+            
             let mut lines = Vec::new();
             let mut repo_index = 0; // Track repository index for selection indicators
             
-            for (group_name, repos) in grouped_repos {
+            for (group_name, repos) in all_groups {
                 lines.push(Line::from(format!("▼ {}", group_name)));
                 for repo in repos {
                     // Determine highlight style for selected repositories in ORGANIZE mode
