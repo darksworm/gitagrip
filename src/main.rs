@@ -140,8 +140,16 @@ impl App {
                             // Not in input mode - handle normal keys
                             match key.code {
                                 KeyCode::Char('q') => {
-                                    info!("Quit requested by user");
-                                    self.should_quit = true;
+                                    // In organize mode, 'q' exits to normal mode
+                                    // In normal mode, 'q' quits the application
+                                    if self.current_mode() == app::AppMode::Organize {
+                                        info!("Exiting organize mode to normal mode");
+                                        self.toggle_mode();
+                                        needs_redraw = true;
+                                    } else {
+                                        info!("Quit requested by user");
+                                        self.should_quit = true;
+                                    }
                                 }
                                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                     info!("Ctrl+C pressed, quitting");
