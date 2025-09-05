@@ -127,42 +127,6 @@ pub fn read_status<P: AsRef<Path>>(repo_path: P) -> Result<RepoStatus> {
     })
 }
 
-pub fn compute_statuses_parallel(
-    repositories: &[crate::scan::Repository],
-) -> Result<Vec<(crate::scan::Repository, RepoStatus)>> {
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    
-    let results = Arc::new(Mutex::new(Vec::new()));
-    let mut handles = Vec::new();
-    
-    for repo in repositories {
-        let repo = repo.clone();
-        let results = Arc::clone(&results);
-        
-        let handle = thread::spawn(move || {
-            if let Ok(status) = read_status(&repo.path) {
-                if let Ok(mut results) = results.lock() {
-                    results.push((repo, status));
-                }
-            }
-        });
-        
-        handles.push(handle);
-    }
-    
-    // Wait for all threads to complete
-    for handle in handles {
-        let _ = handle.join();
-    }
-    
-    let results = Arc::try_unwrap(results)
-        .map_err(|_| anyhow::anyhow!("Failed to unwrap results"))?
-        .into_inner()
-        .map_err(|_| anyhow::anyhow!("Failed to get results"))?;
-    
-    Ok(results)
-}
 
 pub fn compute_statuses_with_events(
     repositories: &[crate::scan::Repository],

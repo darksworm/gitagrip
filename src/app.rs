@@ -3,13 +3,6 @@ use crate::scan::Repository;
 use crate::git;
 use std::collections::HashMap;
 
-#[derive(Debug)]
-pub struct RepositoryDisplayInfo {
-    pub status_indicator: String,
-    pub is_dirty: bool,
-    pub branch_info: String,
-}
-
 pub struct App {
     pub should_quit: bool,
     pub config: Config,
@@ -61,70 +54,8 @@ impl App {
         (color, false) // regular weight
     }
 
-    pub fn prepare_repository_display_with_status(
-        &self,
-        repositories: &[Repository],
-        statuses: &HashMap<String, git::RepoStatus>,
-    ) -> HashMap<String, RepositoryDisplayInfo> {
-        let mut display_data = HashMap::new();
-        
-        for repo in repositories {
-            let display_info = if let Some(status) = statuses.get(&repo.name) {
-                let status_indicator = if status.is_dirty { "●" } else { "✓" }.to_string();
-                
-                let mut branch_parts: Vec<String> = Vec::new();
-                if let Some(ref branch_name) = status.branch_name {
-                    branch_parts.push(branch_name.clone());
-                }
-                if status.ahead_count > 0 {
-                    branch_parts.push(format!("↑{}", status.ahead_count));
-                }
-                if status.behind_count > 0 {
-                    branch_parts.push(format!("↓{}", status.behind_count));
-                }
-                
-                RepositoryDisplayInfo {
-                    status_indicator,
-                    is_dirty: status.is_dirty,
-                    branch_info: branch_parts.join(" "),
-                }
-            } else {
-                RepositoryDisplayInfo {
-                    status_indicator: "?".to_string(),
-                    is_dirty: false,
-                    branch_info: "Loading...".to_string(),
-                }
-            };
-            
-            display_data.insert(repo.name.clone(), display_info);
-        }
-        
-        display_data
-    }
 
-    pub fn render_repository_list_with_status(
-        &self,
-        display_data: &HashMap<String, RepositoryDisplayInfo>,
-    ) -> String {
-        let mut content = Vec::new();
-        
-        for (repo_name, display_info) in display_data {
-            let line = format!(
-                "{} {} {}",
-                display_info.status_indicator,
-                repo_name,
-                display_info.branch_info
-            );
-            content.push(line);
-        }
-        
-        content.join("\n")
-    }
 
-    pub fn create_test_ui_frame(&self) -> String {
-        // Simple mock UI frame for testing performance
-        format!("Mock UI Frame - {} repositories", self.repositories.len())
-    }
 
     pub fn ui_with_git_status(&self, f: &mut ratatui::Frame) {
         use ratatui::{
