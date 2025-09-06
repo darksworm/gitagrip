@@ -122,8 +122,11 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeFilter}}, true
 		
 	case "n":
-		// New group
-		return []types.Action{types.ChangeModeAction{Mode: types.ModeNewGroup}}, true
+		// New group (only if selection)
+		if ctx.HasSelection() {
+			return []types.Action{types.ChangeModeAction{Mode: types.ModeNewGroup}}, true
+		}
+		return nil, false
 		
 	case "m":
 		// Move to group (only if selection or on repo)

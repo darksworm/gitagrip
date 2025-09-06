@@ -6,47 +6,47 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
-	
+
 	"gitagrip/internal/domain"
 )
 
 // ViewState contains all the state needed for rendering
 type ViewState struct {
-	Width            int
-	Height           int
-	Repositories     map[string]*domain.Repository
-	Groups           map[string]*domain.Group
-	OrderedGroups    []string
-	SelectedIndex    int
-	SelectedRepos    map[string]bool
-	RefreshingRepos  map[string]bool
-	FetchingRepos    map[string]bool
-	PullingRepos     map[string]bool
-	ExpandedGroups   map[string]bool
-	Scanning         bool
-	StatusMessage    string
-	ShowHelp         bool
-	ShowLog          bool
-	LogContent       string
-	ShowInfo         bool
-	InfoContent      string
-	ViewportOffset   int
-	ViewportHeight   int
-	SearchQuery      string
-	FilterQuery      string
-	IsFiltered       bool
-	ShowAheadBehind  bool
-	HelpModel        help.Model
-	DeleteTarget     string
-	TextInput        string
-	InputMode        string
-	UngroupedRepos   []string
+	Width           int
+	Height          int
+	Repositories    map[string]*domain.Repository
+	Groups          map[string]*domain.Group
+	OrderedGroups   []string
+	SelectedIndex   int
+	SelectedRepos   map[string]bool
+	RefreshingRepos map[string]bool
+	FetchingRepos   map[string]bool
+	PullingRepos    map[string]bool
+	ExpandedGroups  map[string]bool
+	Scanning        bool
+	StatusMessage   string
+	ShowHelp        bool
+	ShowLog         bool
+	LogContent      string
+	ShowInfo        bool
+	InfoContent     string
+	ViewportOffset  int
+	ViewportHeight  int
+	SearchQuery     string
+	FilterQuery     string
+	IsFiltered      bool
+	ShowAheadBehind bool
+	HelpModel       help.Model
+	DeleteTarget    string
+	TextInput       string
+	InputMode       string
+	UngroupedRepos  []string
 }
 
 // Renderer handles all view rendering
 type Renderer struct {
-	styles     *Styles
-	repoRender *RepositoryRenderer
+	styles      *Styles
+	repoRender  *RepositoryRenderer
 	groupRender *GroupRenderer
 }
 
@@ -63,11 +63,11 @@ func NewRenderer(showAheadBehind bool) *Renderer {
 // Render produces the complete view
 func (r *Renderer) Render(state ViewState) string {
 	content := &strings.Builder{}
-	
+
 	// Title
 	content.WriteString(r.styles.Title.Render("GitaGrip"))
-	content.WriteString("\n\n")
-	
+	content.WriteString("\n")
+
 	// Delete confirmation
 	if state.DeleteTarget != "" {
 		content.WriteString(r.styles.Confirm.Render(fmt.Sprintf("Delete group '%s'? (y/n): ", state.DeleteTarget)))
@@ -75,8 +75,9 @@ func (r *Renderer) Render(state ViewState) string {
 	} else if state.InputMode != "" {
 		content.WriteString(state.TextInput)
 		content.WriteString("\n")
+		content.WriteString("\n")
 	}
-	
+
 	// Main content
 	if state.Scanning && len(state.Repositories) == 0 {
 		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -88,20 +89,20 @@ func (r *Renderer) Render(state ViewState) string {
 		content.WriteString(r.renderRepositoryList(state))
 	}
 	content.WriteString("\n")
-	
+
 	// Status bar
 	r.renderStatusBar(content, state)
-	
+
 	// Log popup
 	if state.ShowLog && state.LogContent != "" {
 		r.renderLogPopup(content, state.LogContent)
 	}
-	
+
 	// Info popup
 	if state.ShowInfo && state.InfoContent != "" {
 		r.renderInfoPopup(content, state.InfoContent)
 	}
-	
+
 	// Help
 	if state.ShowHelp {
 		content.WriteString("\n")
@@ -111,7 +112,7 @@ func (r *Renderer) Render(state ViewState) string {
 		content.WriteString("\n")
 		content.WriteString(r.styles.Help.Render("Press ? for help"))
 	}
-	
+
 	// Apply main container style
 	mainStyle := r.styles.Main.MaxHeight(state.Height)
 	return mainStyle.Render(content.String())
@@ -121,16 +122,16 @@ func (r *Renderer) Render(state ViewState) string {
 func (r *Renderer) renderRepositoryList(state ViewState) string {
 	var lines []string
 	currentIndex := 0
-	
+
 	// Track which items are visible
 	visibleLines := make([]string, 0)
-	
+
 	// Groups first
 	for _, groupName := range state.OrderedGroups {
 		group := state.Groups[groupName]
 		isSelected := currentIndex == state.SelectedIndex
 		isExpanded := state.ExpandedGroups[groupName]
-		
+
 		// Check if group is in viewport
 		if currentIndex >= state.ViewportOffset {
 			repoCount := 0
@@ -146,12 +147,12 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 			} else {
 				repoCount = len(group.Repos)
 			}
-			
+
 			header := r.groupRender.RenderGroupHeader(group, isExpanded, isSelected, state.SearchQuery, repoCount)
 			visibleLines = append(visibleLines, header)
 		}
 		currentIndex++
-		
+
 		// Render repos in group if expanded
 		if isExpanded {
 			for _, repoPath := range group.Repos {
@@ -159,7 +160,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 				if !ok || (state.IsFiltered && !r.matchesFilter(repo, groupName, state.FilterQuery)) {
 					continue
 				}
-				
+
 				isRepoSelected := currentIndex == state.SelectedIndex
 				if currentIndex >= state.ViewportOffset {
 					line := r.repoRender.RenderRepository(
@@ -177,14 +178,14 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 			}
 		}
 	}
-	
+
 	// Ungrouped repos
 	for _, repoPath := range state.UngroupedRepos {
 		repo, ok := state.Repositories[repoPath]
 		if !ok || (state.IsFiltered && !r.matchesFilter(repo, "", state.FilterQuery)) {
 			continue
 		}
-		
+
 		isRepoSelected := currentIndex == state.SelectedIndex
 		if currentIndex >= state.ViewportOffset {
 			line := r.repoRender.RenderRepository(
@@ -200,29 +201,29 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 		}
 		currentIndex++
 	}
-	
+
 	// Calculate effective height
 	effectiveHeight := state.ViewportHeight
 	needsTopIndicator := state.ViewportOffset > 0
-	needsBottomIndicator := len(visibleLines) > effectiveHeight || currentIndex > state.ViewportOffset + state.ViewportHeight
-	
+	needsBottomIndicator := len(visibleLines) > effectiveHeight || currentIndex > state.ViewportOffset+state.ViewportHeight
+
 	if needsTopIndicator {
 		effectiveHeight--
 	}
 	if needsBottomIndicator {
 		effectiveHeight--
 	}
-	
+
 	// Add scroll indicators
 	if needsTopIndicator {
 		lines = append(lines, r.styles.Scroll.Render(fmt.Sprintf("↑ %d more above ↑", state.ViewportOffset)))
 	}
-	
+
 	// Add visible lines (up to effective height)
 	for i := 0; i < effectiveHeight && i < len(visibleLines); i++ {
 		lines = append(lines, visibleLines[i])
 	}
-	
+
 	// Add bottom scroll indicator
 	if needsBottomIndicator {
 		itemsBelow := currentIndex - (state.ViewportOffset + len(lines))
@@ -231,7 +232,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 		}
 		lines = append(lines, r.styles.Scroll.Render(fmt.Sprintf("↓ %d more below ↓", itemsBelow)))
 	}
-	
+
 	return strings.Join(lines, "\n")
 }
 
@@ -240,36 +241,36 @@ func (r *Renderer) renderStatusBar(content *strings.Builder, state ViewState) {
 	statusParts := []string{
 		fmt.Sprintf("%d repos", len(state.Repositories)),
 	}
-	
+
 	if len(state.Groups) > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("%d groups", len(state.Groups)))
 	}
-	
+
 	if len(state.RefreshingRepos) > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("%d refreshing", len(state.RefreshingRepos)))
 	}
-	
+
 	if len(state.FetchingRepos) > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("%d fetching", len(state.FetchingRepos)))
 	}
-	
+
 	if len(state.SelectedRepos) > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("%d selected", len(state.SelectedRepos)))
 	}
-	
+
 	if state.Scanning {
 		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		frame := int(time.Now().UnixMilli()/80) % len(spinner)
 		statusParts = append(statusParts, r.styles.Scan.Render(fmt.Sprintf("%s Scanning...", spinner[frame])))
 	}
-	
+
 	if state.FilterQuery != "" {
 		filterText := fmt.Sprintf("Filter: %s", state.FilterQuery)
 		statusParts = append(statusParts, r.styles.Filter.Render(filterText))
 	}
-	
+
 	content.WriteString(r.styles.Status.Render(strings.Join(statusParts, " | ")))
-	
+
 	if state.StatusMessage != "" {
 		content.WriteString("\n")
 		content.WriteString(state.StatusMessage)
@@ -293,15 +294,15 @@ func (r *Renderer) matchesFilter(repo *domain.Repository, groupName string, filt
 	if filterQuery == "" {
 		return true
 	}
-	
+
 	query := strings.ToLower(filterQuery)
-	
+
 	// Check if it's a status filter
 	if strings.HasPrefix(query, "status:") {
 		statusFilter := strings.TrimPrefix(query, "status:")
 		return r.matchesStatusFilter(repo, statusFilter)
 	}
-	
+
 	// Regular filter
 	return strings.Contains(strings.ToLower(repo.Name), query) ||
 		strings.Contains(strings.ToLower(repo.Path), query) ||
