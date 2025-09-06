@@ -685,6 +685,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.lastKeyWasG && msg.String() != "g" {
 				m.lastKeyWasG = false
 			}
+			
+		case msg.String() == "{":
+			// Jump to beginning of current group
+			m.jumpToGroupBoundary(true)
+			
+		case msg.String() == "}":
+			// Jump to end of current group
+			m.jumpToGroupBoundary(false)
 		}
 		
 	case EventMsg:
@@ -1711,7 +1719,59 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 		// Check repos in group if expanded
 		if m.expandedGroups[groupName] {
 			group := m.groups[groupName]
-			for _, repoPath := range group.Repos {
+			// Apply the same sorting as in renderRepositoryList
+			sortedRepos := make([]string, len(group.Repos))
+			copy(sortedRepos, group.Repos)
+			
+			switch m.currentSort {
+			case SortByStatus:
+				sort.Slice(sortedRepos, func(i, j int) bool {
+					repoI, okI := m.repositories[sortedRepos[i]]
+					repoJ, okJ := m.repositories[sortedRepos[j]]
+					if !okI || !okJ {
+						return !okI
+					}
+					statusI := m.getStatusPriority(repoI)
+					statusJ := m.getStatusPriority(repoJ)
+					if statusI != statusJ {
+						return statusI > statusJ
+					}
+					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+				})
+				
+			case SortByBranch:
+				sort.Slice(sortedRepos, func(i, j int) bool {
+					repoI, okI := m.repositories[sortedRepos[i]]
+					repoJ, okJ := m.repositories[sortedRepos[j]]
+					if !okI || !okJ {
+						return !okI
+					}
+					branchI := strings.ToLower(repoI.Status.Branch)
+					branchJ := strings.ToLower(repoJ.Status.Branch)
+					if branchI != branchJ {
+						if branchI == "main" || branchI == "master" {
+							return true
+						}
+						if branchJ == "main" || branchJ == "master" {
+							return false
+						}
+						return branchI < branchJ
+					}
+					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+				})
+				
+			case SortByName, SortByGroup:
+				sort.Slice(sortedRepos, func(i, j int) bool {
+					repoI, okI := m.repositories[sortedRepos[i]]
+					repoJ, okJ := m.repositories[sortedRepos[j]]
+					if !okI || !okJ {
+						return !okI
+					}
+					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+				})
+			}
+			
+			for _, repoPath := range sortedRepos {
 				if currentIndex == index {
 					return repoPath
 				}
@@ -2428,6 +2488,214 @@ func (m *Model) highlightMatch(text, query string, highlightStyle, normalStyle l
 	}
 	
 	return result
+}
+
+// jumpToGroupBoundary jumps to the beginning or end of the current group
+func (m *Model) jumpToGroupBoundary(toBeginning bool) {
+	// Find which group we're currently in
+	currentIndex := 0
+	inGroup := false
+	
+	for _, groupName := range m.orderedGroups {
+		groupHeaderIndex := currentIndex
+		
+		// Check if we're on the group header
+		if currentIndex == m.selectedIndex {
+			inGroup = true
+			// On header - jump to first or last repo in group
+			if m.expandedGroups[groupName] {
+				group := m.groups[groupName]
+				if len(group.Repos) > 0 {
+					if toBeginning {
+						// Jump to first repo
+						m.selectedIndex = groupHeaderIndex + 1
+					} else {
+						// Jump to last repo
+						m.selectedIndex = groupHeaderIndex + len(group.Repos)
+					}
+					m.ensureSelectedVisible()
+					return
+				}
+			}
+			return // Group is collapsed or empty
+		}
+		currentIndex++
+		
+		// Check repos in group if expanded
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			groupFirstRepoIndex := currentIndex
+			groupLastRepoIndex := currentIndex + len(group.Repos) - 1
+			
+			// Check if we're inside this group
+			for range group.Repos {
+				if currentIndex == m.selectedIndex {
+					inGroup = true
+					
+					if toBeginning {
+						// Check if we're already at the first repo in the group
+						if currentIndex == groupFirstRepoIndex {
+							// Jump to first repo of previous group
+							m.jumpToPreviousGroupStart(groupName)
+							return
+						}
+						// Jump to first repo in group
+						m.selectedIndex = groupFirstRepoIndex
+						m.ensureSelectedVisible()
+						return
+					} else {
+						// Check if we're already at the last repo in the group
+						if currentIndex == groupLastRepoIndex {
+							// Jump to last repo of next group
+							m.jumpToNextGroupEnd(groupName)
+							return
+						}
+						// Jump to last repo in group
+						m.selectedIndex = groupLastRepoIndex
+						m.ensureSelectedVisible()
+						return
+					}
+				}
+				currentIndex++
+			}
+		}
+	}
+	
+	// Check ungrouped repos
+	if !inGroup {
+		ungroupedRepos := m.ungroupedRepos
+		if len(ungroupedRepos) == 0 {
+			ungroupedRepos = m.getUngroupedRepos()
+		}
+		
+		if len(ungroupedRepos) > 0 {
+			ungroupedStartIndex := currentIndex
+			ungroupedEndIndex := currentIndex + len(ungroupedRepos) - 1
+			
+			// Check if we're in ungrouped section
+			for i := 0; i < len(ungroupedRepos); i++ {
+				if currentIndex == m.selectedIndex {
+					if toBeginning {
+						m.selectedIndex = ungroupedStartIndex
+					} else {
+						m.selectedIndex = ungroupedEndIndex
+					}
+					m.ensureSelectedVisible()
+					return
+				}
+				currentIndex++
+			}
+		}
+	}
+}
+
+// jumpToNextGroupEnd jumps to the last repo of the next group
+func (m *Model) jumpToNextGroupEnd(currentGroupName string) {
+	// Find current group index
+	currentGroupIndex := -1
+	for i, groupName := range m.orderedGroups {
+		if groupName == currentGroupName {
+			currentGroupIndex = i
+			break
+		}
+	}
+	
+	// If we found the current group and there's a next group
+	if currentGroupIndex != -1 && currentGroupIndex < len(m.orderedGroups)-1 {
+		// Find the next expanded group with repos
+		for i := currentGroupIndex + 1; i < len(m.orderedGroups); i++ {
+			nextGroupName := m.orderedGroups[i]
+			if m.expandedGroups[nextGroupName] {
+				group := m.groups[nextGroupName]
+				if len(group.Repos) > 0 {
+					// Calculate the index of the last repo in this group
+					currentIndex := 0
+					for j, groupName := range m.orderedGroups {
+						currentIndex++ // Group header
+						if j < i {
+							// Count all repos in previous groups
+							if m.expandedGroups[groupName] {
+								g := m.groups[groupName]
+								currentIndex += len(g.Repos)
+							}
+						} else if j == i {
+							// We're at the target group, add repos to get to last one
+							currentIndex += len(group.Repos) - 1
+							m.selectedIndex = currentIndex
+							m.ensureSelectedVisible()
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// If no next group found, check ungrouped repos
+	ungroupedRepos := m.ungroupedRepos
+	if len(ungroupedRepos) == 0 {
+		ungroupedRepos = m.getUngroupedRepos()
+	}
+	if len(ungroupedRepos) > 0 {
+		// Jump to last ungrouped repo
+		currentIndex := 0
+		// Count all groups and their repos
+		for _, groupName := range m.orderedGroups {
+			currentIndex++ // Group header
+			if m.expandedGroups[groupName] {
+				group := m.groups[groupName]
+				currentIndex += len(group.Repos)
+			}
+		}
+		// Add ungrouped repos
+		currentIndex += len(ungroupedRepos) - 1
+		m.selectedIndex = currentIndex
+		m.ensureSelectedVisible()
+	}
+}
+
+// jumpToPreviousGroupStart jumps to the first repo of the previous group
+func (m *Model) jumpToPreviousGroupStart(currentGroupName string) {
+	// Find current group index
+	currentGroupIndex := -1
+	for i, groupName := range m.orderedGroups {
+		if groupName == currentGroupName {
+			currentGroupIndex = i
+			break
+		}
+	}
+	
+	// If we found the current group and there's a previous group
+	if currentGroupIndex > 0 {
+		// Find the previous expanded group with repos
+		for i := currentGroupIndex - 1; i >= 0; i-- {
+			prevGroupName := m.orderedGroups[i]
+			if m.expandedGroups[prevGroupName] {
+				group := m.groups[prevGroupName]
+				if len(group.Repos) > 0 {
+					// Calculate the index of the first repo in this group
+					currentIndex := 0
+					for j, groupName := range m.orderedGroups {
+						currentIndex++ // Group header
+						if j < i {
+							// Count all repos in previous groups
+							if m.expandedGroups[groupName] {
+								g := m.groups[groupName]
+								currentIndex += len(g.Repos)
+							}
+						} else if j == i {
+							// We're at the target group, we're already at first repo
+							m.selectedIndex = currentIndex
+							m.ensureSelectedVisible()
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// If no previous group found, stay where we are (we're at the first group)
 }
 
 // fetchGitLog returns a command that fetches git log for a repository
