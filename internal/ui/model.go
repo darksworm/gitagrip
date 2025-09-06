@@ -788,15 +788,34 @@ func (m *Model) branchColor(branchName string) (lipgloss.Color, bool) {
 	}
 	
 	// Map to a set of colors (avoiding red which might indicate errors)
+	// Using a wider range of ANSI 256 colors for better variety
 	colors := []lipgloss.Color{
-		lipgloss.Color("51"),  // Cyan
-		lipgloss.Color("214"), // Yellow
-		lipgloss.Color("33"),  // Blue
-		lipgloss.Color("205"), // Magenta
-		lipgloss.Color("87"),  // LightCyan
-		lipgloss.Color("228"), // LightYellow
-		lipgloss.Color("111"), // LightBlue
-		lipgloss.Color("213"), // LightMagenta
+		lipgloss.Color("51"),   // Cyan
+		lipgloss.Color("214"),  // Yellow/Orange
+		lipgloss.Color("33"),   // Blue
+		lipgloss.Color("205"),  // Magenta/Pink
+		lipgloss.Color("87"),   // Light Cyan
+		lipgloss.Color("228"),  // Light Yellow
+		lipgloss.Color("111"),  // Light Blue
+		lipgloss.Color("213"),  // Light Magenta
+		lipgloss.Color("45"),   // Turquoise
+		lipgloss.Color("39"),   // Deep Sky Blue
+		lipgloss.Color("171"),  // Purple
+		lipgloss.Color("220"),  // Gold
+		lipgloss.Color("208"),  // Dark Orange
+		lipgloss.Color("159"),  // Pale Cyan
+		lipgloss.Color("141"),  // Light Purple
+		lipgloss.Color("117"),  // Sky Blue
+		lipgloss.Color("183"),  // Plum
+		lipgloss.Color("186"),  // Khaki
+		lipgloss.Color("222"),  // Light Salmon
+		lipgloss.Color("156"),  // Light Green
+		lipgloss.Color("48"),   // Spring Green
+		lipgloss.Color("85"),   // Sea Green
+		lipgloss.Color("120"),  // Light Green
+		lipgloss.Color("135"),  // Purple Blue
+		lipgloss.Color("177"),  // Violet
+		lipgloss.Color("215"),  // Sandy Brown
 	}
 	
 	color := colors[hash%uint32(len(colors))]
