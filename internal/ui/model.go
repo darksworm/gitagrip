@@ -122,6 +122,7 @@ const (
 	InputModeNewGroup
 	InputModeMoveToGroup
 	InputModeDeleteConfirm
+	InputModeSearch
 )
 
 // Model represents the UI state
@@ -152,6 +153,9 @@ type Model struct {
 	inputMode      InputMode                   // current input mode
 	textInput      textinput.Model             // text input for group names
 	deleteTarget   string                      // group name being deleted
+	searchQuery    string                      // current search query
+	searchMatches  []int                       // indices of matching items
+	searchIndex    int                         // current match index
 }
 
 // NewModel creates a new UI model
@@ -318,6 +322,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keyHelp):
 			m.showHelp = !m.showHelp
 			
+		case msg.String() == "/":
+			// Enter search mode
+			m.inputMode = InputModeSearch
+			m.textInput.Reset()
+			m.textInput.Focus()
+			m.searchQuery = ""
+			m.searchMatches = nil
+			m.searchIndex = 0
+			m.updateViewportHeight()
+			return m, textinput.Blink
+			
 		case key.Matches(msg, keyLog):
 			// Show log for selected repository
 			if !m.showLog {
@@ -357,14 +372,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			
-		case key.Matches(msg, keyNewGroup):
-			// Enter new group mode
-			m.inputMode = InputModeNewGroup
-			m.textInput.Reset()
-			m.textInput.Focus()
-			m.statusMessage = ""
-			m.updateViewportHeight()
-			return m, textinput.Blink
+		case msg.String() == "n":
+			// Next search result (if in normal mode with search results)
+			if m.inputMode == InputModeNormal && len(m.searchMatches) > 0 {
+				m.searchIndex = (m.searchIndex + 1) % len(m.searchMatches)
+				m.selectedIndex = m.searchMatches[m.searchIndex]
+				m.ensureSelectedVisible()
+			} else if key.Matches(msg, keyNewGroup) {
+				// Create new group
+				m.inputMode = InputModeNewGroup
+				m.textInput.Reset()
+				m.textInput.Focus()
+				m.statusMessage = ""
+				m.updateViewportHeight()
+				return m, textinput.Blink
+			}
+			
+		case msg.String() == "N":
+			// Previous search result
+			if m.inputMode == InputModeNormal && len(m.searchMatches) > 0 {
+				m.searchIndex--
+				if m.searchIndex < 0 {
+					m.searchIndex = len(m.searchMatches) - 1
+				}
+				m.selectedIndex = m.searchMatches[m.searchIndex]
+				m.ensureSelectedVisible()
+			}
 			
 		case key.Matches(msg, keyMoveToGroup):
 			// Move selected repositories to a group
@@ -656,6 +689,8 @@ func (m *Model) View() string {
 		} else if m.inputMode == InputModeDeleteConfirm {
 			confirmStyle := lipgloss.NewStyle().Bold(true)
 			content.WriteString(confirmStyle.Render(fmt.Sprintf("Delete group '%s'? (y/n): ", m.deleteTarget)))
+		} else if m.inputMode == InputModeSearch {
+			content.WriteString("Search: ")
 		}
 		if m.inputMode != InputModeDeleteConfirm {
 			content.WriteString(m.textInput.View())
@@ -912,6 +947,7 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	if m.selectedRepos[repo.Path] {
 		selectionIndicator = "[✓]"
 	}
+	
 	
 	// Check if this repo is currently refreshing or fetching
 	isRefreshing := m.refreshingRepos[repo.Path]
@@ -1313,6 +1349,21 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 						})
 					}
 				}
+				
+			case InputModeSearch:
+				searchQuery := strings.TrimSpace(m.textInput.Value())
+				if searchQuery != "" {
+					m.searchQuery = searchQuery
+					m.performSearch()
+					if len(m.searchMatches) > 0 {
+						m.searchIndex = 0
+						m.selectedIndex = m.searchMatches[m.searchIndex]
+						m.ensureSelectedVisible()
+						m.statusMessage = fmt.Sprintf("Found %d matches (n/N to navigate)", len(m.searchMatches))
+					} else {
+						m.statusMessage = fmt.Sprintf("No matches found for '%s'", searchQuery)
+					}
+				}
 			}
 			// Return to normal mode
 			m.inputMode = InputModeNormal
@@ -1326,6 +1377,12 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textInput.Blur()
 			m.statusMessage = ""
 			m.deleteTarget = ""
+			// Clear search if we were searching
+			if m.inputMode == InputModeSearch {
+				m.searchQuery = ""
+				m.searchMatches = nil
+				m.searchIndex = 0
+			}
 			m.updateViewportHeight()
 			return m, nil
 		}
@@ -1526,6 +1583,52 @@ func (m *Model) getGroupsMap() map[string][]string {
 		groups[name] = append([]string(nil), group.Repos...) // Copy slice
 	}
 	return groups
+}
+
+// performSearch searches for repositories matching the query
+func (m *Model) performSearch() {
+	m.searchMatches = nil
+	query := strings.ToLower(m.searchQuery)
+	currentIndex := 0
+	
+	// Search in groups first
+	for _, groupName := range m.orderedGroups {
+		// Check group name
+		if strings.Contains(strings.ToLower(groupName), query) {
+			m.searchMatches = append(m.searchMatches, currentIndex)
+		}
+		currentIndex++
+		
+		// Check repos in group if expanded
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			for _, repoPath := range group.Repos {
+				if repo, ok := m.repositories[repoPath]; ok {
+					// Search in repo name, path, or branch
+					if strings.Contains(strings.ToLower(repo.Name), query) ||
+						strings.Contains(strings.ToLower(repo.Path), query) ||
+						strings.Contains(strings.ToLower(repo.Status.Branch), query) {
+						m.searchMatches = append(m.searchMatches, currentIndex)
+					}
+				}
+				currentIndex++
+			}
+		}
+	}
+	
+	// Search in ungrouped repos
+	ungroupedRepos := m.getUngroupedRepos()
+	for _, repoPath := range ungroupedRepos {
+		if repo, ok := m.repositories[repoPath]; ok {
+			// Search in repo name, path, or branch
+			if strings.Contains(strings.ToLower(repo.Name), query) ||
+				strings.Contains(strings.ToLower(repo.Path), query) ||
+				strings.Contains(strings.ToLower(repo.Status.Branch), query) {
+				m.searchMatches = append(m.searchMatches, currentIndex)
+			}
+		}
+		currentIndex++
+	}
 }
 
 // fetchGitLog returns a command that fetches git log for a repository
