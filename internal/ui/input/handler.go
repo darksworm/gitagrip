@@ -41,12 +41,14 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 	}
 	
 	actions, consumed := handler.HandleKey(msg, ctx)
-	if !consumed {
-		return nil, nil
-	}
 	
 	var cmd tea.Cmd
 	var allActions []types.Action
+	
+	// If not consumed and we're in text mode, we'll handle it below
+	if !consumed && !h.isTextMode(h.currentMode) {
+		return nil, nil
+	}
 	
 	// Handle mode changes
 	for _, action := range actions {
@@ -81,7 +83,7 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 	}
 	
 	// If we're in a text mode and didn't handle the key, pass it to text input
-	if h.isTextMode(h.currentMode) && len(actions) == 0 {
+	if h.isTextMode(h.currentMode) && (!consumed || len(actions) == 0) {
 		var textCmd tea.Cmd
 		h.textInput, textCmd = h.textInput.Update(msg)
 		cmd = textCmd

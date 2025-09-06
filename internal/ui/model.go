@@ -912,7 +912,7 @@ func (m *Model) updateOrderedLists() {
 		m.state.OrderedGroups = make([]string, 0, len(m.state.GroupCreationOrder))
 		// Only include groups that still exist
 		for _, name := range m.state.GroupCreationOrder {
-			if _, exists := m.store.GetGroup(name); exists {
+			if _, exists := m.state.Groups[name]; exists {
 				m.state.OrderedGroups = append(m.state.OrderedGroups, name)
 			}
 		}
@@ -1972,6 +1972,51 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			
 		case inputtypes.ModeSort:
 			m.handleSortInput(a.Text)
+			
+		case inputtypes.ModeNewGroup:
+			groupName := strings.TrimSpace(a.Text)
+			if groupName != "" {
+				// Create the new group
+				if m.bus != nil {
+					m.bus.Publish(eventbus.GroupAddedEvent{
+						Name: groupName,
+					})
+				}
+				
+				// Move selected repos to the new group
+				movedCount := 0
+				for repoPath := range m.store.GetSelectedRepositories() {
+					// Find current group (if any)
+					var fromGroup string
+					for _, group := range m.state.Groups {
+						for _, path := range group.Repos {
+							if path == repoPath {
+								fromGroup = group.Name
+								break
+							}
+						}
+					}
+					
+					// Publish move event
+					m.bus.Publish(eventbus.RepoMovedEvent{
+						RepoPath:  repoPath,
+						FromGroup: fromGroup,
+						ToGroup:   groupName,
+					})
+					movedCount++
+				}
+				
+				// Clear selection
+				if movedCount > 0 {
+					m.state.ClearSelection()
+				}
+				
+				// Update status message
+				m.state.StatusMessage = fmt.Sprintf("Created group '%s' with %d repo(s)", groupName, movedCount)
+			}
+			
+		case inputtypes.ModeMoveToGroup:
+			// TODO: Implement move to group
 		}
 		
 	case inputtypes.CancelTextAction:
