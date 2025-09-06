@@ -221,6 +221,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		switch {
 		case key.Matches(msg, keyQuit):
+			// If autosave is enabled, emit config changed event before quitting
+			if m.config.UISettings.AutosaveOnExit && m.bus != nil {
+				m.bus.Publish(eventbus.ConfigChangedEvent{
+					Groups: m.getGroupsMap(),
+				})
+			}
 			return m, tea.Quit
 			
 		case key.Matches(msg, keyUp):
@@ -381,6 +387,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				
 				m.statusMessage = fmt.Sprintf("Moved %d repos to '%s'", movedCount, targetGroup)
 				m.selectedRepos = make(map[string]bool) // Clear selection
+				
+				// Emit config changed event
+				if m.bus != nil && movedCount > 0 {
+					m.bus.Publish(eventbus.ConfigChangedEvent{
+						Groups: m.getGroupsMap(),
+					})
+				}
 			} else if len(m.orderedGroups) == 0 {
 				m.statusMessage = "No groups available. Press 'n' to create one."
 			} else {
@@ -1244,6 +1257,13 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.statusMessage = fmt.Sprintf("Created empty group '%s'", groupName)
 					}
+					
+					// Emit config changed event
+					if m.bus != nil {
+						m.bus.Publish(eventbus.ConfigChangedEvent{
+							Groups: m.getGroupsMap(),
+						})
+					}
 				}
 			}
 			// Return to normal mode
@@ -1380,6 +1400,20 @@ type gitLogMsg struct {
 	repoPath string
 	content  string
 	err      error
+}
+
+// quitMsg is sent when the app should quit
+type quitMsg struct {
+	save bool
+}
+
+// getGroupsMap returns the current groups as a map
+func (m *Model) getGroupsMap() map[string][]string {
+	groups := make(map[string][]string)
+	for name, group := range m.groups {
+		groups[name] = append([]string(nil), group.Repos...) // Copy slice
+	}
+	return groups
 }
 
 // fetchGitLog returns a command that fetches git log for a repository

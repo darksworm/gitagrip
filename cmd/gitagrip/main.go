@@ -69,12 +69,27 @@ func main() {
 		cancel()
 	}()
 
-	// Load configuration from the target directory
-	configSvc := config.NewConfigService()
-	cfg := loadOrCreateConfig(configSvc, absDir)
-
 	// Create event bus
 	bus := eventbus.New()
+
+	// Load configuration from the target directory with event bus support
+	configPath := filepath.Join(absDir, ".gitagrip.toml")
+	configSvc := config.NewConfigServiceWithBus(bus)
+	cfg := loadOrCreateConfig(configSvc, absDir)
+	
+	// Subscribe to config changes to save automatically
+	bus.Subscribe(eventbus.EventConfigChanged, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.ConfigChangedEvent); ok {
+			// Update config with new groups
+			cfg.Groups = event.Groups
+			// Save config
+			if err := configSvc.SaveToPath(cfg, configPath); err != nil {
+				log.Printf("Failed to save config: %v", err)
+			} else {
+				log.Printf("Config saved to %s", configPath)
+			}
+		}
+	})
 
 	// Initialize services
 	discoverySvc := discovery.NewDiscoveryService(bus)

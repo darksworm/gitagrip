@@ -18,6 +18,7 @@ const (
 	EventFetchRequested EventType = "FetchRequested"
 	EventConfigLoaded   EventType = "ConfigLoaded"
 	EventConfigSaved    EventType = "ConfigSaved"
+	EventConfigChanged  EventType = "ConfigChanged"
 )
 
 // DomainEvent is the interface for all domain events
@@ -104,6 +105,13 @@ func (e ConfigLoadedEvent) Type() EventType { return EventConfigLoaded }
 type ConfigSavedEvent struct{}
 
 func (e ConfigSavedEvent) Type() EventType { return EventConfigSaved }
+
+// ConfigChangedEvent is emitted when configuration needs to be saved
+type ConfigChangedEvent struct {
+	Groups map[string][]string // Current group configuration
+}
+
+func (e ConfigChangedEvent) Type() EventType { return EventConfigChanged }
 
 // StatusRefreshRequestedEvent is emitted to request status refresh for specific repositories
 type StatusRefreshRequestedEvent struct {
