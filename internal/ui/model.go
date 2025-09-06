@@ -205,13 +205,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					repoPaths = append(repoPaths, path)
 					m.refreshingRepos[path] = true
 				}
-				m.statusMessage = fmt.Sprintf("Refreshing %d selected repositories...", len(repoPaths))
 			} else {
 				// Refresh current repository
 				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
 					repoPaths = []string{repoPath}
 					m.refreshingRepos[repoPath] = true
-					m.statusMessage = "Refreshing repository status..."
 				}
 			}
 			
@@ -230,13 +228,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					repoPaths = append(repoPaths, path)
 					m.fetchingRepos[path] = true
 				}
-				m.statusMessage = fmt.Sprintf("Fetching %d selected repositories...", len(repoPaths))
 			} else {
 				// Fetch current repository
 				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
 					repoPaths = []string{repoPath}
 					m.fetchingRepos[repoPath] = true
-					m.statusMessage = "Fetching repository..."
 				}
 			}
 			
@@ -384,6 +380,11 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 		delete(m.refreshingRepos, e.RepoPath)
 		delete(m.fetchingRepos, e.RepoPath)
 		
+		// If all operations completed, show a completion message
+		if len(m.refreshingRepos) == 0 && len(m.fetchingRepos) == 0 {
+			m.statusMessage = "All operations completed"
+		}
+		
 	case eventbus.ErrorEvent:
 		m.statusMessage = fmt.Sprintf("Error: %s", e.Message)
 		// If this is a refresh error for a specific repo, we might need to clear its refreshing state
@@ -441,16 +442,33 @@ func (m *Model) View() string {
 	statusStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241"))
 	
-	// Show selection count if any
+	// Build status components
+	var statusParts []string
+	
+	// Selection count
 	if len(m.selectedRepos) > 0 {
-		selectionMsg := fmt.Sprintf("%d selected", len(m.selectedRepos))
-		if m.statusMessage != "" {
-			content.WriteString(statusStyle.Render(fmt.Sprintf("%s | %s", selectionMsg, m.statusMessage)))
-		} else {
-			content.WriteString(statusStyle.Render(selectionMsg))
-		}
-	} else if m.statusMessage != "" {
-		content.WriteString(statusStyle.Render(m.statusMessage))
+		statusParts = append(statusParts, fmt.Sprintf("%d selected", len(m.selectedRepos)))
+	}
+	
+	// Progress indicators for operations
+	refreshingCount := len(m.refreshingRepos)
+	fetchingCount := len(m.fetchingRepos)
+	
+	if refreshingCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("Refreshing %d", refreshingCount))
+	}
+	if fetchingCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("Fetching %d", fetchingCount))
+	}
+	
+	// Status message (if any)
+	if m.statusMessage != "" && refreshingCount == 0 && fetchingCount == 0 {
+		statusParts = append(statusParts, m.statusMessage)
+	}
+	
+	// Join and render status
+	if len(statusParts) > 0 {
+		content.WriteString(statusStyle.Render(strings.Join(statusParts, " | ")))
 	}
 	
 	// Help
