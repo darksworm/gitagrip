@@ -1,0 +1,82 @@
+package viewmodels
+
+import (
+	"github.com/charmbracelet/bubbles/textinput"
+)
+
+// InputMode represents the different input modes
+type InputMode int
+
+const (
+	InputModeNormal InputMode = iota
+	InputModeNewGroup
+	InputModeMoveToGroup
+	InputModeDeleteConfirm
+	InputModeSearch
+	InputModeFilter
+	InputModeSort
+)
+
+// InputTransformer handles input mode transformations
+type InputTransformer struct {
+	mode      InputMode
+	textInput textinput.Model
+}
+
+// NewInputTransformer creates a new input transformer
+func NewInputTransformer(textInput textinput.Model) *InputTransformer {
+	return &InputTransformer{
+		mode:      InputModeNormal,
+		textInput: textInput,
+	}
+}
+
+// SetMode sets the current input mode
+func (it *InputTransformer) SetMode(mode InputMode) {
+	it.mode = mode
+}
+
+// GetInputText returns the current text input string for the view
+func (it *InputTransformer) GetInputText() string {
+	if it.mode == InputModeNormal || it.mode == InputModeDeleteConfirm {
+		return ""
+	}
+	
+	var prefix string
+	switch it.mode {
+	case InputModeNewGroup:
+		prefix = "Enter new group name: "
+	case InputModeMoveToGroup:
+		prefix = "Move to group: "
+	case InputModeSearch:
+		prefix = "Search: "
+	case InputModeFilter:
+		prefix = "Filter: "
+	case InputModeSort:
+		prefix = "Sort by: "
+	}
+	
+	return prefix + it.textInput.View()
+}
+
+// GetInputModeString returns the string representation of the input mode
+func (it *InputTransformer) GetInputModeString() string {
+	switch it.mode {
+	case InputModeNormal:
+		return ""
+	case InputModeNewGroup:
+		return "new-group"
+	case InputModeMoveToGroup:
+		return "move-to-group"
+	case InputModeDeleteConfirm:
+		return "delete-confirm"
+	case InputModeSearch:
+		return "search"
+	case InputModeFilter:
+		return "filter"
+	case InputModeSort:
+		return "sort"
+	default:
+		return ""
+	}
+}

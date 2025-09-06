@@ -19,6 +19,7 @@ import (
 	"gitagrip/internal/ui/handlers"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/state"
+	"gitagrip/internal/ui/viewmodels"
 	"gitagrip/internal/ui/views"
 )
 
@@ -127,16 +128,17 @@ var (
 )
 
 // InputMode represents different input modes
-type InputMode int
+// Use InputMode from viewmodels package
+type InputMode = viewmodels.InputMode
 
 const (
-	InputModeNormal InputMode = iota
-	InputModeNewGroup
-	InputModeMoveToGroup
-	InputModeDeleteConfirm
-	InputModeSearch
-	InputModeSort
-	InputModeFilter
+	InputModeNormal        = viewmodels.InputModeNormal
+	InputModeNewGroup      = viewmodels.InputModeNewGroup
+	InputModeMoveToGroup   = viewmodels.InputModeMoveToGroup
+	InputModeDeleteConfirm = viewmodels.InputModeDeleteConfirm
+	InputModeSearch        = viewmodels.InputModeSearch
+	InputModeSort          = viewmodels.InputModeSort
+	InputModeFilter        = viewmodels.InputModeFilter
 )
 
 // Model represents the UI state
@@ -160,6 +162,7 @@ type Model struct {
 	navigator     *logic.Navigator            // navigation and viewport handler
 	renderer      *views.Renderer             // view renderer
 	eventHandler  *handlers.EventHandler      // event processing handler
+	viewModel     *viewmodels.ViewModel        // view model for rendering
 }
 
 // NewModel creates a new UI model
@@ -185,6 +188,10 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	
 	// Create event handler with reference to updateOrderedLists method
 	m.eventHandler = handlers.NewEventHandler(appState, m.updateOrderedLists)
+	
+	// Create view model
+	m.viewModel = viewmodels.NewViewModel(appState, cfg, ti)
+	m.viewModel.SetHelp(m.help)
 	
 	// Initialize groups from config
 	for name, repoPaths := range cfg.Groups {
@@ -714,86 +721,17 @@ func (m *Model) View() string {
 		return "Loading..."
 	}
 	
-	// Create view state
-	state := views.ViewState{
-		Width:            m.width,
-		Height:           m.height,
-		Repositories:     m.state.Repositories,
-		Groups:           m.state.Groups,
-		OrderedGroups:    m.state.OrderedGroups,
-		SelectedIndex:    m.state.SelectedIndex,
-		SelectedRepos:    m.state.SelectedRepos,
-		RefreshingRepos:  m.state.RefreshingRepos,
-		FetchingRepos:    m.state.FetchingRepos,
-		PullingRepos:     m.state.PullingRepos,
-		ExpandedGroups:   m.state.ExpandedGroups,
-		Scanning:         m.state.Scanning,
-		StatusMessage:    m.state.StatusMessage,
-		ShowHelp:         m.state.ShowHelp,
-		ShowLog:          m.state.ShowLog,
-		LogContent:       m.state.LogContent,
-		ShowInfo:         m.state.ShowInfo,
-		InfoContent:      m.state.InfoContent,
-		ViewportOffset:   m.state.ViewportOffset,
-		ViewportHeight:   m.state.ViewportHeight,
-		SearchQuery:      m.state.SearchQuery,
-		FilterQuery:      m.state.FilterQuery,
-		IsFiltered:       m.state.IsFiltered,
-		ShowAheadBehind:  m.config.UISettings.ShowAheadBehind,
-		HelpModel:        m.help,
-		DeleteTarget:     m.deleteTarget,
-		TextInput:        m.getInputText(),
-		InputMode:        m.getInputModeString(),
-		UngroupedRepos:   m.getUngroupedRepos(),
-	}
+	// Update view model with current UI state
+	m.viewModel.SetDimensions(m.width, m.height)
+	m.viewModel.SetDeleteTarget(m.deleteTarget)
+	m.viewModel.SetInputMode(m.inputMode)
+	m.viewModel.SetUngroupedRepos(m.getUngroupedRepos())
 	
+	// Build view state and render
+	state := m.viewModel.BuildViewState()
 	return m.renderer.Render(state)
 }
 
-// getInputText returns the current text input string for the view
-func (m *Model) getInputText() string {
-	if m.inputMode == InputModeNormal || m.inputMode == InputModeDeleteConfirm {
-		return ""
-	}
-	
-	var prefix string
-	switch m.inputMode {
-	case InputModeNewGroup:
-		prefix = "Enter new group name: "
-	case InputModeMoveToGroup:
-		prefix = "Move to group: "
-	case InputModeSearch:
-		prefix = "Search: "
-	case InputModeFilter:
-		prefix = "Filter: "
-	case InputModeSort:
-		prefix = "Sort by: "
-	}
-	
-	return prefix + m.textInput.View()
-}
-
-// getInputModeString returns the string representation of the input mode
-func (m *Model) getInputModeString() string {
-	switch m.inputMode {
-	case InputModeNormal:
-		return ""
-	case InputModeNewGroup:
-		return "new-group"
-	case InputModeMoveToGroup:
-		return "move-to-group"
-	case InputModeDeleteConfirm:
-		return "delete-confirm"
-	case InputModeSearch:
-		return "search"
-	case InputModeFilter:
-		return "filter"
-	case InputModeSort:
-		return "sort"
-	default:
-		return ""
-	}
-}
 
 // updateOrderedLists updates the ordered lists for display
 func (m *Model) updateOrderedLists() {
