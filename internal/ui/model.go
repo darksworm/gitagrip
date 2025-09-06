@@ -122,14 +122,6 @@ var (
 	)
 )
 
-// EventMsg wraps a domain event for the UI
-type EventMsg struct {
-	Event eventbus.DomainEvent
-}
-
-// tickMsg is sent on a timer for animations
-type tickMsg time.Time
-
 // InputMode represents different input modes
 type InputMode int
 
@@ -2099,18 +2091,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyFullScan, keyLog, keyCopy, keyInfo},
 		{keyHelp, keyQuit},
 	}
-}
-
-// gitLogMsg contains the result of a git log command
-type gitLogMsg struct {
-	repoPath string
-	content  string
-	err      error
-}
-
-// quitMsg is sent when the app should quit
-type quitMsg struct {
-	save bool
 }
 
 // getGroupsMap returns the current groups as a map

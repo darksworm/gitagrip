@@ -1,0 +1,27 @@
+package ui
+
+import (
+	"time"
+
+	"gitagrip/internal/eventbus"
+)
+
+// EventMsg wraps a domain event for the UI
+type EventMsg struct {
+	Event eventbus.DomainEvent
+}
+
+// tickMsg is sent on a timer for animations
+type tickMsg time.Time
+
+// gitLogMsg contains the result of a git log command
+type gitLogMsg struct {
+	repoPath string
+	content  string
+	err      error
+}
+
+// quitMsg signals that the application should quit
+type quitMsg struct {
+	saveConfig bool
+}
