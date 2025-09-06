@@ -717,7 +717,7 @@ func (m *Model) renderRepositoryList() string {
 	totalItems := 0
 	
 	// Calculate the total number of items first
-	totalItems = len(m.getUngroupedRepos())
+	// Groups first
 	for _, groupName := range m.orderedGroups {
 		totalItems++ // Group header
 		if m.expandedGroups[groupName] {
@@ -725,6 +725,8 @@ func (m *Model) renderRepositoryList() string {
 			totalItems += len(group.Repos)
 		}
 	}
+	// Then ungrouped repos
+	totalItems += len(m.getUngroupedRepos())
 	
 	// Determine if we need scroll indicators
 	needsTopIndicator := m.viewportOffset > 0
@@ -750,19 +752,7 @@ func (m *Model) renderRepositoryList() string {
 	// Reset index
 	currentIndex = 0
 	
-	// Render ungrouped repositories first
-	ungroupedRepos := m.getUngroupedRepos()
-	for _, repoPath := range ungroupedRepos {
-		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
-			repo := m.repositories[repoPath]
-			isSelected := currentIndex == m.selectedIndex
-			line := m.renderRepository(repo, isSelected, 0)
-			visibleLines = append(visibleLines, line)
-		}
-		currentIndex++
-	}
-	
-	// Render groups
+	// Render groups first
 	for _, groupName := range m.orderedGroups {
 		group := m.groups[groupName]
 		isExpanded := m.expandedGroups[groupName]
@@ -788,6 +778,18 @@ func (m *Model) renderRepositoryList() string {
 				currentIndex++
 			}
 		}
+	}
+	
+	// Then render ungrouped repositories
+	ungroupedRepos := m.getUngroupedRepos()
+	for _, repoPath := range ungroupedRepos {
+		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
+			repo := m.repositories[repoPath]
+			isSelected := currentIndex == m.selectedIndex
+			line := m.renderRepository(repo, isSelected, 0)
+			visibleLines = append(visibleLines, line)
+		}
+		currentIndex++
 	}
 	
 	// Build final result with indicators
@@ -1100,7 +1102,7 @@ func (m *Model) getUngroupedRepos() []string {
 
 // getMaxIndex returns the maximum selectable index
 func (m *Model) getMaxIndex() int {
-	count := len(m.getUngroupedRepos()) + len(m.orderedGroups)
+	count := len(m.orderedGroups) + len(m.getUngroupedRepos())
 	for groupName, group := range m.groups {
 		if m.expandedGroups[groupName] {
 			count += len(group.Repos)
@@ -1131,14 +1133,7 @@ func (m *Model) updateViewportHeight() {
 func (m *Model) getSelectedGroup() string {
 	currentIndex := 0
 	
-	// Check ungrouped repos first
-	ungroupedCount := len(m.getUngroupedRepos())
-	if m.selectedIndex < ungroupedCount {
-		return "" // Not a group
-	}
-	currentIndex += ungroupedCount
-	
-	// Check groups
+	// Check groups first (since they're displayed first now)
 	for _, groupName := range m.orderedGroups {
 		if currentIndex == m.selectedIndex {
 			return groupName // This is the selected group
@@ -1163,16 +1158,7 @@ func (m *Model) getSelectedGroup() string {
 func (m *Model) getRepoPathAtIndex(index int) string {
 	currentIndex := 0
 	
-	// Check ungrouped repos first
-	ungroupedRepos := m.getUngroupedRepos()
-	for _, repoPath := range ungroupedRepos {
-		if currentIndex == index {
-			return repoPath
-		}
-		currentIndex++
-	}
-	
-	// Check groups
+	// Check groups first (since they're displayed first now)
 	for _, groupName := range m.orderedGroups {
 		// Group header itself is not a repo
 		if currentIndex == index {
@@ -1194,6 +1180,15 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 		if currentIndex > index {
 			break
 		}
+	}
+	
+	// Then check ungrouped repos
+	ungroupedRepos := m.getUngroupedRepos()
+	for _, repoPath := range ungroupedRepos {
+		if currentIndex == index {
+			return repoPath
+		}
+		currentIndex++
 	}
 	
 	return ""
@@ -1246,9 +1241,8 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedRepos = make(map[string]bool)
 					
 					// Set cursor to the new group
-					// Groups come after ungrouped repos, and new group will be first in the groups list
-					ungroupedCount := len(m.getUngroupedRepos())
-					m.selectedIndex = ungroupedCount // This will be the position of the first group
+					// Groups are displayed first and new group will be at the beginning
+					m.selectedIndex = 0 // New group is at the top
 					m.viewportOffset = 0
 					m.ensureSelectedVisible()
 					
@@ -1288,7 +1282,8 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 // ensureSelectedVisible adjusts the viewport to keep the selected item visible
 func (m *Model) ensureSelectedVisible() {
 	// Calculate total items using the same logic as renderRepositoryList
-	totalItems := len(m.getUngroupedRepos())
+	totalItems := 0
+	// Groups first
 	for _, groupName := range m.orderedGroups {
 		totalItems++ // Group header
 		if m.expandedGroups[groupName] {
@@ -1296,6 +1291,8 @@ func (m *Model) ensureSelectedVisible() {
 			totalItems += len(group.Repos)
 		}
 	}
+	// Then ungrouped repos
+	totalItems += len(m.getUngroupedRepos())
 	
 	// If selected item is above viewport, scroll up
 	if m.selectedIndex < m.viewportOffset {
