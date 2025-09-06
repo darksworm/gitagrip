@@ -3,1484 +3,558 @@ package ui
 import (
 	"fmt"
 	"log"
-	"os/exec"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"gitagrip/internal/config"
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
-	"gitagrip/internal/ui/commands"
-	"gitagrip/internal/ui/handlers"
+	"gitagrip/internal/git"
+	"gitagrip/internal/logic"
+	"gitagrip/internal/ui/coordinator"
 	"gitagrip/internal/ui/input"
 	inputtypes "gitagrip/internal/ui/input/types"
-	"gitagrip/internal/ui/logic"
-	"gitagrip/internal/ui/repositories"
-	"gitagrip/internal/ui/state"
+	"gitagrip/internal/ui/services/navigation"
 	"gitagrip/internal/ui/viewmodels"
 	"gitagrip/internal/ui/views"
 )
 
-// Key bindings
-var (
-	keyUp = key.NewBinding(
-		key.WithKeys("up", "k"),
-		key.WithHelp("↑/k", "up"),
-	)
-	keyDown = key.NewBinding(
-		key.WithKeys("down", "j"),
-		key.WithHelp("↓/j", "down"),
-	)
-	keyLeft = key.NewBinding(
-		key.WithKeys("left", "h"),
-		key.WithHelp("←/h", "collapse"),
-	)
-	keyRight = key.NewBinding(
-		key.WithKeys("right", "l"),
-		key.WithHelp("→/l", "expand"),
-	)
-	keyRefresh = key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "refresh"),
-	)
-	keyFullScan = key.NewBinding(
-		key.WithKeys("S"),
-		key.WithHelp("S", "full scan"),
-	)
-	keyFetch = key.NewBinding(
-		key.WithKeys("f"),
-		key.WithHelp("f", "fetch"),
-	)
-	keyFilter = key.NewBinding(
-		key.WithKeys("F"),
-		key.WithHelp("F", "filter"),
-	)
-	keyPull = key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", "pull"),
-	)
-	keyLog = key.NewBinding(
-		key.WithKeys("l"),
-		key.WithHelp("l", "log"),
-	)
-	keyHelp = key.NewBinding(
-		key.WithKeys("?"),
-		key.WithHelp("?", "help"),
-	)
-	keyQuit = key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
-	)
-	keyTop = key.NewBinding(
-		key.WithKeys("g g", "home"),
-		key.WithHelp("gg/home", "top"),
-	)
-	keyBottom = key.NewBinding(
-		key.WithKeys("G", "end"),
-		key.WithHelp("G/end", "bottom"),
-	)
-	keyPageUp = key.NewBinding(
-		key.WithKeys("pgup", "ctrl+b"),
-		key.WithHelp("pgup/ctrl+b", "page up"),
-	)
-	keyPageDown = key.NewBinding(
-		key.WithKeys("pgdown", "ctrl+f", " "),
-		key.WithHelp("pgdn/ctrl+f/space", "page down"),
-	)
-	keyHalfPageUp = key.NewBinding(
-		key.WithKeys("ctrl+u"),
-		key.WithHelp("ctrl+u", "half page up"),
-	)
-	keyHalfPageDown = key.NewBinding(
-		key.WithKeys("ctrl+d"),
-		key.WithHelp("ctrl+d", "half page down"),
-	)
-	keySelect = key.NewBinding(
-		key.WithKeys(" "),
-		key.WithHelp("space", "select/expand"),
-	)
-	keySelectAll = key.NewBinding(
-		key.WithKeys("cmd+a"),
-		key.WithHelp("cmd+a", "select all"),
-	)
-	keyNewGroup = key.NewBinding(
-		key.WithKeys("n"),
-		key.WithHelp("n", "new group"),
-	)
-	keyMoveToGroup = key.NewBinding(
-		key.WithKeys("m"),
-		key.WithHelp("m", "move to group"),
-	)
-	keyDelete = key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", "delete group"),
-	)
-	keyCopy = key.NewBinding(
-		key.WithKeys("y"),
-		key.WithHelp("y", "copy path"),
-	)
-	keyInfo = key.NewBinding(
-		key.WithKeys("i"),
-		key.WithHelp("i", "repo info"),
-	)
-)
-
-// Model represents the UI state
+// Model is the refactored model using services
 type Model struct {
-	bus    eventbus.EventBus
-	config *config.Config
-	state  *state.AppState // centralized state
-
-	// UI-specific state not in AppState
-	width       int
-	height      int
-	help        help.Model
-	lastKeyWasG bool // track 'g' key for 'gg' command
-	// Removed: inputMode, textInput, deleteTarget - now handled by input handler
-	currentSort logic.SortMode // current sort mode
-	// Removed: useNewInput - fully migrated to new input handler
-
-	// Handlers
-	searchFilter *logic.SearchFilter          // search and filter handler
-	navigator    *logic.Navigator             // navigation and viewport handler
-	renderer     *views.Renderer              // view renderer
-	eventHandler *handlers.EventHandler       // event processing handler
-	viewModel    *viewmodels.ViewModel        // view model for rendering
-	store        repositories.RepositoryStore // repository store for data access
-	cmdExecutor  *commands.Executor           // command executor
-	inputHandler *input.Handler               // input handling
+	// Core dependencies
+	config      *config.Config
+	store       logic.RepositoryStore
+	groupStore  logic.GroupStore
+	eventBus    eventbus.EventBus
+	coordinator *coordinator.Coordinator
+	
+	// UI components
+	inputHandler *input.Handler
+	renderer     *views.Renderer
+	transformer  *viewmodels.ViewModelTransformer
+	
+	// UI state (minimal - most state is in services)
+	state UIState
+	
+	// Channels
+	eventChan <-chan interface{}
 }
 
-// NewModel creates a new UI model
-func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
-	appState := state.NewAppState()
+// UIState contains only UI-specific state
+type UIState struct {
+	Width         int
+	Height        int
+	ShowHelp      bool
+	ShowLog       bool
+	LogContent    string
+	ShowInfo      bool
+	InfoContent   string
+	StatusMessage string
+	Repositories  map[string]*domain.Repository // Cache for rendering
+	HelpModel     help.Model
+}
 
+// NewModel creates a new refactored model
+func NewModel(
+	cfg *config.Config,
+	store logic.RepositoryStore,
+	groupStore logic.GroupStore,
+	eventBus eventbus.EventBus,
+	eventChan <-chan interface{},
+) *Model {
+	// Create coordinator with all services
+	coord := coordinator.NewCoordinator(eventBus, store, groupStore)
+	
+	// Set up groups save function
+	coord.Groups.SetSaveFunction(func() {
+		// Convert groups to config format and save
+		groupsConfig := make(map[string][]string)
+		for _, group := range groupStore.GetAllGroups() {
+			groupsConfig[group.Name] = group.Repos
+		}
+		cfg.Groups = groupsConfig
+		
+		if err := config.SaveConfig(cfg); err != nil {
+			log.Printf("Error saving config: %v", err)
+		}
+	})
+	
+	// Initialize expanded groups from existing data
+	for name := range groupStore.GetAllGroups() {
+		coord.Groups.ToggleExpanded(name) // Default to expanded
+	}
+	
+	// Create UI components
+	renderer := views.NewRenderer(cfg.UI.ShowAheadBehind)
+	transformer := viewmodels.NewViewModelTransformer(cfg.UI.ShowAheadBehind)
+	
 	m := &Model{
-		bus:    bus,
-		config: cfg,
-		state:  appState,
-		help:   help.New(),
-		// Removed: textInput - now handled by input handler
-		// Removed: inputMode - now handled by input handler
-		currentSort:  logic.SortByName,
-		searchFilter: logic.NewSearchFilter(nil), // Will be updated when repos are added
-		navigator:    logic.NewNavigator(),
-		renderer:     views.NewRenderer(cfg.UISettings.ShowAheadBehind),
-		inputHandler: input.New(),
+		config:       cfg,
+		store:        store,
+		groupStore:   groupStore,
+		eventBus:     eventBus,
+		coordinator:  coord,
+		inputHandler: input.NewHandler(),
+		renderer:     renderer,
+		transformer:  transformer,
+		state: UIState{
+			ShowHelp:     false,
+			Repositories: make(map[string]*domain.Repository),
+			HelpModel:    help.New(),
+		},
+		eventChan: eventChan,
 	}
-
-	// Create event handler with reference to updateOrderedLists method
-	m.eventHandler = handlers.NewEventHandler(appState, m.updateOrderedLists)
-
-	// Create repository store
-	m.store = repositories.NewStateRepositoryStore(appState)
-
-	// Create command executor
-	m.cmdExecutor = commands.NewExecutor(appState, bus)
-
-	// Create view model with a placeholder text input (actual one is in input handler)
-	placeholderTextInput := textinput.New()
-	m.viewModel = viewmodels.NewViewModel(appState, cfg, placeholderTextInput)
-	m.viewModel.SetHelp(m.help)
-
-	// Initialize groups from config
-	for name, repoPaths := range cfg.Groups {
-		m.state.AddGroup(name, repoPaths)
-	}
-	m.updateOrderedLists()
-
-	// Update searchFilter with the actual repositories map
-	m.searchFilter = logic.NewSearchFilter(m.state.Repositories)
-
+	
+	// Update coordinator with initial data
+	m.coordinator.UpdateOrderedLists()
+	
+	// Subscribe to service events
+	m.subscribeToEvents()
+	
 	return m
 }
 
-// syncNavigatorState updates the navigator with current model state
-func (m *Model) syncNavigatorState() {
-	m.navigator.UpdateState(
-		m.state.SelectedIndex,
-		m.state.ViewportOffset,
-		m.state.ViewportHeight,
-		m.state.ExpandedGroups,
-		m.store.GetOrderedGroups(),
-		m.state.Groups,
-		m.state.Repositories,
-	)
-}
-
-// Init returns an initial command
+// Init initializes the model
 func (m *Model) Init() tea.Cmd {
-	// Initialize viewport with reasonable defaults
-	m.state.ViewportHeight = 20 // Will be updated on first WindowSizeMsg
-	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
+	return tea.Batch(
+		m.waitForEvent(),
+		m.inputHandler.Init(),
+		tea.EnterAltScreen,
+	)
 }
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.help.Width = msg.Width
-		m.updateViewportHeight()
+		m.state.Width = msg.Width
+		m.state.Height = msg.Height
+		m.coordinator.SetViewportHeight(msg.Height)
+		m.state.HelpModel.Width = msg.Width
 
 	case tea.KeyMsg:
-		// Handle log/info popups first
-		if m.state.ShowLog {
-			switch msg.String() {
-			case "esc", "l", "q":
-				m.state.ShowLog = false
-				m.state.LogContent = ""
-				return m, nil
-			}
-		}
-
-		if m.state.ShowInfo {
-			switch msg.String() {
-			case "esc", "i", "q":
-				m.state.ShowInfo = false
-				m.state.InfoContent = ""
-				return m, nil
-			}
-		}
-
-		// Create context for input handler
-		ctx := &input.ModelContext{
-			State:       m.state,
-			Store:       m.store,
-			Navigator:   m.navigator,
-			CurrentSort: m.currentSort,
-		}
-
-		// Handle input through the new handler
-		actions, cmd := m.inputHandler.HandleKey(msg, ctx)
-
-		// Process actions
-		cmds := []tea.Cmd{}
+		// Let input handler process the key
+		actions, cmd := m.inputHandler.HandleKey(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-
+		
+		// Process resulting actions
 		for _, action := range actions {
-			if actionCmd := m.processAction(action); actionCmd != nil {
-				cmds = append(cmds, actionCmd)
+			if cmd := m.handleAction(action); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 
-		// Update text input in view model if in text mode
-		if m.inputHandler.TextInput() != nil {
-			m.viewModel.UpdateTextInput(*m.inputHandler.TextInput())
-		}
+	case eventReceivedMsg:
+		// Handle domain events
+		m.handleDomainEvent(msg.event)
+		cmds = append(cmds, m.waitForEvent())
 
-		return m, tea.Batch(cmds...)
-
-	default:
-		// Handle non-keyboard messages
-		if cmd := m.inputHandler.Update(msg); cmd != nil {
-			// Update text input in view model if in text mode
-			if m.inputHandler.TextInput() != nil {
-				m.viewModel.UpdateTextInput(*m.inputHandler.TextInput())
-			}
-			return m, cmd
+	case inputtypes.InputCompleteMsg:
+		// Handle input completion
+		if cmd := m.handleInputComplete(msg); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		return m.handleNonKeyboardMsg(msg)
 	}
 
-	return m, nil
-}
-
-// handleEvent processes domain events
-func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
-	cmd := m.eventHandler.HandleEvent(event)
-	// Update searchFilter reference
-	m.searchFilter = m.eventHandler.GetSearchFilter()
-	return m, cmd
+	// Always tick for animations
+	cmds = append(cmds, tickCmd())
+	
+	return m, tea.Batch(cmds...)
 }
 
 // View renders the UI
 func (m *Model) View() string {
-	if m.width == 0 {
-		return "Loading..."
-	}
-
-	// Update view model with current UI state
-	m.viewModel.SetDimensions(m.width, m.height)
-	// deleteTarget now handled by input handler
-
-	// Use input handler's state
-	if m.inputHandler != nil {
-		// Convert input.Mode to viewmodels.InputMode
-		inputHandlerMode := m.inputHandler.CurrentMode()
-		var viewModelMode viewmodels.InputMode
-		switch inputHandlerMode {
-		case inputtypes.ModeNormal:
-			viewModelMode = viewmodels.InputModeNormal
-		case inputtypes.ModeSearch:
-			viewModelMode = viewmodels.InputModeSearch
-		case inputtypes.ModeFilter:
-			viewModelMode = viewmodels.InputModeFilter
-		case inputtypes.ModeNewGroup:
-			viewModelMode = viewmodels.InputModeNewGroup
-		case inputtypes.ModeMoveToGroup:
-			viewModelMode = viewmodels.InputModeMoveToGroup
-		case inputtypes.ModeDeleteConfirm:
-			viewModelMode = viewmodels.InputModeDeleteConfirm
-		case inputtypes.ModeSort:
-			viewModelMode = viewmodels.InputModeSort
-		}
-		m.viewModel.SetInputMode(viewModelMode)
-
-		// Use input handler's text input if available
-		if ti := m.inputHandler.TextInput(); ti != nil {
-			m.viewModel.UpdateTextInput(*ti)
-		}
-	}
-
-	m.viewModel.SetUngroupedRepos(m.getUngroupedRepos())
-
-	// Build view state and render
-	state := m.viewModel.BuildViewState()
-	return m.renderer.Render(state)
+	// Build view state from services
+	viewState := m.buildViewState()
+	
+	// Render using the views package
+	return m.renderer.Render(viewState)
 }
 
-// updateOrderedLists updates the ordered lists for display
-func (m *Model) updateOrderedLists() {
-	// Update ordered repos
-	m.state.OrderedRepos = make([]string, 0, len(m.store.GetAllRepositories()))
-	for path := range m.store.GetAllRepositories() {
-		m.state.OrderedRepos = append(m.state.OrderedRepos, path)
-	}
-
-	// Sort repositories based on current sort mode
-	switch m.currentSort {
-	case logic.SortByName:
-		sort.Slice(m.state.OrderedRepos, func(i, j int) bool {
-			repoI, okI := m.state.Repositories[m.state.OrderedRepos[i]]
-			repoJ, okJ := m.state.Repositories[m.state.OrderedRepos[j]]
-			if !okI || !okJ {
-				return !okI
-			}
-			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-		})
-
-	case logic.SortByStatus:
-		sort.Slice(m.state.OrderedRepos, func(i, j int) bool {
-			repoI, okI := m.state.Repositories[m.state.OrderedRepos[i]]
-			repoJ, okJ := m.state.Repositories[m.state.OrderedRepos[j]]
-			if !okI || !okJ {
-				return !okI
-			}
-			// Order: error, dirty, clean
-			statusI := logic.GetStatusPriority(repoI)
-			statusJ := logic.GetStatusPriority(repoJ)
-			if statusI != statusJ {
-				return statusI > statusJ // Higher priority first
-			}
-			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-		})
-
-	case logic.SortByBranch:
-		sort.Slice(m.state.OrderedRepos, func(i, j int) bool {
-			repoI, okI := m.state.Repositories[m.state.OrderedRepos[i]]
-			repoJ, okJ := m.state.Repositories[m.state.OrderedRepos[j]]
-			if !okI || !okJ {
-				return !okI
-			}
-			branchI := strings.ToLower(repoI.Status.Branch)
-			branchJ := strings.ToLower(repoJ.Status.Branch)
-			if branchI != branchJ {
-				// Put main/master first
-				if branchI == "main" || branchI == "master" {
-					return true
-				}
-				if branchJ == "main" || branchJ == "master" {
-					return false
-				}
-				return branchI < branchJ
-			}
-			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-		})
-
-	case logic.SortByGroup:
-		// For group sort, we don't sort the repos here, but we sort groups alphabetically
-		// Repos will be displayed in their groups
-
-	default:
-		// Default to alphabetical by path
-		sort.Strings(m.state.OrderedRepos)
-	}
-
-	// Update ordered groups
-	if m.currentSort == logic.SortByGroup {
-		// Sort groups alphabetically
-		m.state.OrderedGroups = make([]string, 0, len(m.state.Groups))
-		for name := range m.state.Groups {
-			m.state.OrderedGroups = append(m.state.OrderedGroups, name)
-		}
-		sort.Strings(m.state.OrderedGroups)
-	} else {
-		// Use creation order (newest first)
-		m.state.OrderedGroups = make([]string, 0, len(m.state.GroupCreationOrder))
-		// Only include groups that still exist
-		for _, name := range m.state.GroupCreationOrder {
-			if _, exists := m.state.Groups[name]; exists {
-				m.state.OrderedGroups = append(m.state.OrderedGroups, name)
-			}
-		}
-	}
-
-	// Update ungrouped repos cache
-	m.state.UngroupedRepos = m.getUngroupedRepos()
-
-	// Sort ungrouped repos if needed
-	if m.currentSort != logic.SortByName {
-		// Apply the same sort to ungrouped repos
-		switch m.currentSort {
-		case logic.SortByStatus:
-			sort.Slice(m.state.UngroupedRepos, func(i, j int) bool {
-				repoI, okI := m.store.GetRepository(m.state.UngroupedRepos[i])
-				repoJ, okJ := m.store.GetRepository(m.state.UngroupedRepos[j])
-				if !okI || !okJ {
-					return !okI
-				}
-				statusI := logic.GetStatusPriority(repoI)
-				statusJ := logic.GetStatusPriority(repoJ)
-				if statusI != statusJ {
-					return statusI > statusJ
-				}
-				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-			})
-
-		case logic.SortByBranch:
-			sort.Slice(m.state.UngroupedRepos, func(i, j int) bool {
-				repoI, okI := m.store.GetRepository(m.state.UngroupedRepos[i])
-				repoJ, okJ := m.store.GetRepository(m.state.UngroupedRepos[j])
-				if !okI || !okJ {
-					return !okI
-				}
-				branchI := strings.ToLower(repoI.Status.Branch)
-				branchJ := strings.ToLower(repoJ.Status.Branch)
-				if branchI != branchJ {
-					if branchI == "main" || branchI == "master" {
-						return true
-					}
-					if branchJ == "main" || branchJ == "master" {
-						return false
-					}
-					return branchI < branchJ
-				}
-				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-			})
-		}
-	}
-}
-
-// getUngroupedRepos returns repositories not in any group
-func (m *Model) getUngroupedRepos() []string {
-	grouped := make(map[string]bool)
-	for _, group := range m.state.Groups {
-		for _, repoPath := range group.Repos {
-			grouped[repoPath] = true
-		}
-	}
-
-	var ungrouped []string
-	for _, repoPath := range m.state.OrderedRepos {
-		if !grouped[repoPath] {
-			ungrouped = append(ungrouped, repoPath)
-		}
-	}
-
-	return ungrouped
-}
-
-// getMaxIndex returns the maximum selectable index
-func (m *Model) getMaxIndex() int {
-	m.syncNavigatorState()
-	return m.navigator.GetMaxIndex(len(m.getUngroupedRepos()))
-}
-
-// updateViewportHeight calculates the available height for the repository list
-func (m *Model) updateViewportHeight() {
-	// Account for title (2 lines), status (2 lines), help (1 line), and padding
-	reservedLines := 7
-	if m.state.ShowHelp {
-		// Full help takes more space
-		reservedLines += 8
-	}
-	// Account for input field when active
-	// Input mode lines handled by input handler
-
-	m.state.ViewportHeight = m.height - reservedLines
-	if m.state.ViewportHeight < 1 {
-		m.state.ViewportHeight = 1
-	}
-
-	// Ensure viewport offset is still valid
-	m.ensureSelectedVisible()
-}
-
-// getSelectedGroup returns the group name if a group header is selected
-func (m *Model) getSelectedGroup() string {
-	currentIndex := 0
-
-	// Check groups first (since they're displayed first now)
-	for _, groupName := range m.store.GetOrderedGroups() {
-		if currentIndex == m.state.SelectedIndex {
-			return groupName // This is the selected group
-		}
-		currentIndex++
-
-		// Skip group contents
-		if m.store.IsGroupExpanded(groupName) {
-			group, _ := m.store.GetGroup(groupName)
-			currentIndex += len(group.Repos)
-		}
-
-		if currentIndex > m.state.SelectedIndex {
-			break
-		}
-	}
-
-	return ""
-}
-
-// getRepoPathAtIndex returns the repository path at the given index
-func (m *Model) getRepoPathAtIndex(index int) string {
-	currentIndex := 0
-
-	// Check groups first (since they're displayed first now)
-	for _, groupName := range m.store.GetOrderedGroups() {
-		// Group header itself is not a repo
-		if currentIndex == index {
-			return "" // This is a group header, not a repo
-		}
-		currentIndex++
-
-		// Check repos in group if expanded
-		if m.store.IsGroupExpanded(groupName) {
-			group, _ := m.store.GetGroup(groupName)
-			// Apply the same sorting as in renderRepositoryList
-			sortedRepos := make([]string, len(group.Repos))
-			copy(sortedRepos, group.Repos)
-
-			switch m.currentSort {
-			case logic.SortByStatus:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.store.GetRepository(sortedRepos[i])
-					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
-					if !okI || !okJ {
-						return !okI
-					}
-					statusI := logic.GetStatusPriority(repoI)
-					statusJ := logic.GetStatusPriority(repoJ)
-					if statusI != statusJ {
-						return statusI > statusJ
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-
-			case logic.SortByBranch:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.store.GetRepository(sortedRepos[i])
-					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
-					if !okI || !okJ {
-						return !okI
-					}
-					branchI := strings.ToLower(repoI.Status.Branch)
-					branchJ := strings.ToLower(repoJ.Status.Branch)
-					if branchI != branchJ {
-						if branchI == "main" || branchI == "master" {
-							return true
-						}
-						if branchJ == "main" || branchJ == "master" {
-							return false
-						}
-						return branchI < branchJ
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-
-			case logic.SortByName, logic.SortByGroup:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.store.GetRepository(sortedRepos[i])
-					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
-					if !okI || !okJ {
-						return !okI
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-			}
-
-			for _, repoPath := range sortedRepos {
-				if currentIndex == index {
-					return repoPath
-				}
-				currentIndex++
-			}
-		}
-
-		if currentIndex > index {
-			break
-		}
-	}
-
-	// Then check ungrouped repos
-	ungroupedRepos := m.getUngroupedRepos()
-	for _, repoPath := range ungroupedRepos {
-		if currentIndex == index {
-			return repoPath
-		}
-		currentIndex++
-	}
-
-	return ""
-}
-
-// buildRepoInfo builds detailed information about a repository
-func (m *Model) buildRepoInfo(repo *domain.Repository) string {
-	var info strings.Builder
-
-	// Repository name and path
-	info.WriteString(lipgloss.NewStyle().Bold(true).Render(repo.Name))
-	info.WriteString("\n\n")
-
-	// Path
-	info.WriteString(fmt.Sprintf("Path: %s\n", repo.Path))
-
-	// Group
-	groupName := "Ungrouped"
-	for _, group := range m.state.Groups {
-		for _, path := range group.Repos {
-			if path == repo.Path {
-				groupName = group.Name
-				break
-			}
-		}
-	}
-	info.WriteString(fmt.Sprintf("Group: %s\n\n", groupName))
-
-	// Status information
-	info.WriteString(lipgloss.NewStyle().Bold(true).Render("Status:"))
-	info.WriteString("\n")
-	info.WriteString(fmt.Sprintf("  Branch: %s\n", repo.Status.Branch))
-
-	// Clean/Dirty status
-	if repo.Status.IsDirty {
-		info.WriteString("  State: Dirty (uncommitted changes)\n")
-	} else if repo.Status.HasUntracked {
-		info.WriteString("  State: Has untracked files\n")
-	} else {
-		info.WriteString("  State: Clean\n")
-	}
-
-	// Ahead/Behind
-	if repo.Status.AheadCount > 0 || repo.Status.BehindCount > 0 {
-		info.WriteString(fmt.Sprintf("  Ahead: %d commits\n", repo.Status.AheadCount))
-		info.WriteString(fmt.Sprintf("  Behind: %d commits\n", repo.Status.BehindCount))
-	}
-
-	// Stashes
-	if repo.Status.StashCount > 0 {
-		info.WriteString(fmt.Sprintf("  Stashes: %d\n", repo.Status.StashCount))
-	}
-
-	// Error
-	if repo.Status.Error != "" {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-		info.WriteString(fmt.Sprintf("  Error: %s\n", errorStyle.Render(repo.Status.Error)))
-	}
-
-	info.WriteString("\n")
-	info.WriteString("Press ESC or 'i' to close")
-
-	return info.String()
-}
-
-// countVisibleItems counts how many items are visible with current filter
-func (m *Model) countVisibleItems() int {
-	count := 0
-
-	// Count groups and their repos
-	for _, groupName := range m.store.GetOrderedGroups() {
-		group, _ := m.store.GetGroup(groupName)
-
-		// Check if group or any of its repos match
-		groupHasMatches := false
-		repoCount := 0
-
-		for _, repoPath := range group.Repos {
-			if repo, ok := m.state.Repositories[repoPath]; ok {
-				if m.searchFilter.MatchesFilter(repo, groupName, m.state.FilterQuery) {
-					groupHasMatches = true
-					repoCount++
-				}
-			}
-		}
-
-		if groupHasMatches || m.searchFilter.MatchesGroupFilter(groupName, m.state.FilterQuery) {
-			count++ // Count the group header
-			if m.store.IsGroupExpanded(groupName) {
-				count += repoCount
-			}
-		}
-	}
-
-	// Count ungrouped repos
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-	for _, repoPath := range ungroupedRepos {
-		if repo, ok := m.state.Repositories[repoPath]; ok {
-			if m.searchFilter.MatchesFilter(repo, "", m.state.FilterQuery) {
-				count++
-			}
-		}
-	}
-
-	return count
-}
-
-// getCurrentIndexForGroup finds the current display index for a group
-func (m *Model) getCurrentIndexForGroup(groupName string) int {
-	m.syncNavigatorState()
-	return m.navigator.GetCurrentIndexForGroup(groupName)
-}
-
-// getCurrentIndexForRepo finds the current display index for a repo
-func (m *Model) getCurrentIndexForRepo(repoPath string) int {
-	m.syncNavigatorState()
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-	return m.navigator.GetCurrentIndexForRepo(repoPath, ungroupedRepos)
-}
-
-// jumpToGroupBoundary jumps to the beginning or end of the current group
-func (m *Model) jumpToGroupBoundary(toBeginning bool) {
-	m.syncNavigatorState()
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-
-	needsCrossGroupJump, fromGroup := m.navigator.JumpToGroupBoundary(toBeginning, ungroupedRepos)
-	m.state.SelectedIndex = m.navigator.GetSelectedIndex()
-	m.state.ViewportOffset = m.navigator.GetViewportOffset()
-
-	if needsCrossGroupJump && fromGroup != "" {
-		if toBeginning {
-			m.jumpToPreviousGroupStart(fromGroup)
-		} else {
-			m.jumpToNextGroupEnd(fromGroup)
-		}
-	}
-}
-
-// jumpToNextGroupEnd jumps to the last repo of the next group
-func (m *Model) jumpToNextGroupEnd(currentGroupName string) {
-	m.syncNavigatorState()
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-
-	if m.navigator.JumpToNextGroupEnd(currentGroupName, ungroupedRepos) {
-		m.state.SelectedIndex = m.navigator.GetSelectedIndex()
-		m.state.ViewportOffset = m.navigator.GetViewportOffset()
-	}
-}
-
-// jumpToPreviousGroupStart jumps to the first repo of the previous group
-func (m *Model) jumpToPreviousGroupStart(currentGroupName string) {
-	m.syncNavigatorState()
-
-	if m.navigator.JumpToPreviousGroupStart(currentGroupName) {
-		m.state.SelectedIndex = m.navigator.GetSelectedIndex()
-		m.state.ViewportOffset = m.navigator.GetViewportOffset()
-	}
-}
-
-// fetchGitLog returns a command that fetches git log for a repository
-func (m *Model) fetchGitLog(repoPath string) tea.Cmd {
-	return func() tea.Msg {
-		// Run git log command
-		cmd := exec.Command("git", "log", "--oneline", "-20", "--decorate", "--color=always")
-		cmd.Dir = repoPath
-
-		output, err := cmd.Output()
-		if err != nil {
-			return gitLogMsg{
-				repoPath: repoPath,
-				err:      err,
-			}
-		}
-
-		return gitLogMsg{
-			repoPath: repoPath,
-			content:  string(output),
-		}
-	}
-}
-
-// processAction processes an action from the input handler
-func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
-	log.Printf("processAction: %T", action)
+// handleAction processes an action from the input handler
+func (m *Model) handleAction(action inputtypes.Action) tea.Cmd {
 	switch a := action.(type) {
 	case inputtypes.NavigateAction:
-		switch a.Direction {
-		case "up":
-			if m.state.SelectedIndex > 0 {
-				m.state.SelectedIndex--
-				m.ensureSelectedVisible()
-			}
-		case "down":
-			maxIndex := m.getMaxIndex()
-			if m.state.SelectedIndex < maxIndex {
-				m.state.SelectedIndex++
-				m.ensureSelectedVisible()
-			}
-		case "left":
-			// Collapse group
-			if groupName := m.getSelectedGroup(); groupName != "" {
-				m.state.ExpandedGroups[groupName] = false
-				m.ensureSelectedVisible()
-			}
-		case "right":
-			// Expand group
-			if groupName := m.getSelectedGroup(); groupName != "" {
-				m.state.ExpandedGroups[groupName] = true
-			}
-		case "home":
-			m.state.SelectedIndex = 0
-			m.ensureSelectedVisible()
-		case "end":
-			m.state.SelectedIndex = m.getMaxIndex()
-			m.ensureSelectedVisible()
-		case "pageup":
-			m.pageUp()
-		case "pagedown":
-			m.pageDown()
-		}
-
-	case inputtypes.SelectAction:
-		if a.Index < 0 {
-			// Toggle selection at current index
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				return m.cmdExecutor.ExecuteToggleSelection(repoPath)
-			}
-		} else {
-			// Toggle selection at specific index
-			if repoPath := m.getRepoPathAtIndex(a.Index); repoPath != "" {
-				return m.cmdExecutor.ExecuteToggleSelection(repoPath)
-			}
-		}
-
-	case inputtypes.SearchNavigateAction:
-		log.Printf("SearchNavigateAction: direction=%s, query=%s, matches=%v, currentSearchIndex=%d", 
-			a.Direction, m.state.SearchQuery, m.state.SearchMatches, m.state.SearchIndex)
+		m.handleNavigate(a)
 		
-		if m.state.SearchQuery != "" && len(m.state.SearchMatches) > 0 {
-			oldIndex := m.state.SearchIndex
-			
-			if a.Direction == "next" {
-				// Navigate to next search result
-				m.state.SearchIndex = (m.state.SearchIndex + 1) % len(m.state.SearchMatches)
-			} else if a.Direction == "prev" {
-				// Navigate to previous search result
-				m.state.SearchIndex--
-				if m.state.SearchIndex < 0 {
-					m.state.SearchIndex = len(m.state.SearchMatches) - 1
-				}
-			}
-			
-			// Jump to the match
-			if m.state.SearchIndex >= 0 && m.state.SearchIndex < len(m.state.SearchMatches) {
-				m.state.SelectedIndex = m.state.SearchMatches[m.state.SearchIndex]
-				m.ensureSelectedVisible()
-				log.Printf("SearchNavigate: moved from match %d to %d, jumped to index %d", 
-					oldIndex, m.state.SearchIndex, m.state.SelectedIndex)
-			}
-		} else {
-			log.Printf("SearchNavigate: no action - query empty or no matches")
-		}
-
+	case inputtypes.SelectAction:
+		m.handleSelect(a)
+		
 	case inputtypes.SelectAllAction:
-		totalRepos := m.countVisibleRepos()
-		return m.cmdExecutor.ExecuteSelectAll(totalRepos)
-
+		m.handleSelectAll()
+		
 	case inputtypes.DeselectAllAction:
-		m.state.ClearSelection()
-
+		m.coordinator.Selection.DeselectAll()
+		
+	case inputtypes.ToggleGroupAction:
+		m.handleToggleGroup()
+		
 	case inputtypes.RefreshAction:
-		if a.All {
-			// Full scan
-			return m.cmdExecutor.ExecuteFullScan(m.config.BaseDir)
-		} else {
-			// Refresh status
-			var repoPaths []string
-			if m.store.GetSelectionCount() > 0 {
-				// Refresh selected repos
-				for path := range m.store.GetSelectedRepositories() {
-					repoPaths = append(repoPaths, path)
-				}
-			} else if groupName := m.getSelectedGroup(); groupName != "" {
-				// Refresh all repos in the selected group
-				if group, ok := m.store.GetGroup(groupName); ok {
-					for _, repoPath := range group.Repos {
-						repoPaths = append(repoPaths, repoPath)
-					}
-					m.state.StatusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
-				}
-			} else {
-				// Refresh current repository
-				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-					repoPaths = []string{repoPath}
-				}
-			}
-			return m.cmdExecutor.ExecuteRefresh(repoPaths)
-		}
-
+		return m.handleRefresh(a)
+		
 	case inputtypes.FetchAction:
-		var repoPaths []string
-		if m.store.GetSelectionCount() > 0 {
-			// Fetch selected repos
-			for path := range m.store.GetSelectedRepositories() {
-				repoPaths = append(repoPaths, path)
-			}
-		} else if groupName := m.getSelectedGroup(); groupName != "" {
-			// Fetch all repos in the selected group
-			if group, ok := m.store.GetGroup(groupName); ok {
-				for _, repoPath := range group.Repos {
-					repoPaths = append(repoPaths, repoPath)
-				}
-				m.state.StatusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
-			}
-		} else {
-			// Fetch current repository
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				repoPaths = []string{repoPath}
-			}
-		}
-		return m.cmdExecutor.ExecuteFetch(repoPaths)
-
+		return m.handleFetch()
+		
 	case inputtypes.PullAction:
-		var repoPaths []string
-		if m.store.GetSelectionCount() > 0 {
-			// Pull selected repos
-			for path := range m.store.GetSelectedRepositories() {
-				repoPaths = append(repoPaths, path)
-			}
-		} else if groupName := m.getSelectedGroup(); groupName != "" {
-			// Pull all repos in the selected group
-			if group, ok := m.store.GetGroup(groupName); ok {
-				for _, repoPath := range group.Repos {
-					repoPaths = append(repoPaths, repoPath)
-				}
-				m.state.StatusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
-			}
-		} else {
-			// Pull current repository
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				repoPaths = []string{repoPath}
-			}
-		}
-		return m.cmdExecutor.ExecutePull(repoPaths)
-
+		return m.handlePull()
+		
 	case inputtypes.OpenLogAction:
-		// Show git log for current repo
-		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-			m.state.ShowLog = true
-			return m.fetchGitLog(repoPath)
-		}
-
-	case inputtypes.ToggleInfoAction:
-		m.state.ShowInfo = !m.state.ShowInfo
-		if m.state.ShowInfo {
-			// Build info content for current repo
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				if repo, ok := m.state.Repositories[repoPath]; ok {
-					m.state.InfoContent = m.buildRepoInfo(repo)
-				}
-			}
-		} else {
-			m.state.InfoContent = ""
-		}
-
+		m.handleOpenLog()
+		
 	case inputtypes.ToggleHelpAction:
 		m.state.ShowHelp = !m.state.ShowHelp
-
-	case inputtypes.ToggleGroupAction:
-		if groupName := m.getSelectedGroup(); groupName != "" {
-			m.state.ExpandedGroups[groupName] = !m.state.ExpandedGroups[groupName]
-		}
-
-	case inputtypes.CreateGroupAction:
-		log.Printf("processAction: CreateGroupAction received with name: %s", a.Name)
-		// Create the new group
-		if m.bus != nil {
-			m.bus.Publish(eventbus.GroupAddedEvent{
-				Name: a.Name,
-			})
-		}
-
-		// Move selected repos to the new group
-		movedCount := 0
-		for repoPath := range m.store.GetSelectedRepositories() {
-			// Find current group (if any)
-			var fromGroup string
-			for _, group := range m.state.Groups {
-				for _, path := range group.Repos {
-					if path == repoPath {
-						fromGroup = group.Name
-						break
-					}
-				}
-			}
-
-			// Publish move event
-			m.bus.Publish(eventbus.RepoMovedEvent{
-				RepoPath:  repoPath,
-				FromGroup: fromGroup,
-				ToGroup:   a.Name,
-			})
-			movedCount++
-		}
-
-		// Clear selection
-		m.state.ClearSelection()
-
-		// Set cursor to the new group
-		for _, groupName := range m.state.OrderedGroups {
-			if groupName == a.Name {
-				m.state.SelectedIndex = m.getCurrentIndexForGroup(groupName)
-				m.ensureSelectedVisible()
-				break
-			}
-		}
-
-		// Status message
-		if movedCount > 0 {
-			m.state.StatusMessage = fmt.Sprintf("Created group '%s' with %d repositories", a.Name, movedCount)
-		} else {
-			m.state.StatusMessage = fmt.Sprintf("Created empty group '%s'", a.Name)
-		}
-
-		// Publish config changed event
-		if m.bus != nil {
-			m.bus.Publish(eventbus.ConfigChangedEvent{
-				Groups: m.getGroupsMap(),
-			})
-		}
-
-	case inputtypes.MoveToGroupAction:
-		var repoPaths []string
-		fromGroups := make(map[string]string)
-
-		if m.store.GetSelectionCount() > 0 {
-			// Move selected repos
-			for path := range m.store.GetSelectedRepositories() {
-				repoPaths = append(repoPaths, path)
-				// Find current group
-				for gName, group := range m.state.Groups {
-					for _, p := range group.Repos {
-						if p == path {
-							fromGroups[path] = gName
-							break
-						}
-					}
-				}
-			}
-		} else {
-			// Move current repo
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				repoPaths = []string{repoPath}
-				// Find current group
-				for gName, group := range m.state.Groups {
-					for _, p := range group.Repos {
-						if p == repoPath {
-							fromGroups[repoPath] = gName
-							break
-						}
-					}
-				}
-			}
-		}
-
-		return m.cmdExecutor.ExecuteMoveToGroup(repoPaths, fromGroups, a.GroupName)
-
-	case inputtypes.DeleteGroupAction:
-		if a.GroupName != "" && a.GroupName != "Ungrouped" {
-			// Remove the group
-			delete(m.state.Groups, a.GroupName)
-
-			// Remove from ordered groups
-			newOrderedGroups := []string{}
-			for _, g := range m.state.OrderedGroups {
-				if g != a.GroupName {
-					newOrderedGroups = append(newOrderedGroups, g)
-				}
-			}
-			m.state.OrderedGroups = newOrderedGroups
-
-			m.state.StatusMessage = fmt.Sprintf("Deleted group '%s'", a.GroupName)
-
-			// Publish config changed event
-			if m.bus != nil {
-				m.bus.Publish(eventbus.ConfigChangedEvent{
-					Groups: m.getGroupsMap(),
-				})
-			}
-		}
-
-	case inputtypes.SubmitTextAction:
-		// Handle text submission based on mode
-		switch a.Mode {
-		case inputtypes.ModeSearch:
-			m.state.SearchQuery = a.Text
-			m.performSearch()
-			// Jump to first match if any
-			if len(m.state.SearchMatches) > 0 {
-				m.state.SearchIndex = 0
-				m.state.SelectedIndex = m.state.SearchMatches[0]
-				m.ensureSelectedVisible()
-			}
-
-		case inputtypes.ModeFilter:
-			m.state.FilterQuery = a.Text
-			m.state.IsFiltered = a.Text != ""
-			// TODO: Implement filter
-			// if a.Text == "" {
-			// 	m.searchFilter.ClearFilter()
-			// 	m.state.IsFiltered = false
-			// } else {
-			// 	m.searchFilter.Filter(a.Text)
-			// 	m.state.IsFiltered = true
-			// }
-			m.updateOrderedLists()
-			m.ensureSelectedVisible()
-
-		case inputtypes.ModeSort:
-			m.handleSortInput(a.Text)
-		case inputtypes.ModeNewGroup:
-			log.Printf(a.Text)
-			groupName := strings.TrimSpace(a.Text)
-			if groupName != "" {
-				// Create the new group
-				if m.bus != nil {
-					m.bus.Publish(eventbus.GroupAddedEvent{
-						Name: groupName,
-					})
-				}
-
-				// Move selected repos to the new group
-				movedCount := 0
-				for repoPath := range m.store.GetSelectedRepositories() {
-					// Find current group (if any)
-					var fromGroup string
-					for _, group := range m.state.Groups {
-						for _, path := range group.Repos {
-							if path == repoPath {
-								fromGroup = group.Name
-								break
-							}
-						}
-					}
-
-					// Publish move event
-					m.bus.Publish(eventbus.RepoMovedEvent{
-						RepoPath:  repoPath,
-						FromGroup: fromGroup,
-						ToGroup:   groupName,
-					})
-					movedCount++
-				}
-
-				// Clear selection
-				if movedCount > 0 {
-					m.state.ClearSelection()
-				}
-
-				// Update status message
-				m.state.StatusMessage = fmt.Sprintf("Created group '%s' with %d repo(s)", groupName, movedCount)
-			}
-
-		case inputtypes.ModeMoveToGroup:
-			// TODO: Implement move to group
-		}
-
-	case inputtypes.CancelTextAction:
-		// Clear any partial input
-		m.state.SearchQuery = ""
-		m.state.SearchMatches = nil
-		m.state.SearchIndex = 0
-		m.state.FilterQuery = ""
-
-	case inputtypes.UpdateTextAction:
-		// Update text in view model is handled in the main Update method
-
-	case inputtypes.SortByAction:
-		m.handleSortInput(a.Criteria)
-
+		
+	case inputtypes.ToggleInfoAction:
+		m.handleToggleInfo()
+		
+	case inputtypes.SearchNavigateAction:
+		m.handleSearchNavigate(a)
+		
+	case inputtypes.ChangeModeAction:
+		m.inputHandler.ChangeMode(a.Mode, a.Data)
+		
 	case inputtypes.QuitAction:
-		if !a.Force && m.config.UISettings.AutosaveOnExit && m.bus != nil {
-			m.bus.Publish(eventbus.ConfigChangedEvent{
-				Groups: m.getGroupsMap(),
-			})
+		if a.Force || !m.coordinator.Selection.HasSelection() {
+			return tea.Quit
 		}
-		return tea.Quit
+		
+	case inputtypes.SubmitAction:
+		// Input completion will be handled via InputCompleteMsg
 	}
-
+	
 	return nil
 }
 
-// handleNonKeyboardMsg handles non-keyboard messages
-func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Printf("handleNonKeyboardMsg: %T", msg)
-	switch msg := msg.(type) {
-	case EventMsg:
-		// Process domain events
-		cmd := m.eventHandler.HandleEvent(msg.Event)
-		return m, cmd
-
-	case tickMsg:
-		return m, tick()
-
-	case gitLogMsg:
-		if msg.err != nil {
-			m.state.LogContent = fmt.Sprintf("Error fetching log for %s:\n%v", msg.repoPath, msg.err)
-		} else {
-			m.state.LogContent = fmt.Sprintf("Git log for %s:\n\n%s", msg.repoPath, msg.content)
+// handleNavigate processes navigation
+func (m *Model) handleNavigate(a inputtypes.NavigateAction) {
+	switch a.Direction {
+	case "up":
+		m.coordinator.Navigation.Navigate(navigation.DirectionUp)
+	case "down":
+		m.coordinator.Navigation.Navigate(navigation.DirectionDown)
+	case "left":
+		if m.coordinator.IsOnGroup() {
+			groupName := m.coordinator.GetCurrentGroupName()
+			m.coordinator.Groups.ToggleExpanded(groupName)
 		}
-		return m, nil
-
-	case quitMsg:
-		if msg.saveConfig && m.bus != nil {
-			m.bus.Publish(eventbus.ConfigChangedEvent{
-				Groups: m.getGroupsMap(),
-			})
+	case "right":
+		if m.coordinator.IsOnGroup() {
+			groupName := m.coordinator.GetCurrentGroupName()
+			if !m.coordinator.Groups.IsExpanded(groupName) {
+				m.coordinator.Groups.ToggleExpanded(groupName)
+			}
 		}
-		return m, tea.Quit
-
-	default:
-		// Other messages are handled elsewhere
-		return m, nil
+	case "pageup":
+		m.coordinator.Navigation.Navigate(navigation.DirectionPageUp)
+	case "pagedown":
+		m.coordinator.Navigation.Navigate(navigation.DirectionPageDown)
+	case "home":
+		m.coordinator.Navigation.Navigate(navigation.DirectionHome)
+	case "end":
+		m.coordinator.Navigation.Navigate(navigation.DirectionEnd)
 	}
 }
 
-// handleSortInput processes sort criteria input
-func (m *Model) handleSortInput(criteria string) {
-	criteria = strings.ToLower(strings.TrimSpace(criteria))
-	switch criteria {
-	case "name", "n":
-		m.currentSort = logic.SortByName
-		m.state.StatusMessage = "Sorting by name"
-	case "status", "s":
-		m.currentSort = logic.SortByStatus
-		m.state.StatusMessage = "Sorting by status"
-	case "branch", "b":
-		m.currentSort = logic.SortByBranch
-		m.state.StatusMessage = "Sorting by branch"
-	case "modified", "m":
-		m.currentSort = logic.SortByStatus
-		m.state.StatusMessage = "Sorting by status"
-	default:
-		m.state.StatusMessage = fmt.Sprintf("Unknown sort criteria: %s", criteria)
-		return
+// handleSelect processes selection
+func (m *Model) handleSelect(a inputtypes.SelectAction) {
+	if a.Index == -1 {
+		// Toggle at current position
+		m.coordinator.Selection.Toggle(m.coordinator.GetCurrentIndex())
+	} else {
+		m.coordinator.Selection.Toggle(a.Index)
 	}
-
-	// Update the sort order
-	m.updateOrderedLists()
-	m.ensureSelectedVisible()
 }
 
-// ensureSelectedVisible ensures the selected item is visible in the viewport
-func (m *Model) ensureSelectedVisible() {
-	// Sync state with navigator
-	m.syncNavigatorState()
-
-	// Let navigator handle the viewport adjustment
-	m.state.SelectedIndex, m.state.ViewportOffset = m.navigator.SetSelectedIndex(m.state.SelectedIndex)
+// handleSelectAll selects all visible repositories
+func (m *Model) handleSelectAll() {
+	paths := m.coordinator.Query.GetVisibleRepositoryPaths()
+	m.coordinator.Selection.SelectAll(paths)
 }
 
-// pageUp moves the selection up by one page
-func (m *Model) pageUp() {
-	// Page up
-	pageSize := m.state.ViewportHeight - 2 // Leave some overlap
-	if pageSize < 1 {
-		pageSize = 1
+// handleToggleGroup toggles group expansion
+func (m *Model) handleToggleGroup() {
+	if m.coordinator.IsOnGroup() {
+		groupName := m.coordinator.GetCurrentGroupName()
+		m.coordinator.Groups.ToggleExpanded(groupName)
 	}
-	for i := 0; i < pageSize; i++ {
-		if m.state.SelectedIndex > 0 {
-			m.state.SelectedIndex--
+}
+
+// handleRefresh refreshes repositories
+func (m *Model) handleRefresh(a inputtypes.RefreshAction) tea.Cmd {
+	if a.All {
+		// Full rescan
+		return func() tea.Msg {
+			m.eventBus.Publish(logic.RescanRequestedEvent{})
+			return nil
 		}
 	}
-	m.ensureSelectedVisible()
+	
+	// Refresh selected or current
+	var reposToRefresh []string
+	if m.coordinator.Selection.HasSelection() {
+		reposToRefresh = m.coordinator.Selection.GetSelected()
+	} else if path := m.coordinator.GetCurrentRepositoryPath(); path != "" {
+		reposToRefresh = []string{path}
+	}
+	
+	for _, path := range reposToRefresh {
+		m.eventBus.Publish(logic.RefreshRequestedEvent{Path: path})
+	}
+	
+	return nil
 }
 
-// pageDown moves the selection down by one page
-func (m *Model) pageDown() {
-	// Page down
-	pageSize := m.state.ViewportHeight - 2 // Leave some overlap
-	if pageSize < 1 {
-		pageSize = 1
+// handleFetch fetches repositories
+func (m *Model) handleFetch() tea.Cmd {
+	var reposToFetch []string
+	
+	if m.coordinator.Selection.HasSelection() {
+		reposToFetch = m.coordinator.Selection.GetSelected()
+	} else if path := m.coordinator.GetCurrentRepositoryPath(); path != "" {
+		reposToFetch = []string{path}
 	}
-	maxIndex := m.getMaxIndex()
-	for i := 0; i < pageSize; i++ {
-		if m.state.SelectedIndex < maxIndex {
-			m.state.SelectedIndex++
+	
+	for _, path := range reposToFetch {
+		m.eventBus.Publish(git.FetchRequestedEvent{Path: path})
+	}
+	
+	return nil
+}
+
+// handlePull pulls repositories
+func (m *Model) handlePull() tea.Cmd {
+	var reposToPull []string
+	
+	if m.coordinator.Selection.HasSelection() {
+		reposToPull = m.coordinator.Selection.GetSelected()
+	} else if path := m.coordinator.GetCurrentRepositoryPath(); path != "" {
+		reposToPull = []string{path}
+	}
+	
+	for _, path := range reposToPull {
+		m.eventBus.Publish(git.PullRequestedEvent{Path: path})
+	}
+	
+	return nil
+}
+
+// handleOpenLog opens git log
+func (m *Model) handleOpenLog() {
+	if !m.coordinator.IsOnGroup() {
+		if repo := m.coordinator.GetCurrentRepository(); repo != nil {
+			m.showGitLog(repo)
 		}
 	}
-	m.ensureSelectedVisible()
 }
 
-// countVisibleRepos counts the total number of repositories
-func (m *Model) countVisibleRepos() int {
-	return len(m.state.Repositories)
+// handleToggleInfo toggles info display
+func (m *Model) handleToggleInfo() {
+	if m.state.ShowInfo {
+		m.state.ShowInfo = false
+		m.state.InfoContent = ""
+	} else if repo := m.coordinator.GetCurrentRepository(); repo != nil {
+		m.showRepositoryInfo(repo)
+	}
 }
 
-// tick returns a command that sends a tick message after a delay
-func tick() tea.Cmd {
-	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
-		return tickMsg(t)
+// handleSearchNavigate navigates search results
+func (m *Model) handleSearchNavigate(a inputtypes.SearchNavigateAction) {
+	if a.Direction == "next" {
+		m.coordinator.Search.NavigateNext()
+	} else if a.Direction == "prev" {
+		m.coordinator.Search.NavigatePrevious()
+	}
+}
+
+// handleInputComplete processes completed input
+func (m *Model) handleInputComplete(msg inputtypes.InputCompleteMsg) tea.Cmd {
+	switch m.inputHandler.GetMode() {
+	case inputtypes.ModeSearch:
+		m.coordinator.Search.StartSearch(msg.Text)
+		
+	case inputtypes.ModeFilter:
+		// Filter is handled by view state building
+		
+	case inputtypes.ModeNewGroup:
+		if msg.Text != "" && m.coordinator.Selection.HasSelection() {
+			selected := m.coordinator.Selection.GetSelected()
+			m.coordinator.Groups.CreateGroup(msg.Text, selected)
+			m.coordinator.Selection.DeselectAll()
+		}
+		
+	case inputtypes.ModeMoveToGroup:
+		if msg.Text != "" {
+			var repos []string
+			if m.coordinator.Selection.HasSelection() {
+				repos = m.coordinator.Selection.GetSelected()
+			} else if path := m.coordinator.GetCurrentRepositoryPath(); path != "" {
+				repos = []string{path}
+			}
+			
+			if len(repos) > 0 {
+				m.coordinator.Groups.MoveReposToGroup(repos, msg.Text)
+				m.coordinator.Selection.DeselectAll()
+			}
+		}
+		
+	case inputtypes.ModeDeleteConfirm:
+		groupName := m.inputHandler.GetModeData()
+		if msg.Text == "y" && groupName != "" {
+			m.coordinator.Groups.DeleteGroup(groupName)
+		}
+		
+	case inputtypes.ModeSort:
+		// Sort mode selection
+		switch msg.Text {
+		case "n":
+			m.coordinator.Sorting.SetMode(logic.SortByName)
+		case "s":
+			m.coordinator.Sorting.SetMode(logic.SortByStatus)
+		case "b":
+			m.coordinator.Sorting.SetMode(logic.SortByBranch)
+		case "p":
+			m.coordinator.Sorting.SetMode(logic.SortByPath)
+		}
+		m.coordinator.UpdateOrderedLists()
+	}
+	
+	// Return to normal mode
+	m.inputHandler.ChangeMode(inputtypes.ModeNormal, "")
+	return nil
+}
+
+// Event handling
+func (m *Model) subscribeToEvents() {
+	// Repository updates
+	m.eventBus.Subscribe(logic.RepositoryDiscoveredEvent{}, func(e interface{}) {
+		event := e.(logic.RepositoryDiscoveredEvent)
+		m.state.Repositories[event.Repository.Path] = event.Repository
+		m.coordinator.UpdateOrderedLists()
+	})
+	
+	m.eventBus.Subscribe(logic.RepositoryUpdatedEvent{}, func(e interface{}) {
+		event := e.(logic.RepositoryUpdatedEvent)
+		m.state.Repositories[event.Repository.Path] = event.Repository
+	})
+	
+	// Status messages
+	m.eventBus.Subscribe(logic.ScanStartedEvent{}, func(e interface{}) {
+		m.state.StatusMessage = "Scanning for repositories..."
+	})
+	
+	m.eventBus.Subscribe(logic.ScanCompletedEvent{}, func(e interface{}) {
+		event := e.(logic.ScanCompletedEvent)
+		m.state.StatusMessage = fmt.Sprintf("Scan completed: %d repositories found", event.Count)
 	})
 }
 
-// getGroupsMap returns a map of group names to repository paths
-func (m *Model) getGroupsMap() map[string][]string {
-	return m.state.GetGroupsMap()
+// handleDomainEvent processes domain events
+func (m *Model) handleDomainEvent(event interface{}) {
+	// The event bus subscriptions handle most events
+	// This is for any additional UI-specific handling
 }
 
-// performSearch searches for repositories matching the search query
-func (m *Model) performSearch() {
-	// Save the old matches to see if they changed
-	oldMatches := m.state.SearchMatches
-	m.state.SearchMatches = nil
+// buildViewState creates view state from services
+func (m *Model) buildViewState() views.ViewState {
+	// Get current states from services
+	cursor := m.coordinator.Navigation.GetCursor()
+	viewport := m.coordinator.Navigation.GetViewportOffset()
+	viewportHeight := m.coordinator.Navigation.GetViewportHeight()
 	
-	if m.state.SearchQuery == "" {
-		m.state.SearchIndex = 0
-		return
+	// Build selection map
+	selectedRepos := make(map[string]bool)
+	for _, path := range m.coordinator.Selection.GetSelected() {
+		selectedRepos[path] = true
 	}
 	
-	query := strings.ToLower(m.state.SearchQuery)
-	currentIdx := 0
-	
-	// Search through ALL repositories in the display order
-	// This should match exactly what the UI renders
-	
-	// First, check all groups
-	for _, groupName := range m.state.OrderedGroups {
-		group := m.state.Groups[groupName]
-		if group == nil {
-			continue
-		}
-		
-		// Check if group name matches
-		if strings.Contains(strings.ToLower(groupName), query) {
-			m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-			log.Printf("Search match found at index %d: Group %s", currentIdx, groupName)
-		}
-		
-		currentIdx++ // Move past group header
-		
-		// Only process repos if group is expanded
-		if m.state.ExpandedGroups[groupName] {
-			for _, repoPath := range group.Repos {
-				// Get repository from the main repositories map
-				if repo, exists := m.state.Repositories[repoPath]; exists {
-					if strings.Contains(strings.ToLower(repo.Name), query) {
-						m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-						log.Printf("Search match found at index %d: %s (in group %s)", currentIdx, repo.Name, groupName)
-					}
-				}
-				currentIdx++
-			}
-		}
+	// Get groups for display
+	groups := make(map[string]*domain.Group)
+	orderedGroups := []string{}
+	for _, g := range m.groupStore.GetAllGroups() {
+		groups[g.Name] = g
+		orderedGroups = append(orderedGroups, g.Name)
 	}
+	m.coordinator.Sorting.SortGroups(orderedGroups)
 	
-	// Now handle ungrouped repos - get them the same way the UI does
-	ungroupedRepos := m.getUngroupedRepos()
-	if len(ungroupedRepos) > 0 {
-		// Check if we should show ungrouped header
-		hasUngroupedHeader := false
-		for _, repoPath := range ungroupedRepos {
-			if _, exists := m.state.Repositories[repoPath]; exists {
-				hasUngroupedHeader = true
-				break
-			}
-		}
-		
-		if hasUngroupedHeader {
-			// Check ungrouped header
-			if strings.Contains(strings.ToLower("Ungrouped"), query) {
-				m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-				log.Printf("Search match found at index %d: Ungrouped", currentIdx)
-			}
-			// No expansion check needed - ungrouped repos are always visible
-			// Process ungrouped repos
-			for _, repoPath := range ungroupedRepos {
-				// Get repository from the main repositories map
-				if repo, exists := m.state.Repositories[repoPath]; exists {
-					if strings.Contains(strings.ToLower(repo.Name), query) {
-						m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-						log.Printf("Search match found at index %d: %s (ungrouped)", currentIdx, repo.Name)
-					}
-				}
-				currentIdx++
-			}
-		}
+	// Get operation states
+	refreshing := make(map[string]bool)
+	fetching := make(map[string]bool)
+	pulling := make(map[string]bool)
+	
+	// TODO: Track operation states from git service events
+	
+	return views.ViewState{
+		Width:           m.state.Width,
+		Height:          m.state.Height,
+		Repositories:    m.state.Repositories,
+		Groups:          groups,
+		OrderedGroups:   orderedGroups,
+		SelectedIndex:   cursor,
+		SelectedRepos:   selectedRepos,
+		RefreshingRepos: refreshing,
+		FetchingRepos:   fetching,
+		PullingRepos:    pulling,
+		ExpandedGroups:  m.coordinator.Groups.GetExpandedGroups(),
+		Scanning:        false, // TODO: Track from scan events
+		StatusMessage:   m.state.StatusMessage,
+		ShowHelp:        m.state.ShowHelp,
+		ShowLog:         m.state.ShowLog,
+		LogContent:      m.state.LogContent,
+		ShowInfo:        m.state.ShowInfo,
+		InfoContent:     m.state.InfoContent,
+		ViewportOffset:  viewport,
+		ViewportHeight:  viewportHeight,
+		SearchQuery:     m.coordinator.Search.GetQuery(),
+		FilterQuery:     m.inputHandler.GetFilterQuery(),
+		IsFiltered:      m.inputHandler.GetFilterQuery() != "",
+		ShowAheadBehind: m.config.UI.ShowAheadBehind,
+		HelpModel:       m.state.HelpModel,
+		DeleteTarget:    m.inputHandler.GetModeData(),
+		TextInput:       m.inputHandler.GetTextInput(),
+		InputMode:       string(m.inputHandler.GetMode()),
+		UngroupedRepos:  m.coordinator.Query.GetUngroupedRepos(),
 	}
-	
-	// Only reset search index if the matches changed
-	matchesChanged := len(oldMatches) != len(m.state.SearchMatches)
-	if !matchesChanged && len(oldMatches) > 0 {
-		for i, match := range oldMatches {
-			if i >= len(m.state.SearchMatches) || match != m.state.SearchMatches[i] {
-				matchesChanged = true
-				break
-			}
-		}
-	}
-	
-	if matchesChanged {
-		m.state.SearchIndex = 0
+}
+
+// Helper methods
+func (m *Model) showGitLog(repo *domain.Repository) {
+	log, err := git.GetGitLog(repo.Path, 20)
+	if err != nil {
+		m.state.LogContent = fmt.Sprintf("Error getting git log: %v", err)
 	} else {
-		// Keep current index but ensure it's within bounds
-		if m.state.SearchIndex >= len(m.state.SearchMatches) {
-			m.state.SearchIndex = 0
-		}
+		m.state.LogContent = log
 	}
-	
-	log.Printf("Search completed for '%s': found %d matches, searchIndex=%d", query, len(m.state.SearchMatches), m.state.SearchIndex)
-	
-	// Debug: Log all repositories in state
-	log.Printf("Total repositories in state: %d", len(m.state.Repositories))
-	for path, repo := range m.state.Repositories {
-		log.Printf("  Repo: %s (name: %s)", path, repo.Name)
+	m.state.ShowLog = true
+}
+
+func (m *Model) showRepositoryInfo(repo *domain.Repository) {
+	info := m.transformer.FormatRepositoryInfo(repo)
+	m.state.InfoContent = info
+	m.state.ShowInfo = true
+}
+
+// Event handling
+type eventReceivedMsg struct {
+	event interface{}
+}
+
+func (m *Model) waitForEvent() tea.Cmd {
+	return func() tea.Msg {
+		event := <-m.eventChan
+		return eventReceivedMsg{event: event}
 	}
-	
-	// Debug: Log what's in groups
-	totalInGroups := 0
-	for name, group := range m.state.Groups {
-		totalInGroups += len(group.Repos)
-		log.Printf("  Group %s has %d repos", name, len(group.Repos))
-	}
-	log.Printf("Total repos in groups: %d", totalInGroups)
-	
-	// Debug: Log ungrouped
-	log.Printf("Ungrouped repos: %d", len(ungroupedRepos))
-	for _, path := range ungroupedRepos {
-		log.Printf("  Ungrouped: %s", path)
-	}
+}
+
+// Tick for animations
+func tickCmd() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg {
+		return nil
+	})
 }

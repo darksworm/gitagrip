@@ -13,9 +13,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"gitagrip/internal/config"
 	"gitagrip/internal/discovery"
+	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/git"
 	"gitagrip/internal/groups"
+	"gitagrip/internal/logic"
 	"gitagrip/internal/ui"
 )
 
@@ -94,57 +96,83 @@ func main() {
 	// Initialize services
 	discoverySvc := discovery.NewDiscoveryService(bus)
 	_ = git.NewGitService(bus) // Git service subscribes to events automatically
-	_ = groups.NewGroupManager(bus, cfg.Groups) // Group manager subscribes to events automatically
+	groupMgr := groups.NewGroupManager(bus, cfg.Groups) // Group manager subscribes to events automatically
 
-	// Create UI model
-	uiModel := ui.NewModel(bus, cfg)
+	// Create stores for the new architecture
+	repoStore := logic.NewMemoryRepositoryStore()
+	groupStore := logic.NewMemoryGroupStore()
+	
+	// Initialize group store with config data
+	for name, paths := range cfg.Groups {
+		groupStore.AddGroup(&domain.Group{
+			Name:  name,
+			Repos: paths,
+		})
+	}
+
+	// Create event channel for UI
+	eventChan := make(chan interface{}, 100)
+	
+	// Forward events to the event channel
+	forwardEvent := func(e interface{}) {
+		select {
+		case eventChan <- e:
+		default:
+			log.Println("Event channel full, dropping event")
+		}
+	}
+
+	// Create UI model using the new architecture
+	uiModel := ui.NewModel(cfg, repoStore, groupStore, bus, eventChan)
 
 	// Create Bubble Tea program
 	p := tea.NewProgram(uiModel, tea.WithAltScreen())
 
-	// Set up event forwarding to UI
-	eventChan := make(chan eventbus.DomainEvent, 100)
+	// Subscribe to events and forward to stores and UI
 	bus.Subscribe(eventbus.EventRepoDiscovered, func(e eventbus.DomainEvent) {
-		select {
-		case eventChan <- e:
-		default:
-			// Channel full, drop event
-			log.Println("Event channel full, dropping event")
+		if event, ok := e.(eventbus.RepoDiscoveredEvent); ok {
+			repo := &domain.Repository{
+				Path:   event.Path,
+				Name:   filepath.Base(event.Path),
+				Status: domain.RepoStatus{},
+			}
+			repoStore.AddRepository(repo)
+			forwardEvent(logic.RepositoryDiscoveredEvent{Repository: repo})
 		}
 	})
+	
 	bus.Subscribe(eventbus.EventStatusUpdated, func(e eventbus.DomainEvent) {
-		select {
-		case eventChan <- e:
-		default:
-			log.Println("Event channel full, dropping event")
+		if event, ok := e.(eventbus.StatusUpdatedEvent); ok {
+			repo := repoStore.GetRepository(event.Path)
+			if repo != nil {
+				repo.Status = event.Status
+				repoStore.UpdateRepository(repo)
+				forwardEvent(logic.RepositoryUpdatedEvent{Repository: repo})
+			}
 		}
 	})
-	bus.Subscribe(eventbus.EventError, func(e eventbus.DomainEvent) {
-		select {
-		case eventChan <- e:
-		default:
-			log.Println("Event channel full, dropping event")
-		}
-	})
+	
 	bus.Subscribe(eventbus.EventGroupAdded, func(e eventbus.DomainEvent) {
-		select {
-		case eventChan <- e:
-		default:
-			log.Println("Event channel full, dropping event")
+		if event, ok := e.(eventbus.GroupAddedEvent); ok {
+			group := &domain.Group{
+				Name:  event.GroupName,
+				Repos: []string{event.RepoPath},
+			}
+			existing := groupStore.GetGroup(event.GroupName)
+			if existing != nil {
+				existing.Repos = append(existing.Repos, event.RepoPath)
+				groupStore.UpdateGroup(existing)
+			} else {
+				groupStore.AddGroup(group)
+			}
+			forwardEvent(e)
 		}
 	})
+	
 	bus.Subscribe(eventbus.EventGroupRemoved, func(e eventbus.DomainEvent) {
-		select {
-		case eventChan <- e:
-		default:
-			log.Println("Event channel full, dropping event")
-		}
-	})
-	bus.Subscribe(eventbus.EventStatusRefreshRequested, func(e eventbus.DomainEvent) {
-		select {
-		case eventChan <- e:
-		default:
-			log.Println("Event channel full, dropping event")
+		if event, ok := e.(eventbus.GroupRemovedEvent); ok {
+			groupStore.DeleteGroup(event.GroupName)
+			forwardEvent(e)
 		}
 	})
 	bus.Subscribe(eventbus.EventFetchRequested, func(e eventbus.DomainEvent) {
