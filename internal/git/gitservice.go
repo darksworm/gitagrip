@@ -82,6 +82,37 @@ func NewGitService(bus eventbus.EventBus) GitService {
 		}
 	})
 	
+	// Subscribe to fetch requests
+	bus.Subscribe(eventbus.EventFetchRequested, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.FetchRequestedEvent); ok {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second) // Longer timeout for network ops
+				defer cancel()
+				
+				var repos []string
+				if len(event.RepoPaths) == 0 {
+					// Fetch all known repos
+					gs.mu.Lock()
+					for path := range gs.knownRepos {
+						repos = append(repos, path)
+					}
+					gs.mu.Unlock()
+				} else {
+					repos = event.RepoPaths
+				}
+				
+				// Fetch each repository
+				for _, repoPath := range repos {
+					if err := gs.fetchRepo(ctx, repoPath); err != nil {
+						log.Printf("Failed to fetch %s: %v", repoPath, err)
+					}
+					// Refresh status after fetch
+					gs.RefreshRepo(ctx, repoPath)
+				}
+			}()
+		}
+	})
+	
 	return gs
 }
 
@@ -287,6 +318,29 @@ func (gs *gitService) getAheadBehind(ctx context.Context, repoPath string, branc
 	}
 	
 	return ahead, behind, nil
+}
+
+// fetchRepo performs a git fetch operation on the repository
+func (gs *gitService) fetchRepo(ctx context.Context, repoPath string) error {
+	// Acquire worker slot
+	select {
+	case gs.workerPool <- struct{}{}:
+		defer func() { <-gs.workerPool }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	
+	// Run git fetch
+	cmd := exec.CommandContext(ctx, "git", "fetch", "--all", "--prune")
+	cmd.Dir = repoPath
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git fetch failed: %v\nOutput: %s", err, output)
+	}
+	
+	log.Printf("Fetched %s successfully", repoPath)
+	return nil
 }
 
 // publishStatus publishes a status update event

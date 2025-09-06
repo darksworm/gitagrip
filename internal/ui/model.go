@@ -107,6 +107,7 @@ type Model struct {
 	selectedIndex int                          // currently selected item
 	selectedRepos map[string]bool              // selected repository paths
 	refreshingRepos map[string]bool            // repositories currently being refreshed
+	fetchingRepos map[string]bool              // repositories currently being fetched
 	expandedGroups map[string]bool             // which groups are expanded
 	scanning      bool                         // whether scanning is in progress
 	statusMessage string                       // status bar message
@@ -130,6 +131,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		orderedGroups:  make([]string, 0),
 		selectedRepos:  make(map[string]bool),
 		refreshingRepos: make(map[string]bool),
+		fetchingRepos:  make(map[string]bool),
 		expandedGroups: make(map[string]bool),
 		help:           help.New(),
 	}
@@ -215,6 +217,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			if len(repoPaths) > 0 && m.bus != nil {
 				m.bus.Publish(eventbus.StatusRefreshRequestedEvent{
+					RepoPaths: repoPaths,
+				})
+			}
+			
+		case key.Matches(msg, keyFetch):
+			// Fetch selected repositories or current one
+			var repoPaths []string
+			if len(m.selectedRepos) > 0 {
+				// Fetch selected repos
+				for path := range m.selectedRepos {
+					repoPaths = append(repoPaths, path)
+					m.fetchingRepos[path] = true
+				}
+				m.statusMessage = fmt.Sprintf("Fetching %d selected repositories...", len(repoPaths))
+			} else {
+				// Fetch current repository
+				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+					repoPaths = []string{repoPath}
+					m.fetchingRepos[repoPath] = true
+					m.statusMessage = "Fetching repository..."
+				}
+			}
+			
+			if len(repoPaths) > 0 && m.bus != nil {
+				m.bus.Publish(eventbus.FetchRequestedEvent{
 					RepoPaths: repoPaths,
 				})
 			}
@@ -353,8 +380,9 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 		if repo, ok := m.repositories[e.RepoPath]; ok {
 			repo.Status = e.Status
 		}
-		// Clear refreshing state
+		// Clear refreshing and fetching states
 		delete(m.refreshingRepos, e.RepoPath)
+		delete(m.fetchingRepos, e.RepoPath)
 		
 	case eventbus.ErrorEvent:
 		m.statusMessage = fmt.Sprintf("Error: %s", e.Message)
@@ -595,12 +623,15 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		selectionIndicator = "[✓]"
 	}
 	
-	// Check if this repo is currently refreshing
+	// Check if this repo is currently refreshing or fetching
 	isRefreshing := m.refreshingRepos[repo.Path]
+	isFetching := m.fetchingRepos[repo.Path]
 	
 	// Status indicator
 	var status string
-	if isRefreshing {
+	if isFetching {
+		status = "⇣" // Fetching indicator (down arrow)
+	} else if isRefreshing {
 		status = "⟳" // Refreshing indicator
 	} else if repo.Status.Error != "" {
 		status = "⚠"
@@ -614,7 +645,9 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	
 	// Status color
 	statusStyle := lipgloss.NewStyle()
-	if isRefreshing {
+	if isFetching {
+		statusStyle = statusStyle.Foreground(lipgloss.Color("214")) // yellow for fetching
+	} else if isRefreshing {
 		statusStyle = statusStyle.Foreground(lipgloss.Color("51")) // cyan for refreshing
 	} else if repo.Status.Error != "" {
 		statusStyle = statusStyle.Foreground(lipgloss.Color("203")) // red

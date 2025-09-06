@@ -22,6 +22,7 @@ const (
 	EventScanCompleted  = domain.EventScanCompleted
 	EventScanRequested  = domain.EventScanRequested
 	EventStatusRefreshRequested = domain.EventStatusRefreshRequested
+	EventFetchRequested = domain.EventFetchRequested
 	EventConfigLoaded   = domain.EventConfigLoaded
 	EventConfigSaved    = domain.EventConfigSaved
 )
@@ -37,6 +38,7 @@ type ScanStartedEvent = domain.ScanStartedEvent
 type ScanCompletedEvent = domain.ScanCompletedEvent
 type ScanRequestedEvent = domain.ScanRequestedEvent
 type StatusRefreshRequestedEvent = domain.StatusRefreshRequestedEvent
+type FetchRequestedEvent = domain.FetchRequestedEvent
 type ConfigLoadedEvent = domain.ConfigLoadedEvent
 type ConfigSavedEvent = domain.ConfigSavedEvent
 
