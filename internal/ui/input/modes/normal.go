@@ -122,9 +122,20 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeFilter}}, true
 		
 	case "n":
-		// New group (only if selection)
+		// If search is active and no selection, navigate to next search result
+		if ctx.SearchQuery() != "" && !ctx.HasSelection() {
+			return []types.Action{types.SearchNavigateAction{Direction: "next"}}, true
+		}
+		// Otherwise, new group (only if selection)
 		if ctx.HasSelection() {
 			return []types.Action{types.ChangeModeAction{Mode: types.ModeNewGroup}}, true
+		}
+		return nil, false
+		
+	case "N":
+		// Navigate to previous search result
+		if ctx.SearchQuery() != "" {
+			return []types.Action{types.SearchNavigateAction{Direction: "prev"}}, true
 		}
 		return nil, false
 		

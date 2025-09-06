@@ -887,6 +887,25 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			}
 		}
 
+	case inputtypes.SearchNavigateAction:
+		if m.state.SearchQuery != "" && len(m.state.SearchMatches) > 0 {
+			if a.Direction == "next" {
+				// Navigate to next search result
+				m.state.SearchIndex = (m.state.SearchIndex + 1) % len(m.state.SearchMatches)
+			} else if a.Direction == "prev" {
+				// Navigate to previous search result
+				m.state.SearchIndex--
+				if m.state.SearchIndex < 0 {
+					m.state.SearchIndex = len(m.state.SearchMatches) - 1
+				}
+			}
+			// Jump to the match
+			if m.state.SearchIndex >= 0 && m.state.SearchIndex < len(m.state.SearchMatches) {
+				m.state.SelectedIndex = m.state.SearchMatches[m.state.SearchIndex]
+				m.ensureSelectedVisible()
+			}
+		}
+
 	case inputtypes.SelectAllAction:
 		totalRepos := m.countVisibleRepos()
 		return m.cmdExecutor.ExecuteSelectAll(totalRepos)

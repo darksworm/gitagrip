@@ -160,3 +160,8 @@ func (c *ModelContext) CurrentGroupName() string {
 	
 	return ""
 }
+
+// SearchQuery returns the current search query
+func (c *ModelContext) SearchQuery() string {
+	return c.State.SearchQuery
+}

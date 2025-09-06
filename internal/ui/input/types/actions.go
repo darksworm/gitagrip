@@ -97,6 +97,12 @@ type ToggleGroupAction struct{}
 
 func (a ToggleGroupAction) Type() string { return "toggle_group" }
 
+type SearchNavigateAction struct {
+	Direction string // "next" or "prev"
+}
+
+func (a SearchNavigateAction) Type() string { return "search_navigate" }
+
 type QuitAction struct {
 	Force bool // true for Ctrl+C, false for 'q'
 }

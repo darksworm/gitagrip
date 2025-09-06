@@ -30,6 +30,7 @@ type Context interface {
 	GetRepoPathAtIndex(index int) string
 	IsOnGroup() bool
 	CurrentGroupName() string
+	SearchQuery() string
 }
 
 // ModeHandler handles input for a specific mode
