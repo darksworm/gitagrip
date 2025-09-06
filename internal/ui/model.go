@@ -18,6 +18,7 @@ import (
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/handlers"
 	"gitagrip/internal/ui/logic"
+	"gitagrip/internal/ui/repositories"
 	"gitagrip/internal/ui/state"
 	"gitagrip/internal/ui/viewmodels"
 	"gitagrip/internal/ui/views"
@@ -163,6 +164,7 @@ type Model struct {
 	renderer      *views.Renderer             // view renderer
 	eventHandler  *handlers.EventHandler      // event processing handler
 	viewModel     *viewmodels.ViewModel        // view model for rendering
+	store         repositories.RepositoryStore // repository store for data access
 }
 
 // NewModel creates a new UI model
@@ -188,6 +190,9 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	
 	// Create event handler with reference to updateOrderedLists method
 	m.eventHandler = handlers.NewEventHandler(appState, m.updateOrderedLists)
+	
+	// Create repository store
+	m.store = repositories.NewStateRepositoryStore(appState)
 	
 	// Create view model
 	m.viewModel = viewmodels.NewViewModel(appState, cfg, ti)
@@ -303,7 +308,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var repoPaths []string
 			if len(m.state.SelectedRepos) > 0 {
 				// Refresh selected repos
-				for path := range m.state.SelectedRepos {
+				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
 				m.state.SetRefreshing(repoPaths, true)
