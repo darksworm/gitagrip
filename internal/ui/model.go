@@ -175,6 +175,7 @@ type Model struct {
 	filterQuery    string                      // current filter query
 	isFiltered     bool                        // whether filter is active
 	searchFilter   *logic.SearchFilter         // search and filter handler
+	navigator      *logic.Navigator            // navigation and viewport handler
 }
 
 // NewModel creates a new UI model
@@ -203,6 +204,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		selectedIndex:  0,
 		currentSort:    logic.SortByName,
 		searchFilter:   logic.NewSearchFilter(nil), // Will be updated when repos are added
+		navigator:      logic.NewNavigator(),
 	}
 	
 	// Initialize groups from config
@@ -220,6 +222,19 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	m.searchFilter = logic.NewSearchFilter(m.repositories)
 	
 	return m
+}
+
+// syncNavigatorState updates the navigator with current model state
+func (m *Model) syncNavigatorState() {
+	m.navigator.UpdateState(
+		m.selectedIndex,
+		m.viewportOffset,
+		m.viewportHeight,
+		m.expandedGroups,
+		m.orderedGroups,
+		m.groups,
+		m.repositories,
+	)
 }
 
 // Init returns an initial command
@@ -1625,13 +1640,8 @@ func (m *Model) getUngroupedRepos() []string {
 
 // getMaxIndex returns the maximum selectable index
 func (m *Model) getMaxIndex() int {
-	count := len(m.orderedGroups) + len(m.getUngroupedRepos())
-	for groupName, group := range m.groups {
-		if m.expandedGroups[groupName] {
-			count += len(group.Repos)
-		}
-	}
-	return count - 1
+	m.syncNavigatorState()
+	return m.navigator.GetMaxIndex(len(m.getUngroupedRepos()))
 }
 
 // updateViewportHeight calculates the available height for the repository list
@@ -1966,89 +1976,11 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // ensureSelectedVisible adjusts the viewport to keep the selected item visible
 func (m *Model) ensureSelectedVisible() {
-	// Calculate total items using the same logic as renderRepositoryList
-	totalItems := 0
-	// Groups first
-	for _, groupName := range m.orderedGroups {
-		totalItems++ // Group header
-		if m.expandedGroups[groupName] {
-			group := m.groups[groupName]
-			totalItems += len(group.Repos)
-		}
-	}
-	// Then ungrouped repos
-	totalItems += len(m.getUngroupedRepos())
+	// Sync state with navigator
+	m.syncNavigatorState()
 	
-	// If selected item is above viewport, scroll up
-	if m.selectedIndex < m.viewportOffset {
-		m.viewportOffset = m.selectedIndex
-	}
-	
-	// If selected item is below viewport, we need to calculate the effective visible area
-	// This must match the logic in renderRepositoryList exactly
-	
-	// Determine if we'll have scroll indicators using the same logic as rendering
-	needsTopIndicator := m.viewportOffset > 0
-	needsBottomIndicator := m.viewportOffset + m.viewportHeight < totalItems
-	
-	// Special case: if we're showing items but can't fit them all even without bottom indicator,
-	// we still need the bottom indicator
-	if !needsBottomIndicator && needsTopIndicator {
-		// Check if all remaining items can fit
-		remainingItems := totalItems - m.viewportOffset
-		availableSpace := m.viewportHeight - 1 // -1 for top indicator
-		if remainingItems > availableSpace {
-			needsBottomIndicator = true
-		}
-	}
-	
-	// Calculate effective visible area (same as in renderRepositoryList)
-	effectiveHeight := m.viewportHeight
-	if needsTopIndicator {
-		effectiveHeight--
-	}
-	if needsBottomIndicator {
-		effectiveHeight--
-	}
-	
-	// Ensure we have at least 1 line for content
-	if effectiveHeight < 1 {
-		effectiveHeight = 1
-	}
-	
-	// Check if selected item is beyond the effective visible area
-	// The rendering uses "len(visibleLines) < effectiveHeight" which means
-	// it will render effectiveHeight items (0 through effectiveHeight-1)
-	// So the last visible item is at viewportOffset + effectiveHeight - 1
-	lastVisibleIndex := m.viewportOffset + effectiveHeight - 1
-	
-	if m.selectedIndex > lastVisibleIndex {
-		// Selected item is below visible area, need to scroll down
-		// Calculate how much to scroll
-		scrollAmount := m.selectedIndex - lastVisibleIndex
-		m.viewportOffset += scrollAmount
-		
-		// Ensure we don't scroll past the end
-		maxOffset := totalItems - m.viewportHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if m.viewportOffset > maxOffset {
-			m.viewportOffset = maxOffset
-			
-			// Double-check: if we're at max offset and still can't see the selected item,
-			// it means our effective height calculation is wrong
-			// Force the viewport to show the last item
-			if m.selectedIndex >= m.viewportOffset + effectiveHeight {
-				// Adjust viewport to ensure selected item is visible
-				m.viewportOffset = m.selectedIndex - effectiveHeight + 1
-				if m.viewportOffset < 0 {
-					m.viewportOffset = 0
-				}
-			}
-		}
-	}
-	
+	// Let navigator handle the viewport adjustment
+	m.selectedIndex, m.viewportOffset = m.navigator.SetSelectedIndex(m.selectedIndex)
 }
 
 // keyBindings returns the help key bindings
@@ -2272,55 +2204,18 @@ func (m *Model) countVisibleItems() int {
 
 // getCurrentIndexForGroup finds the current display index for a group
 func (m *Model) getCurrentIndexForGroup(groupName string) int {
-	currentIndex := 0
-	
-	for _, name := range m.orderedGroups {
-		if name == groupName {
-			return currentIndex
-		}
-		currentIndex++
-		
-		if m.expandedGroups[name] {
-			group := m.groups[name]
-			currentIndex += len(group.Repos)
-		}
-	}
-	
-	return -1
+	m.syncNavigatorState()
+	return m.navigator.GetCurrentIndexForGroup(groupName)
 }
 
 // getCurrentIndexForRepo finds the current display index for a repo
 func (m *Model) getCurrentIndexForRepo(repoPath string) int {
-	currentIndex := 0
-	
-	// Check groups first
-	for _, groupName := range m.orderedGroups {
-		currentIndex++ // Group header
-		
-		if m.expandedGroups[groupName] {
-			group := m.groups[groupName]
-			for _, path := range group.Repos {
-				if path == repoPath {
-					return currentIndex
-				}
-				currentIndex++
-			}
-		}
-	}
-	
-	// Check ungrouped repos
+	m.syncNavigatorState()
 	ungroupedRepos := m.ungroupedRepos
 	if len(ungroupedRepos) == 0 {
 		ungroupedRepos = m.getUngroupedRepos()
 	}
-	for _, path := range ungroupedRepos {
-		if path == repoPath {
-			return currentIndex
-		}
-		currentIndex++
-	}
-	
-	return -1
+	return m.navigator.GetCurrentIndexForRepo(repoPath, ungroupedRepos)
 }
 
 // highlightMatch highlights matching text within a string
@@ -2348,210 +2243,47 @@ func (m *Model) highlightMatch(text, query string, highlightStyle, normalStyle l
 
 // jumpToGroupBoundary jumps to the beginning or end of the current group
 func (m *Model) jumpToGroupBoundary(toBeginning bool) {
-	// Find which group we're currently in
-	currentIndex := 0
-	inGroup := false
-	
-	for _, groupName := range m.orderedGroups {
-		groupHeaderIndex := currentIndex
-		
-		// Check if we're on the group header
-		if currentIndex == m.selectedIndex {
-			inGroup = true
-			// On header - jump to first or last repo in group
-			if m.expandedGroups[groupName] {
-				group := m.groups[groupName]
-				if len(group.Repos) > 0 {
-					if toBeginning {
-						// Jump to first repo
-						m.selectedIndex = groupHeaderIndex + 1
-					} else {
-						// Jump to last repo
-						m.selectedIndex = groupHeaderIndex + len(group.Repos)
-					}
-					m.ensureSelectedVisible()
-					return
-				}
-			}
-			return // Group is collapsed or empty
-		}
-		currentIndex++
-		
-		// Check repos in group if expanded
-		if m.expandedGroups[groupName] {
-			group := m.groups[groupName]
-			groupFirstRepoIndex := currentIndex
-			groupLastRepoIndex := currentIndex + len(group.Repos) - 1
-			
-			// Check if we're inside this group
-			for range group.Repos {
-				if currentIndex == m.selectedIndex {
-					inGroup = true
-					
-					if toBeginning {
-						// If at the first repo in the group, jump to previous group
-						if currentIndex == groupFirstRepoIndex {
-							// Jump to first repo of previous group
-							m.jumpToPreviousGroupStart(groupName)
-							return
-						}
-						// Otherwise jump to first repo in current group
-						m.selectedIndex = groupFirstRepoIndex
-						m.ensureSelectedVisible()
-						return
-					} else {
-						// Check if we're already at the last repo in the group
-						if currentIndex == groupLastRepoIndex {
-							// Jump to last repo of next group
-							m.jumpToNextGroupEnd(groupName)
-							return
-						}
-						// Jump to last repo in group
-						m.selectedIndex = groupLastRepoIndex
-						m.ensureSelectedVisible()
-						return
-					}
-				}
-				currentIndex++
-			}
-		}
+	m.syncNavigatorState()
+	ungroupedRepos := m.ungroupedRepos
+	if len(ungroupedRepos) == 0 {
+		ungroupedRepos = m.getUngroupedRepos()
 	}
 	
-	// Check ungrouped repos
-	if !inGroup {
-		ungroupedRepos := m.ungroupedRepos
-		if len(ungroupedRepos) == 0 {
-			ungroupedRepos = m.getUngroupedRepos()
-		}
-		
-		if len(ungroupedRepos) > 0 {
-			ungroupedStartIndex := currentIndex
-			ungroupedEndIndex := currentIndex + len(ungroupedRepos) - 1
-			
-			// Check if we're in ungrouped section
-			for i := 0; i < len(ungroupedRepos); i++ {
-				if currentIndex == m.selectedIndex {
-					if toBeginning {
-						m.selectedIndex = ungroupedStartIndex
-					} else {
-						m.selectedIndex = ungroupedEndIndex
-					}
-					m.ensureSelectedVisible()
-					return
-				}
-				currentIndex++
-			}
+	needsCrossGroupJump, fromGroup := m.navigator.JumpToGroupBoundary(toBeginning, ungroupedRepos)
+	m.selectedIndex = m.navigator.GetSelectedIndex()
+	m.viewportOffset = m.navigator.GetViewportOffset()
+	
+	if needsCrossGroupJump && fromGroup != "" {
+		if toBeginning {
+			m.jumpToPreviousGroupStart(fromGroup)
+		} else {
+			m.jumpToNextGroupEnd(fromGroup)
 		}
 	}
 }
 
 // jumpToNextGroupEnd jumps to the last repo of the next group
 func (m *Model) jumpToNextGroupEnd(currentGroupName string) {
-	// Find current group index
-	currentGroupIndex := -1
-	for i, groupName := range m.orderedGroups {
-		if groupName == currentGroupName {
-			currentGroupIndex = i
-			break
-		}
-	}
-	
-	// If we found the current group and there's a next group
-	if currentGroupIndex != -1 && currentGroupIndex < len(m.orderedGroups)-1 {
-		// Find the next expanded group with repos
-		for i := currentGroupIndex + 1; i < len(m.orderedGroups); i++ {
-			nextGroupName := m.orderedGroups[i]
-			if m.expandedGroups[nextGroupName] {
-				group := m.groups[nextGroupName]
-				if len(group.Repos) > 0 {
-					// Calculate the index of the last repo in this group
-					currentIndex := 0
-					for j, groupName := range m.orderedGroups {
-						currentIndex++ // Group header
-						if j < i {
-							// Count all repos in previous groups
-							if m.expandedGroups[groupName] {
-								g := m.groups[groupName]
-								currentIndex += len(g.Repos)
-							}
-						} else if j == i {
-							// We're at the target group, add repos to get to last one
-							currentIndex += len(group.Repos) - 1
-							m.selectedIndex = currentIndex
-							m.ensureSelectedVisible()
-							return
-						}
-					}
-				}
-			}
-		}
-	}
-	
-	// If no next group found, check ungrouped repos
+	m.syncNavigatorState()
 	ungroupedRepos := m.ungroupedRepos
 	if len(ungroupedRepos) == 0 {
 		ungroupedRepos = m.getUngroupedRepos()
 	}
-	if len(ungroupedRepos) > 0 {
-		// Jump to last ungrouped repo
-		currentIndex := 0
-		// Count all groups and their repos
-		for _, groupName := range m.orderedGroups {
-			currentIndex++ // Group header
-			if m.expandedGroups[groupName] {
-				group := m.groups[groupName]
-				currentIndex += len(group.Repos)
-			}
-		}
-		// Add ungrouped repos
-		currentIndex += len(ungroupedRepos) - 1
-		m.selectedIndex = currentIndex
-		m.ensureSelectedVisible()
+	
+	if m.navigator.JumpToNextGroupEnd(currentGroupName, ungroupedRepos) {
+		m.selectedIndex = m.navigator.GetSelectedIndex()
+		m.viewportOffset = m.navigator.GetViewportOffset()
 	}
 }
 
 // jumpToPreviousGroupStart jumps to the first repo of the previous group
 func (m *Model) jumpToPreviousGroupStart(currentGroupName string) {
-	// Find current group index
-	currentGroupIndex := -1
-	for i, groupName := range m.orderedGroups {
-		if groupName == currentGroupName {
-			currentGroupIndex = i
-			break
-		}
-	}
+	m.syncNavigatorState()
 	
-	// If we found the current group and there's a previous group
-	if currentGroupIndex > 0 {
-		// Find the previous expanded group with repos
-		for i := currentGroupIndex - 1; i >= 0; i-- {
-			prevGroupName := m.orderedGroups[i]
-			if m.expandedGroups[prevGroupName] {
-				group := m.groups[prevGroupName]
-				if len(group.Repos) > 0 {
-					// Calculate the index of the first repo in this group
-					currentIndex := 0
-					for j, groupName := range m.orderedGroups {
-						currentIndex++ // Group header
-						if j < i {
-							// Count all repos in previous groups
-							if m.expandedGroups[groupName] {
-								g := m.groups[groupName]
-								currentIndex += len(g.Repos)
-							}
-						} else if j == i {
-							// We're at the target group, we're already at first repo
-							m.selectedIndex = currentIndex
-							m.ensureSelectedVisible()
-							return
-						}
-					}
-				}
-			}
-		}
+	if m.navigator.JumpToPreviousGroupStart(currentGroupName) {
+		m.selectedIndex = m.navigator.GetSelectedIndex()
+		m.viewportOffset = m.navigator.GetViewportOffset()
 	}
-	
-	// If no previous group found, stay where we are (we're at the first group)
 }
 
 // fetchGitLog returns a command that fetches git log for a repository
