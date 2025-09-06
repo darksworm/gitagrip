@@ -2533,13 +2533,13 @@ func (m *Model) jumpToGroupBoundary(toBeginning bool) {
 					inGroup = true
 					
 					if toBeginning {
-						// Check if we're already at the first repo in the group
+						// If at the first repo in the group, jump to previous group
 						if currentIndex == groupFirstRepoIndex {
 							// Jump to first repo of previous group
 							m.jumpToPreviousGroupStart(groupName)
 							return
 						}
-						// Jump to first repo in group
+						// Otherwise jump to first repo in current group
 						m.selectedIndex = groupFirstRepoIndex
 						m.ensureSelectedVisible()
 						return
