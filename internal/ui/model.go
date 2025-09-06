@@ -18,6 +18,8 @@ import (
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/commands"
 	"gitagrip/internal/ui/handlers"
+	"gitagrip/internal/ui/input"
+	inputtypes "gitagrip/internal/ui/input/types"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/repositories"
 	"gitagrip/internal/ui/state"
@@ -158,6 +160,7 @@ type Model struct {
 	textInput     textinput.Model             // text input for group names
 	deleteTarget  string                      // group name being deleted
 	currentSort   logic.SortMode             // current sort mode
+	useNewInput   bool                        // feature flag for new input handler
 	
 	// Handlers
 	searchFilter  *logic.SearchFilter         // search and filter handler
@@ -167,6 +170,7 @@ type Model struct {
 	viewModel     *viewmodels.ViewModel        // view model for rendering
 	store         repositories.RepositoryStore // repository store for data access
 	cmdExecutor   *commands.Executor          // command executor
+	inputHandler  *input.Handler              // input handling
 }
 
 // NewModel creates a new UI model
@@ -188,6 +192,8 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		searchFilter: logic.NewSearchFilter(nil), // Will be updated when repos are added
 		navigator:    logic.NewNavigator(),
 		renderer:     views.NewRenderer(cfg.UISettings.ShowAheadBehind),
+		inputHandler: input.New(),
+		useNewInput:  true, // Enable new input handler
 	}
 	
 	// Create event handler with reference to updateOrderedLists method
@@ -239,6 +245,74 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Use new input handler if enabled
+	if m.useNewInput {
+		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			m.help.Width = msg.Width
+			m.updateViewportHeight()
+			
+		case tea.KeyMsg:
+			// Handle log/info popups first
+			if m.state.ShowLog {
+				switch msg.String() {
+				case "esc", "l", "q":
+					m.state.ShowLog = false
+					m.state.LogContent = ""
+					return m, nil
+				}
+			}
+			
+			if m.state.ShowInfo {
+				switch msg.String() {
+				case "esc", "i", "q":
+					m.state.ShowInfo = false
+					m.state.InfoContent = ""
+					return m, nil
+				}
+			}
+			
+			// Create context for input handler
+			ctx := &input.ModelContext{
+				State:       m.state,
+				Store:       m.store,
+				Navigator:   m.navigator,
+				CurrentSort: m.currentSort,
+			}
+			
+			// Handle input through the new handler
+			actions, cmd := m.inputHandler.HandleKey(msg, ctx)
+			
+			// Process actions
+			cmds := []tea.Cmd{}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			
+			for _, action := range actions {
+				if actionCmd := m.processAction(action); actionCmd != nil {
+					cmds = append(cmds, actionCmd)
+				}
+			}
+			
+			// Update text input in view model if in text mode
+			if m.inputHandler.TextInput() != nil {
+				m.viewModel.UpdateTextInput(*m.inputHandler.TextInput())
+			}
+			
+			return m, tea.Batch(cmds...)
+			
+		default:
+			// Handle non-keyboard messages as before
+			return m.handleNonKeyboardMsg(msg)
+		}
+		
+		return m, nil
+	}
+	
+	// Old input handling code (kept for fallback)
 	// Handle input mode first
 	if m.inputMode != InputModeNormal {
 		return m.handleInputMode(msg)
@@ -708,8 +782,41 @@ func (m *Model) View() string {
 	// Update view model with current UI state
 	m.viewModel.SetDimensions(m.width, m.height)
 	m.viewModel.SetDeleteTarget(m.deleteTarget)
-	m.viewModel.SetInputMode(m.inputMode)
-	m.viewModel.UpdateTextInput(m.textInput)
+	
+	// Use input handler's state if new input is enabled
+	if m.useNewInput && m.inputHandler != nil {
+		// Convert input.Mode to viewmodels.InputMode
+		inputHandlerMode := m.inputHandler.CurrentMode()
+		var viewModelMode viewmodels.InputMode
+		switch inputHandlerMode {
+		case inputtypes.ModeNormal:
+			viewModelMode = viewmodels.InputModeNormal
+		case inputtypes.ModeSearch:
+			viewModelMode = viewmodels.InputModeSearch
+		case inputtypes.ModeFilter:
+			viewModelMode = viewmodels.InputModeFilter
+		case inputtypes.ModeNewGroup:
+			viewModelMode = viewmodels.InputModeNewGroup
+		case inputtypes.ModeMoveToGroup:
+			viewModelMode = viewmodels.InputModeMoveToGroup
+		case inputtypes.ModeDeleteConfirm:
+			viewModelMode = viewmodels.InputModeDeleteConfirm
+		case inputtypes.ModeSort:
+			viewModelMode = viewmodels.InputModeSort
+		}
+		m.viewModel.SetInputMode(viewModelMode)
+		
+		// Use input handler's text input if available
+		if ti := m.inputHandler.TextInput(); ti != nil {
+			m.viewModel.UpdateTextInput(*ti)
+		} else {
+			m.viewModel.UpdateTextInput(m.textInput)
+		}
+	} else {
+		m.viewModel.SetInputMode(m.inputMode)
+		m.viewModel.UpdateTextInput(m.textInput)
+	}
+	
 	m.viewModel.SetUngroupedRepos(m.getUngroupedRepos())
 	
 	// Build view state and render
@@ -1214,6 +1321,49 @@ func (m *Model) ensureSelectedVisible() {
 	m.state.SelectedIndex, m.state.ViewportOffset = m.navigator.SetSelectedIndex(m.state.SelectedIndex)
 }
 
+// pageUp moves the selection up by one page
+func (m *Model) pageUp() {
+	// Page up
+	pageSize := m.state.ViewportHeight - 2 // Leave some overlap
+	if pageSize < 1 {
+		pageSize = 1
+	}
+	for i := 0; i < pageSize; i++ {
+		if m.state.SelectedIndex > 0 {
+			m.state.SelectedIndex--
+		}
+	}
+	m.ensureSelectedVisible()
+}
+
+// pageDown moves the selection down by one page
+func (m *Model) pageDown() {
+	// Page down
+	pageSize := m.state.ViewportHeight - 2 // Leave some overlap
+	if pageSize < 1 {
+		pageSize = 1
+	}
+	maxIndex := m.getMaxIndex()
+	for i := 0; i < pageSize; i++ {
+		if m.state.SelectedIndex < maxIndex {
+			m.state.SelectedIndex++
+		}
+	}
+	m.ensureSelectedVisible()
+}
+
+// countVisibleRepos counts the total number of repositories
+func (m *Model) countVisibleRepos() int {
+	return len(m.state.Repositories)
+}
+
+// tick returns a command that sends a tick message after a delay
+func tick() tea.Cmd {
+	return tea.Tick(time.Millisecond * 100, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
 // keyBindings returns the help key bindings
 func (m *Model) keyBindings() help.KeyMap {
 	return keyMap{}
@@ -1508,4 +1658,395 @@ func (m *Model) fetchGitLog(repoPath string) tea.Cmd {
 			content:  string(output),
 		}
 	}
+}
+
+// processAction processes an action from the input handler
+func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
+	switch a := action.(type) {
+	case inputtypes.NavigateAction:
+		switch a.Direction {
+		case "up":
+			if m.state.SelectedIndex > 0 {
+				m.state.SelectedIndex--
+				m.ensureSelectedVisible()
+			}
+		case "down":
+			maxIndex := m.getMaxIndex()
+			if m.state.SelectedIndex < maxIndex {
+				m.state.SelectedIndex++
+				m.ensureSelectedVisible()
+			}
+		case "left":
+			// Collapse group
+			if groupName := m.getSelectedGroup(); groupName != "" {
+				m.state.ExpandedGroups[groupName] = false
+				m.ensureSelectedVisible()
+			}
+		case "right":
+			// Expand group
+			if groupName := m.getSelectedGroup(); groupName != "" {
+				m.state.ExpandedGroups[groupName] = true
+			}
+		case "home":
+			m.state.SelectedIndex = 0
+			m.ensureSelectedVisible()
+		case "end":
+			m.state.SelectedIndex = m.getMaxIndex()
+			m.ensureSelectedVisible()
+		case "pageup":
+			m.pageUp()
+		case "pagedown":
+			m.pageDown()
+		}
+		
+	case inputtypes.SelectAction:
+		if a.Index < 0 {
+			// Toggle selection at current index
+			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+				return m.cmdExecutor.ExecuteToggleSelection(repoPath)
+			}
+		} else {
+			// Toggle selection at specific index
+			if repoPath := m.getRepoPathAtIndex(a.Index); repoPath != "" {
+				return m.cmdExecutor.ExecuteToggleSelection(repoPath)
+			}
+		}
+		
+	case inputtypes.SelectAllAction:
+		totalRepos := m.countVisibleRepos()
+		return m.cmdExecutor.ExecuteSelectAll(totalRepos)
+		
+	case inputtypes.DeselectAllAction:
+		m.state.ClearSelection()
+		
+	case inputtypes.RefreshAction:
+		if a.All {
+			// Full scan
+			return m.cmdExecutor.ExecuteFullScan(m.config.BaseDir)
+		} else {
+			// Refresh status
+			var repoPaths []string
+			if m.store.GetSelectionCount() > 0 {
+				// Refresh selected repos
+				for path := range m.store.GetSelectedRepositories() {
+					repoPaths = append(repoPaths, path)
+				}
+			} else if groupName := m.getSelectedGroup(); groupName != "" {
+				// Refresh all repos in the selected group
+				if group, ok := m.store.GetGroup(groupName); ok {
+					for _, repoPath := range group.Repos {
+						repoPaths = append(repoPaths, repoPath)
+					}
+					m.state.StatusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
+				}
+			} else {
+				// Refresh current repository
+				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+					repoPaths = []string{repoPath}
+				}
+			}
+			return m.cmdExecutor.ExecuteRefresh(repoPaths)
+		}
+		
+	case inputtypes.FetchAction:
+		var repoPaths []string
+		if m.store.GetSelectionCount() > 0 {
+			// Fetch selected repos
+			for path := range m.store.GetSelectedRepositories() {
+				repoPaths = append(repoPaths, path)
+			}
+		} else if groupName := m.getSelectedGroup(); groupName != "" {
+			// Fetch all repos in the selected group
+			if group, ok := m.store.GetGroup(groupName); ok {
+				for _, repoPath := range group.Repos {
+					repoPaths = append(repoPaths, repoPath)
+				}
+				m.state.StatusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
+			}
+		} else {
+			// Fetch current repository
+			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+				repoPaths = []string{repoPath}
+			}
+		}
+		return m.cmdExecutor.ExecuteFetch(repoPaths)
+		
+	case inputtypes.PullAction:
+		var repoPaths []string
+		if m.store.GetSelectionCount() > 0 {
+			// Pull selected repos
+			for path := range m.store.GetSelectedRepositories() {
+				repoPaths = append(repoPaths, path)
+			}
+		} else if groupName := m.getSelectedGroup(); groupName != "" {
+			// Pull all repos in the selected group
+			if group, ok := m.store.GetGroup(groupName); ok {
+				for _, repoPath := range group.Repos {
+					repoPaths = append(repoPaths, repoPath)
+				}
+				m.state.StatusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
+			}
+		} else {
+			// Pull current repository
+			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+				repoPaths = []string{repoPath}
+			}
+		}
+		return m.cmdExecutor.ExecutePull(repoPaths)
+		
+	case inputtypes.OpenLogAction:
+		// Show git log for current repo
+		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+			m.state.ShowLog = true
+			return m.fetchGitLog(repoPath)
+		}
+		
+	case inputtypes.ToggleInfoAction:
+		m.state.ShowInfo = !m.state.ShowInfo
+		if m.state.ShowInfo {
+			// Build info content for current repo
+			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+				if repo, ok := m.state.Repositories[repoPath]; ok {
+					m.state.InfoContent = m.buildRepoInfo(repo)
+				}
+			}
+		} else {
+			m.state.InfoContent = ""
+		}
+		
+	case inputtypes.ToggleHelpAction:
+		m.state.ShowHelp = !m.state.ShowHelp
+		
+	case inputtypes.ToggleGroupAction:
+		if groupName := m.getSelectedGroup(); groupName != "" {
+			m.state.ExpandedGroups[groupName] = !m.state.ExpandedGroups[groupName]
+		}
+		
+	case inputtypes.CreateGroupAction:
+		// Create the new group
+		if m.bus != nil {
+			m.bus.Publish(eventbus.GroupAddedEvent{
+				Name: a.Name,
+			})
+		}
+		
+		// Move selected repos to the new group
+		movedCount := 0
+		for repoPath := range m.store.GetSelectedRepositories() {
+			// Find current group (if any)
+			var fromGroup string
+			for _, group := range m.state.Groups {
+				for _, path := range group.Repos {
+					if path == repoPath {
+						fromGroup = group.Name
+						break
+					}
+				}
+			}
+			
+			// Publish move event
+			m.bus.Publish(eventbus.RepoMovedEvent{
+				RepoPath:  repoPath,
+				FromGroup: fromGroup,
+				ToGroup:   a.Name,
+			})
+			movedCount++
+		}
+		
+		// Clear selection
+		m.state.ClearSelection()
+		
+		// Set cursor to the new group
+		for _, groupName := range m.state.OrderedGroups {
+			if groupName == a.Name {
+				m.state.SelectedIndex = m.getCurrentIndexForGroup(groupName)
+				m.ensureSelectedVisible()
+				break
+			}
+		}
+		
+		// Status message
+		if movedCount > 0 {
+			m.state.StatusMessage = fmt.Sprintf("Created group '%s' with %d repositories", a.Name, movedCount)
+		} else {
+			m.state.StatusMessage = fmt.Sprintf("Created empty group '%s'", a.Name)
+		}
+		
+		// Publish config changed event
+		if m.bus != nil {
+			m.bus.Publish(eventbus.ConfigChangedEvent{
+				Groups: m.getGroupsMap(),
+			})
+		}
+		
+	case inputtypes.MoveToGroupAction:
+		var repoPaths []string
+		fromGroups := make(map[string]string)
+		
+		if m.store.GetSelectionCount() > 0 {
+			// Move selected repos
+			for path := range m.store.GetSelectedRepositories() {
+				repoPaths = append(repoPaths, path)
+				// Find current group
+				for gName, group := range m.state.Groups {
+					for _, p := range group.Repos {
+						if p == path {
+							fromGroups[path] = gName
+							break
+						}
+					}
+				}
+			}
+		} else {
+			// Move current repo
+			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+				repoPaths = []string{repoPath}
+				// Find current group
+				for gName, group := range m.state.Groups {
+					for _, p := range group.Repos {
+						if p == repoPath {
+							fromGroups[repoPath] = gName
+							break
+						}
+					}
+				}
+			}
+		}
+		
+		return m.cmdExecutor.ExecuteMoveToGroup(repoPaths, fromGroups, a.GroupName)
+		
+	case inputtypes.DeleteGroupAction:
+		if a.GroupName != "" && a.GroupName != "Ungrouped" {
+			// Remove the group
+			delete(m.state.Groups, a.GroupName)
+			
+			// Remove from ordered groups
+			newOrderedGroups := []string{}
+			for _, g := range m.state.OrderedGroups {
+				if g != a.GroupName {
+					newOrderedGroups = append(newOrderedGroups, g)
+				}
+			}
+			m.state.OrderedGroups = newOrderedGroups
+			
+			m.state.StatusMessage = fmt.Sprintf("Deleted group '%s'", a.GroupName)
+			
+			// Publish config changed event
+			if m.bus != nil {
+				m.bus.Publish(eventbus.ConfigChangedEvent{
+					Groups: m.getGroupsMap(),
+				})
+			}
+		}
+		
+	case inputtypes.SubmitTextAction:
+		// Handle text submission based on mode
+		switch a.Mode {
+		case inputtypes.ModeSearch:
+			m.state.SearchQuery = a.Text
+			// TODO: Implement search
+			// m.searchFilter.Search(a.Text)
+			// m.updateOrderedLists()
+			// m.ensureSelectedVisible()
+			
+		case inputtypes.ModeFilter:
+			m.state.FilterQuery = a.Text
+			m.state.IsFiltered = a.Text != ""
+			// TODO: Implement filter
+			// if a.Text == "" {
+			// 	m.searchFilter.ClearFilter()
+			// 	m.state.IsFiltered = false
+			// } else {
+			// 	m.searchFilter.Filter(a.Text)
+			// 	m.state.IsFiltered = true
+			// }
+			m.updateOrderedLists()
+			m.ensureSelectedVisible()
+			
+		case inputtypes.ModeSort:
+			m.handleSortInput(a.Text)
+		}
+		
+	case inputtypes.CancelTextAction:
+		// Clear any partial input
+		m.state.SearchQuery = ""
+		m.state.FilterQuery = ""
+		
+	case inputtypes.UpdateTextAction:
+		// Update text in view model is handled in the main Update method
+		
+	case inputtypes.SortByAction:
+		m.handleSortInput(a.Criteria)
+		
+	case inputtypes.QuitAction:
+		if !a.Force && m.config.UISettings.AutosaveOnExit && m.bus != nil {
+			m.bus.Publish(eventbus.ConfigChangedEvent{
+				Groups: m.getGroupsMap(),
+			})
+		}
+		return tea.Quit
+	}
+	
+	return nil
+}
+
+// handleNonKeyboardMsg handles non-keyboard messages
+func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case EventMsg:
+		// Process domain events
+		cmd := m.eventHandler.HandleEvent(msg.Event)
+		return m, cmd
+		
+	case tickMsg:
+		return m, tick()
+		
+	case gitLogMsg:
+		if msg.err != nil {
+			m.state.LogContent = fmt.Sprintf("Error fetching log for %s:\n%v", msg.repoPath, msg.err)
+		} else {
+			m.state.LogContent = fmt.Sprintf("Git log for %s:\n\n%s", msg.repoPath, msg.content)
+		}
+		return m, nil
+		
+	case quitMsg:
+		if msg.saveConfig && m.bus != nil {
+			m.bus.Publish(eventbus.ConfigChangedEvent{
+				Groups: m.getGroupsMap(),
+			})
+		}
+		return m, tea.Quit
+		
+	default:
+		// Handle text input updates
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		return m, cmd
+	}
+}
+
+// handleSortInput processes sort criteria input
+func (m *Model) handleSortInput(criteria string) {
+	criteria = strings.ToLower(strings.TrimSpace(criteria))
+	switch criteria {
+	case "name", "n":
+		m.currentSort = logic.SortByName
+		m.state.StatusMessage = "Sorting by name"
+	case "status", "s":
+		m.currentSort = logic.SortByStatus
+		m.state.StatusMessage = "Sorting by status"
+	case "branch", "b":
+		m.currentSort = logic.SortByBranch
+		m.state.StatusMessage = "Sorting by branch"
+	case "modified", "m":
+		m.currentSort = logic.SortByStatus
+		m.state.StatusMessage = "Sorting by status"
+	default:
+		m.state.StatusMessage = fmt.Sprintf("Unknown sort criteria: %s", criteria)
+		return
+	}
+	
+	// Update the sort order
+	m.updateOrderedLists()
+	m.ensureSelectedVisible()
 }
