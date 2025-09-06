@@ -1139,10 +1139,13 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		switch a.Mode {
 		case inputtypes.ModeSearch:
 			m.state.SearchQuery = a.Text
-			// TODO: Implement search
-			// m.searchFilter.Search(a.Text)
-			// m.updateOrderedLists()
-			// m.ensureSelectedVisible()
+			m.performSearch()
+			// Jump to first match if any
+			if len(m.state.SearchMatches) > 0 {
+				m.state.SearchIndex = 0
+				m.state.SelectedIndex = m.state.SearchMatches[0]
+				m.ensureSelectedVisible()
+			}
 
 		case inputtypes.ModeFilter:
 			m.state.FilterQuery = a.Text
@@ -1210,6 +1213,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.CancelTextAction:
 		// Clear any partial input
 		m.state.SearchQuery = ""
+		m.state.SearchMatches = nil
+		m.state.SearchIndex = 0
 		m.state.FilterQuery = ""
 
 	case inputtypes.UpdateTextAction:
@@ -1345,4 +1350,47 @@ func tick() tea.Cmd {
 // getGroupsMap returns a map of group names to repository paths
 func (m *Model) getGroupsMap() map[string][]string {
 	return m.state.GetGroupsMap()
+}
+
+// performSearch searches for repositories matching the search query
+func (m *Model) performSearch() {
+	m.state.SearchMatches = nil
+	m.state.SearchIndex = 0
+	
+	if m.state.SearchQuery == "" {
+		return
+	}
+	
+	query := strings.ToLower(m.state.SearchQuery)
+	currentIdx := 0
+	
+	// Search in grouped repos
+	for _, groupName := range m.state.OrderedGroups {
+		currentIdx++ // Skip group header
+		
+		if m.state.ExpandedGroups[groupName] {
+			group := m.state.Groups[groupName]
+			if group != nil {
+				for _, repoPath := range group.Repos {
+					// Search in repository path
+					if strings.Contains(strings.ToLower(repoPath), query) {
+						m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
+					}
+					currentIdx++
+				}
+			}
+		}
+	}
+	
+	// Search in ungrouped repos
+	ungrouped := m.state.Groups["Ungrouped"]
+	if ungrouped != nil && len(ungrouped.Repos) > 0 && m.state.ExpandedGroups["Ungrouped"] {
+		currentIdx++ // Skip ungrouped header
+		for _, repoPath := range ungrouped.Repos {
+			if strings.Contains(strings.ToLower(repoPath), query) {
+				m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
+			}
+			currentIdx++
+		}
+	}
 }
