@@ -174,6 +174,7 @@ type Model struct {
 	ungroupedRepos []string                    // cached ungrouped repos
 	filterQuery    string                      // current filter query
 	isFiltered     bool                        // whether filter is active
+	searchFilter   *logic.SearchFilter         // search and filter handler
 }
 
 // NewModel creates a new UI model
@@ -201,6 +202,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		inputMode:      InputModeNormal,
 		selectedIndex:  0,
 		currentSort:    logic.SortByName,
+		searchFilter:   logic.NewSearchFilter(nil), // Will be updated when repos are added
 	}
 	
 	// Initialize groups from config
@@ -213,6 +215,9 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		m.groupCreationOrder = append(m.groupCreationOrder, name)
 	}
 	m.updateOrderedLists()
+	
+	// Update searchFilter with the actual repositories map
+	m.searchFilter = logic.NewSearchFilter(m.repositories)
 	
 	return m
 }
@@ -710,6 +715,8 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 		// Add or update repository
 		m.repositories[e.Repo.Path] = &e.Repo
 		m.updateOrderedLists()
+		// Update searchFilter with new repositories
+		m.searchFilter = logic.NewSearchFilter(m.repositories)
 		
 	case eventbus.StatusUpdatedEvent:
 		// Update repository status
@@ -1022,13 +1029,13 @@ func (m *Model) renderRepositoryList() string {
 		if m.isFiltered {
 			for _, repoPath := range group.Repos {
 				if repo, ok := m.repositories[repoPath]; ok {
-					if m.matchesFilter(repo, groupName) {
+					if m.searchFilter.MatchesFilter(repo, groupName, m.filterQuery) {
 						groupHasMatches = true
 						break
 					}
 				}
 			}
-			if !groupHasMatches && !m.matchesGroupFilter(groupName) {
+			if !groupHasMatches && !m.searchFilter.MatchesGroupFilter(groupName, m.filterQuery) {
 				continue
 			}
 		}
@@ -1098,7 +1105,7 @@ func (m *Model) renderRepositoryList() string {
 			for _, repoPath := range sortedRepos {
 				if repo, ok := m.repositories[repoPath]; ok {
 					// Skip if filtered and doesn't match
-					if m.isFiltered && !m.matchesFilter(repo, groupName) {
+					if m.isFiltered && !m.searchFilter.MatchesFilter(repo, groupName, m.filterQuery) {
 						continue
 					}
 					
@@ -1121,7 +1128,7 @@ func (m *Model) renderRepositoryList() string {
 	for _, repoPath := range ungroupedRepos {
 		if repo, ok := m.repositories[repoPath]; ok {
 			// Skip if filtered and doesn't match
-			if m.isFiltered && !m.matchesFilter(repo, "") {
+			if m.isFiltered && !m.searchFilter.MatchesFilter(repo, "", m.filterQuery) {
 				continue
 			}
 			
@@ -2082,72 +2089,22 @@ func (m *Model) getGroupsMap() map[string][]string {
 
 // performSearch searches for repositories matching the query
 func (m *Model) performSearch() {
-	m.searchMatches = nil
-	query := strings.ToLower(m.searchQuery)
-	currentIndex := 0
+	// Update searchFilter with current repositories
+	m.searchFilter = logic.NewSearchFilter(m.repositories)
 	
-	// Check if it's a status filter
-	isStatusFilter := false
-	statusFilter := ""
-	if strings.HasPrefix(query, "status:") {
-		isStatusFilter = true
-		statusFilter = strings.TrimPrefix(query, "status:")
-	}
-	
-	// Search in groups first
-	for _, groupName := range m.orderedGroups {
-		// Check group name (only for non-status searches)
-		if !isStatusFilter && strings.Contains(strings.ToLower(groupName), query) {
-			m.searchMatches = append(m.searchMatches, currentIndex)
-		}
-		currentIndex++
-		
-		// Check repos in group if expanded
-		if m.expandedGroups[groupName] {
-			group := m.groups[groupName]
-			for _, repoPath := range group.Repos {
-				if repo, ok := m.repositories[repoPath]; ok {
-					if isStatusFilter {
-						// Filter by status
-						if m.matchesStatusFilter(*repo, statusFilter) {
-							m.searchMatches = append(m.searchMatches, currentIndex)
-						}
-					} else {
-						// Regular search
-						if strings.Contains(strings.ToLower(repo.Name), query) ||
-							strings.Contains(strings.ToLower(repo.Path), query) ||
-							strings.Contains(strings.ToLower(repo.Status.Branch), query) {
-							m.searchMatches = append(m.searchMatches, currentIndex)
-						}
-					}
-				}
-				currentIndex++
-			}
-		}
-	}
-	
-	// Search in ungrouped repos
+	// Get ungrouped repos
 	ungroupedRepos := m.ungroupedRepos
 	if len(ungroupedRepos) == 0 {
 		ungroupedRepos = m.getUngroupedRepos()
 	}
-	for _, repoPath := range ungroupedRepos {
-		if repo, ok := m.repositories[repoPath]; ok {
-			if isStatusFilter {
-				// Filter by status
-				if m.matchesStatusFilter(*repo, statusFilter) {
-					m.searchMatches = append(m.searchMatches, currentIndex)
-				}
-			} else {
-				// Regular search
-				if strings.Contains(strings.ToLower(repo.Name), query) ||
-					strings.Contains(strings.ToLower(repo.Path), query) ||
-					strings.Contains(strings.ToLower(repo.Status.Branch), query) {
-					m.searchMatches = append(m.searchMatches, currentIndex)
-				}
-			}
-		}
-		currentIndex++
+	
+	// Perform search using the filter logic
+	results := m.searchFilter.PerformSearch(m.searchQuery, m.orderedGroups, m.groups, m.expandedGroups, ungroupedRepos)
+	
+	// Convert results to match indices
+	m.searchMatches = nil
+	for _, result := range results {
+		m.searchMatches = append(m.searchMatches, result.Index)
 	}
 	
 	// Jump to first match if any
@@ -2158,30 +2115,6 @@ func (m *Model) performSearch() {
 	}
 }
 
-// matchesStatusFilter checks if a repo matches the given status filter
-func (m *Model) matchesStatusFilter(repo domain.Repository, filter string) bool {
-	switch filter {
-	case "dirty":
-		return repo.Status.IsDirty
-	case "clean":
-		return !repo.Status.IsDirty && !repo.Status.HasUntracked
-	case "untracked":
-		return repo.Status.HasUntracked
-	case "ahead":
-		return repo.Status.AheadCount > 0
-	case "behind":
-		return repo.Status.BehindCount > 0
-	case "diverged":
-		return repo.Status.AheadCount > 0 && repo.Status.BehindCount > 0
-	case "stashed", "stash":
-		return repo.Status.StashCount > 0
-	case "error":
-		return repo.Status.Error != ""
-	default:
-		// Check if it's a branch name
-		return strings.Contains(strings.ToLower(repo.Status.Branch), filter)
-	}
-}
 
 // handleSortMode handles input when in sort mode
 func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -2291,41 +2224,6 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 	return info.String()
 }
 
-// matchesFilter checks if a repo matches the current filter
-func (m *Model) matchesFilter(repo *domain.Repository, groupName string) bool {
-	if !m.isFiltered || m.filterQuery == "" {
-		return true
-	}
-	
-	query := strings.ToLower(m.filterQuery)
-	
-	// Check if it's a status filter
-	if strings.HasPrefix(query, "status:") {
-		statusFilter := strings.TrimPrefix(query, "status:")
-		return m.matchesStatusFilter(*repo, statusFilter)
-	}
-	
-	// Regular filter - check name, path, branch, group
-	return strings.Contains(strings.ToLower(repo.Name), query) ||
-		strings.Contains(strings.ToLower(repo.Path), query) ||
-		strings.Contains(strings.ToLower(repo.Status.Branch), query) ||
-		(groupName != "" && strings.Contains(strings.ToLower(groupName), query))
-}
-
-// matchesGroupFilter checks if a group name matches the filter
-func (m *Model) matchesGroupFilter(groupName string) bool {
-	if !m.isFiltered || m.filterQuery == "" {
-		return true
-	}
-	
-	// Status filters don't match group names
-	if strings.HasPrefix(m.filterQuery, "status:") {
-		return false
-	}
-	
-	query := strings.ToLower(m.filterQuery)
-	return strings.Contains(strings.ToLower(groupName), query)
-}
 
 // countVisibleItems counts how many items are visible with current filter
 func (m *Model) countVisibleItems() int {
@@ -2341,14 +2239,14 @@ func (m *Model) countVisibleItems() int {
 		
 		for _, repoPath := range group.Repos {
 			if repo, ok := m.repositories[repoPath]; ok {
-				if m.matchesFilter(repo, groupName) {
+				if m.searchFilter.MatchesFilter(repo, groupName, m.filterQuery) {
 					groupHasMatches = true
 					repoCount++
 				}
 			}
 		}
 		
-		if groupHasMatches || m.matchesGroupFilter(groupName) {
+		if groupHasMatches || m.searchFilter.MatchesGroupFilter(groupName, m.filterQuery) {
 			count++ // Count the group header
 			if m.expandedGroups[groupName] {
 				count += repoCount
@@ -2363,7 +2261,7 @@ func (m *Model) countVisibleItems() int {
 	}
 	for _, repoPath := range ungroupedRepos {
 		if repo, ok := m.repositories[repoPath]; ok {
-			if m.matchesFilter(repo, "") {
+			if m.searchFilter.MatchesFilter(repo, "", m.filterQuery) {
 				count++
 			}
 		}
