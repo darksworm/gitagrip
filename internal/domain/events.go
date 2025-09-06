@@ -14,6 +14,7 @@ const (
 	EventScanStarted    EventType = "ScanStarted"
 	EventScanCompleted  EventType = "ScanCompleted"
 	EventScanRequested  EventType = "ScanRequested"
+	EventStatusRefreshRequested EventType = "StatusRefreshRequested"
 	EventConfigLoaded   EventType = "ConfigLoaded"
 	EventConfigSaved    EventType = "ConfigSaved"
 )
@@ -102,3 +103,10 @@ func (e ConfigLoadedEvent) Type() EventType { return EventConfigLoaded }
 type ConfigSavedEvent struct{}
 
 func (e ConfigSavedEvent) Type() EventType { return EventConfigSaved }
+
+// StatusRefreshRequestedEvent is emitted to request status refresh for specific repositories
+type StatusRefreshRequestedEvent struct {
+	RepoPaths []string // Empty means refresh all
+}
+
+func (e StatusRefreshRequestedEvent) Type() EventType { return EventStatusRefreshRequested }

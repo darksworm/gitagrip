@@ -81,6 +81,14 @@ var (
 		key.WithKeys("ctrl+d"),
 		key.WithHelp("ctrl+d", "half page down"),
 	)
+	keySelect = key.NewBinding(
+		key.WithKeys(" "),
+		key.WithHelp("space", "select/deselect"),
+	)
+	keySelectAll = key.NewBinding(
+		key.WithKeys("cmd+a"),
+		key.WithHelp("cmd+a", "select all"),
+	)
 )
 
 // EventMsg wraps a domain event for the UI
@@ -97,6 +105,8 @@ type Model struct {
 	orderedRepos []string                      // ordered repo paths for display
 	orderedGroups []string                     // ordered group names
 	selectedIndex int                          // currently selected item
+	selectedRepos map[string]bool              // selected repository paths
+	refreshingRepos map[string]bool            // repositories currently being refreshed
 	expandedGroups map[string]bool             // which groups are expanded
 	scanning      bool                         // whether scanning is in progress
 	statusMessage string                       // status bar message
@@ -118,6 +128,8 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		groups:         make(map[string]*domain.Group),
 		orderedRepos:   make([]string, 0),
 		orderedGroups:  make([]string, 0),
+		selectedRepos:  make(map[string]bool),
+		refreshingRepos: make(map[string]bool),
 		expandedGroups: make(map[string]bool),
 		help:           help.New(),
 	}
@@ -183,8 +195,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			
 		case key.Matches(msg, keyRefresh):
-			m.statusMessage = "Refreshing repository statuses..."
-			// TODO: Trigger status refresh
+			// Refresh selected repositories or current one
+			var repoPaths []string
+			if len(m.selectedRepos) > 0 {
+				// Refresh selected repos
+				for path := range m.selectedRepos {
+					repoPaths = append(repoPaths, path)
+					m.refreshingRepos[path] = true
+				}
+				m.statusMessage = fmt.Sprintf("Refreshing %d selected repositories...", len(repoPaths))
+			} else {
+				// Refresh current repository
+				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+					repoPaths = []string{repoPath}
+					m.refreshingRepos[repoPath] = true
+					m.statusMessage = "Refreshing repository status..."
+				}
+			}
+			
+			if len(repoPaths) > 0 && m.bus != nil {
+				m.bus.Publish(eventbus.StatusRefreshRequestedEvent{
+					RepoPaths: repoPaths,
+				})
+			}
 			
 		case key.Matches(msg, keyFullScan):
 			m.statusMessage = "Starting full repository scan..."
@@ -196,6 +229,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case key.Matches(msg, keyHelp):
 			m.showHelp = !m.showHelp
+			
+		case key.Matches(msg, keySelect):
+			// Toggle selection for current repository
+			if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+				if m.selectedRepos[repoPath] {
+					delete(m.selectedRepos, repoPath)
+				} else {
+					m.selectedRepos[repoPath] = true
+				}
+			}
+			
+		case key.Matches(msg, keySelectAll):
+			// Toggle select all
+			if len(m.selectedRepos) == len(m.repositories) {
+				// All selected, deselect all
+				m.selectedRepos = make(map[string]bool)
+			} else {
+				// Select all repositories
+				for path := range m.repositories {
+					m.selectedRepos[path] = true
+				}
+			}
 			
 		// Navigation keys
 		case msg.String() == "g":
@@ -298,9 +353,13 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 		if repo, ok := m.repositories[e.RepoPath]; ok {
 			repo.Status = e.Status
 		}
+		// Clear refreshing state
+		delete(m.refreshingRepos, e.RepoPath)
 		
 	case eventbus.ErrorEvent:
 		m.statusMessage = fmt.Sprintf("Error: %s", e.Message)
+		// If this is a refresh error for a specific repo, we might need to clear its refreshing state
+		// This would require extending the ErrorEvent to include optional repo path
 		
 	case eventbus.GroupAddedEvent:
 		if _, exists := m.groups[e.Name]; !exists {
@@ -351,9 +410,18 @@ func (m *Model) View() string {
 	
 	// Status bar
 	content.WriteString("\n\n")
-	if m.statusMessage != "" {
-		statusStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
+	statusStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241"))
+	
+	// Show selection count if any
+	if len(m.selectedRepos) > 0 {
+		selectionMsg := fmt.Sprintf("%d selected", len(m.selectedRepos))
+		if m.statusMessage != "" {
+			content.WriteString(statusStyle.Render(fmt.Sprintf("%s | %s", selectionMsg, m.statusMessage)))
+		} else {
+			content.WriteString(statusStyle.Render(selectionMsg))
+		}
+	} else if m.statusMessage != "" {
 		content.WriteString(statusStyle.Render(m.statusMessage))
 	}
 	
@@ -521,9 +589,20 @@ func (m *Model) renderGroupHeader(group *domain.Group, isExpanded bool, isSelect
 
 // renderRepository renders a repository line
 func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, indent int) string {
+	// Selection indicator
+	selectionIndicator := "[ ]"
+	if m.selectedRepos[repo.Path] {
+		selectionIndicator = "[✓]"
+	}
+	
+	// Check if this repo is currently refreshing
+	isRefreshing := m.refreshingRepos[repo.Path]
+	
 	// Status indicator
 	var status string
-	if repo.Status.Error != "" {
+	if isRefreshing {
+		status = "⟳" // Refreshing indicator
+	} else if repo.Status.Error != "" {
 		status = "⚠"
 	} else if repo.Status.IsDirty || repo.Status.HasUntracked {
 		status = "●"
@@ -535,7 +614,9 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	
 	// Status color
 	statusStyle := lipgloss.NewStyle()
-	if repo.Status.Error != "" {
+	if isRefreshing {
+		statusStyle = statusStyle.Foreground(lipgloss.Color("51")) // cyan for refreshing
+	} else if repo.Status.Error != "" {
 		statusStyle = statusStyle.Foreground(lipgloss.Color("203")) // red
 	} else if repo.Status.IsDirty || repo.Status.HasUntracked {
 		statusStyle = statusStyle.Foreground(lipgloss.Color("214")) // yellow
@@ -585,6 +666,13 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		
 		// Indent
 		parts = append(parts, indentStr)
+		
+		// Selection indicator with background
+		selectionStyle := lipgloss.NewStyle().Background(bgColor)
+		parts = append(parts, selectionStyle.Render(selectionIndicator))
+		
+		// Space
+		parts = append(parts, " ")
 		
 		// Status with its color and background
 		parts = append(parts, statusStyle.Render(status))
@@ -636,8 +724,9 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	}
 	
 	// Not selected - render normally
-	content := fmt.Sprintf("%s%s %s (%s%s)", 
+	content := fmt.Sprintf("%s%s %s %s (%s%s)", 
 		indentStr,
+		selectionIndicator,
 		statusStyle.Render(status),
 		repo.Name,
 		coloredBranch,
@@ -778,6 +867,46 @@ func (m *Model) getSelectedGroup() string {
 	return ""
 }
 
+// getRepoPathAtIndex returns the repository path at the given index
+func (m *Model) getRepoPathAtIndex(index int) string {
+	currentIndex := 0
+	
+	// Check ungrouped repos first
+	ungroupedRepos := m.getUngroupedRepos()
+	for _, repoPath := range ungroupedRepos {
+		if currentIndex == index {
+			return repoPath
+		}
+		currentIndex++
+	}
+	
+	// Check groups
+	for _, groupName := range m.orderedGroups {
+		// Group header itself is not a repo
+		if currentIndex == index {
+			return "" // This is a group header, not a repo
+		}
+		currentIndex++
+		
+		// Check repos in group if expanded
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			for _, repoPath := range group.Repos {
+				if currentIndex == index {
+					return repoPath
+				}
+				currentIndex++
+			}
+		}
+		
+		if currentIndex > index {
+			break
+		}
+	}
+	
+	return ""
+}
+
 // ensureSelectedVisible adjusts the viewport to keep the selected item visible
 func (m *Model) ensureSelectedVisible() {
 	// Calculate total items using the same logic as renderRepositoryList
@@ -881,6 +1010,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyUp, keyDown, keyLeft, keyRight},
 		{keyPageUp, keyPageDown, keyHalfPageUp, keyHalfPageDown},
 		{keyTop, keyBottom},
+		{keySelect, keySelectAll},
 		{keyRefresh, keyFullScan, keyFetch, keyLog},
 		{keyHelp, keyQuit},
 	}

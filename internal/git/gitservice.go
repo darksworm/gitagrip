@@ -54,6 +54,34 @@ func NewGitService(bus eventbus.EventBus) GitService {
 		}
 	})
 	
+	// Subscribe to status refresh requests
+	bus.Subscribe(eventbus.EventStatusRefreshRequested, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.StatusRefreshRequestedEvent); ok {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				
+				if len(event.RepoPaths) == 0 {
+					// Refresh all known repos
+					gs.mu.Lock()
+					repos := make([]domain.Repository, 0, len(gs.knownRepos))
+					for path := range gs.knownRepos {
+						repos = append(repos, domain.Repository{Path: path})
+					}
+					gs.mu.Unlock()
+					gs.RefreshAll(ctx, repos)
+				} else {
+					// Refresh specific repos
+					repos := make([]domain.Repository, 0, len(event.RepoPaths))
+					for _, path := range event.RepoPaths {
+						repos = append(repos, domain.Repository{Path: path})
+					}
+					gs.RefreshAll(ctx, repos)
+				}
+			}()
+		}
+	})
+	
 	return gs
 }
 
