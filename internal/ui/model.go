@@ -86,7 +86,7 @@ var (
 	)
 	keySelect = key.NewBinding(
 		key.WithKeys(" "),
-		key.WithHelp("space", "select/deselect"),
+		key.WithHelp("space", "select/expand"),
 	)
 	keySelectAll = key.NewBinding(
 		key.WithKeys("cmd+a"),
@@ -325,8 +325,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			
 		case key.Matches(msg, keySelect):
-			// Toggle selection for current repository
-			if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+			// Check if a group is selected
+			if groupName := m.getSelectedGroup(); groupName != "" {
+				// Toggle group expansion
+				m.expandedGroups[groupName] = !m.expandedGroups[groupName]
+				m.ensureSelectedVisible()
+			} else if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+				// Toggle selection for repository
 				if m.selectedRepos[repoPath] {
 					delete(m.selectedRepos, repoPath)
 				} else {
