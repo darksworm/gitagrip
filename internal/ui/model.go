@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	
@@ -89,12 +90,29 @@ var (
 		key.WithKeys("cmd+a"),
 		key.WithHelp("cmd+a", "select all"),
 	)
+	keyNewGroup = key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "new group"),
+	)
+	keyMoveToGroup = key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "move to group"),
+	)
 )
 
 // EventMsg wraps a domain event for the UI
 type EventMsg struct {
 	Event eventbus.DomainEvent
 }
+
+// InputMode represents different input modes
+type InputMode int
+
+const (
+	InputModeNormal InputMode = iota
+	InputModeNewGroup
+	InputModeMoveToGroup
+)
 
 // Model represents the UI state
 type Model struct {
@@ -118,10 +136,16 @@ type Model struct {
 	viewportOffset int                         // offset for scrolling
 	viewportHeight int                         // available height for repo list
 	lastKeyWasG    bool                        // track 'g' key for 'gg' command
+	inputMode      InputMode                   // current input mode
+	textInput      textinput.Model             // text input for group names
 }
 
 // NewModel creates a new UI model
 func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
+	ti := textinput.New()
+	ti.Placeholder = "Enter group name..."
+	ti.CharLimit = 50
+	
 	m := &Model{
 		bus:            bus,
 		config:         cfg,
@@ -134,6 +158,8 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		fetchingRepos:  make(map[string]bool),
 		expandedGroups: make(map[string]bool),
 		help:           help.New(),
+		textInput:      ti,
+		inputMode:      InputModeNormal,
 	}
 	
 	// Initialize groups from config
@@ -158,6 +184,11 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle input mode first
+	if m.inputMode != InputModeNormal {
+		return m.handleInputMode(msg)
+	}
+	
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -273,6 +304,53 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for path := range m.repositories {
 					m.selectedRepos[path] = true
 				}
+			}
+			
+		case key.Matches(msg, keyNewGroup):
+			// Enter new group mode
+			m.inputMode = InputModeNewGroup
+			m.textInput.Reset()
+			m.textInput.Focus()
+			m.statusMessage = "Enter new group name (ESC to cancel)"
+			return m, textinput.Blink
+			
+		case key.Matches(msg, keyMoveToGroup):
+			// Move selected repositories to a group
+			if len(m.selectedRepos) > 0 && len(m.orderedGroups) > 0 {
+				// For now, just move to the first group
+				// TODO: Implement group selection UI
+				targetGroup := m.orderedGroups[0]
+				movedCount := 0
+				
+				for repoPath := range m.selectedRepos {
+					// Find current group (if any)
+					var fromGroup string
+					for _, group := range m.groups {
+						for _, path := range group.Repos {
+							if path == repoPath {
+								fromGroup = group.Name
+								break
+							}
+						}
+					}
+					
+					// Publish move event
+					if m.bus != nil {
+						m.bus.Publish(eventbus.RepoMovedEvent{
+							RepoPath:  repoPath,
+							FromGroup: fromGroup,
+							ToGroup:   targetGroup,
+						})
+						movedCount++
+					}
+				}
+				
+				m.statusMessage = fmt.Sprintf("Moved %d repos to '%s'", movedCount, targetGroup)
+				m.selectedRepos = make(map[string]bool) // Clear selection
+			} else if len(m.orderedGroups) == 0 {
+				m.statusMessage = "No groups available. Press 'n' to create one."
+			} else {
+				m.statusMessage = "No repositories selected"
 			}
 			
 		// Navigation keys
@@ -400,6 +478,37 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 			m.updateOrderedLists()
 		}
 		
+	case eventbus.RepoMovedEvent:
+		// Remove from old group
+		if e.FromGroup != "" {
+			if group, exists := m.groups[e.FromGroup]; exists {
+				newRepos := make([]string, 0, len(group.Repos))
+				for _, path := range group.Repos {
+					if path != e.RepoPath {
+						newRepos = append(newRepos, path)
+					}
+				}
+				group.Repos = newRepos
+			}
+		}
+		
+		// Add to new group
+		if e.ToGroup != "" {
+			if group, exists := m.groups[e.ToGroup]; exists {
+				// Check if already in group
+				found := false
+				for _, path := range group.Repos {
+					if path == e.RepoPath {
+						found = true
+						break
+					}
+				}
+				if !found {
+					group.Repos = append(group.Repos, e.RepoPath)
+				}
+			}
+		}
+		
 	case eventbus.ScanStartedEvent:
 		m.scanning = true
 		m.statusMessage = "Scanning for repositories..."
@@ -469,6 +578,12 @@ func (m *Model) View() string {
 	// Join and render status
 	if len(statusParts) > 0 {
 		content.WriteString(statusStyle.Render(strings.Join(statusParts, " | ")))
+	}
+	
+	// Show text input if in input mode
+	if m.inputMode != InputModeNormal {
+		content.WriteString("\n\n")
+		content.WriteString(m.textInput.View())
 	}
 	
 	// Help
@@ -977,6 +1092,47 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 	return ""
 }
 
+// handleInputMode handles input when in text input mode
+func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyEnter:
+			// Process the input based on mode
+			switch m.inputMode {
+			case InputModeNewGroup:
+				groupName := strings.TrimSpace(m.textInput.Value())
+				if groupName != "" {
+					// Create the new group
+					if m.bus != nil {
+						m.bus.Publish(eventbus.GroupAddedEvent{
+							Name: groupName,
+						})
+					}
+					m.statusMessage = fmt.Sprintf("Created group '%s'", groupName)
+				}
+			}
+			// Return to normal mode
+			m.inputMode = InputModeNormal
+			m.textInput.Blur()
+			return m, nil
+			
+		case tea.KeyEsc:
+			// Cancel input
+			m.inputMode = InputModeNormal
+			m.textInput.Blur()
+			m.statusMessage = ""
+			return m, nil
+		}
+	}
+	
+	// Update text input
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
 // ensureSelectedVisible adjusts the viewport to keep the selected item visible
 func (m *Model) ensureSelectedVisible() {
 	// Calculate total items using the same logic as renderRepositoryList
@@ -1081,6 +1237,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyPageUp, keyPageDown, keyHalfPageUp, keyHalfPageDown},
 		{keyTop, keyBottom},
 		{keySelect, keySelectAll},
+		{keyNewGroup, keyMoveToGroup},
 		{keyRefresh, keyFullScan, keyFetch, keyLog},
 		{keyHelp, keyQuit},
 	}
