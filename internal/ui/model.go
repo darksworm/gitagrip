@@ -80,6 +80,8 @@ type Model struct {
 	height        int
 	showHelp      bool
 	help          help.Model
+	viewportOffset int                         // offset for scrolling
+	viewportHeight int                         // available height for repo list
 }
 
 // NewModel creates a new UI model
@@ -110,6 +112,8 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 
 // Init returns an initial command
 func (m *Model) Init() tea.Cmd {
+	// Initialize viewport with reasonable defaults
+	m.viewportHeight = 20 // Will be updated on first WindowSizeMsg
 	return nil
 }
 
@@ -120,6 +124,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = msg.Width
+		m.updateViewportHeight()
 		
 	case tea.KeyMsg:
 		switch {
@@ -129,12 +134,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keyUp):
 			if m.selectedIndex > 0 {
 				m.selectedIndex--
+				m.ensureSelectedVisible()
 			}
 			
 		case key.Matches(msg, keyDown):
 			maxIndex := m.getMaxIndex()
 			if m.selectedIndex < maxIndex {
 				m.selectedIndex++
+				m.ensureSelectedVisible()
+			}
+			
+		case key.Matches(msg, keyLeft):
+			// Collapse group
+			if groupName := m.getSelectedGroup(); groupName != "" {
+				m.expandedGroups[groupName] = false
+				m.ensureSelectedVisible()
+			}
+			
+		case key.Matches(msg, keyRight):
+			// Expand group
+			if groupName := m.getSelectedGroup(); groupName != "" {
+				m.expandedGroups[groupName] = true
 			}
 			
 		case key.Matches(msg, keyRefresh):
@@ -253,17 +273,29 @@ func (m *Model) View() string {
 
 // renderRepositoryList renders the grouped repository list
 func (m *Model) renderRepositoryList() string {
-	var lines []string
+	var allLines []string
+	var visibleLines []string
 	currentIndex := 0
+	totalItems := 0
 	
+	// First, build all lines to determine what's visible
 	// Render ungrouped repositories first
 	ungroupedRepos := m.getUngroupedRepos()
 	if len(ungroupedRepos) > 0 {
 		for _, repoPath := range ungroupedRepos {
 			repo := m.repositories[repoPath]
 			isSelected := currentIndex == m.selectedIndex
-			lines = append(lines, m.renderRepository(repo, isSelected, 0))
+			line := m.renderRepository(repo, isSelected, 0)
+			
+			allLines = append(allLines, line)
+			
+			// Add to visible lines if within viewport
+			if currentIndex >= m.viewportOffset && currentIndex < m.viewportOffset+m.viewportHeight {
+				visibleLines = append(visibleLines, line)
+			}
+			
 			currentIndex++
+			totalItems++
 		}
 	}
 	
@@ -274,22 +306,56 @@ func (m *Model) renderRepositoryList() string {
 		
 		// Render group header
 		isSelected := currentIndex == m.selectedIndex
-		lines = append(lines, m.renderGroupHeader(group, isExpanded, isSelected))
+		line := m.renderGroupHeader(group, isExpanded, isSelected)
+		
+		allLines = append(allLines, line)
+		
+		// Add to visible lines if within viewport
+		if currentIndex >= m.viewportOffset && currentIndex < m.viewportOffset+m.viewportHeight {
+			visibleLines = append(visibleLines, line)
+		}
+		
 		currentIndex++
+		totalItems++
 		
 		// Render group contents if expanded
 		if isExpanded {
 			for _, repoPath := range group.Repos {
 				if repo, ok := m.repositories[repoPath]; ok {
 					isSelected := currentIndex == m.selectedIndex
-					lines = append(lines, m.renderRepository(repo, isSelected, 1))
+					line := m.renderRepository(repo, isSelected, 1)
+					
+					allLines = append(allLines, line)
+					
+					// Add to visible lines if within viewport
+					if currentIndex >= m.viewportOffset && currentIndex < m.viewportOffset+m.viewportHeight {
+						visibleLines = append(visibleLines, line)
+					}
+					
 					currentIndex++
+					totalItems++
 				}
 			}
 		}
 	}
 	
-	return strings.Join(lines, "\n")
+	// Add scroll indicators if needed
+	result := strings.Join(visibleLines, "\n")
+	
+	// Add scroll indicator at top if scrolled down
+	if m.viewportOffset > 0 {
+		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
+		result = scrollStyle.Render(fmt.Sprintf("↑ %d more above ↑", m.viewportOffset)) + "\n" + result
+	}
+	
+	// Add scroll indicator at bottom if more items below
+	itemsBelow := totalItems - (m.viewportOffset + m.viewportHeight)
+	if itemsBelow > 0 {
+		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
+		result = result + "\n" + scrollStyle.Render(fmt.Sprintf("↓ %d more below ↓", itemsBelow))
+	}
+	
+	return result
 }
 
 // renderGroupHeader renders a group header line
@@ -299,11 +365,6 @@ func (m *Model) renderGroupHeader(group *domain.Group, isExpanded bool, isSelect
 		arrow = "▼"
 	}
 	
-	style := lipgloss.NewStyle()
-	if isSelected {
-		style = style.Background(lipgloss.Color("238"))
-	}
-	
 	count := 0
 	for _, repoPath := range group.Repos {
 		if _, ok := m.repositories[repoPath]; ok {
@@ -311,16 +372,35 @@ func (m *Model) renderGroupHeader(group *domain.Group, isExpanded bool, isSelect
 		}
 	}
 	
-	return style.Render(fmt.Sprintf("%s %s (%d)", arrow, group.Name, count))
+	// Build the content
+	content := fmt.Sprintf("%s %s (%d)", arrow, group.Name, count)
+	
+	// Calculate padding for full-width highlighting
+	contentWidth := lipgloss.Width(content)
+	availableWidth := m.width - 4 // Account for outer padding
+	if availableWidth < 1 {
+		availableWidth = 80 // Fallback width
+	}
+	
+	if isSelected {
+		// Apply background to the entire line
+		padding := availableWidth - contentWidth
+		if padding < 0 {
+			padding = 0
+		}
+		paddingStr := strings.Repeat(" ", padding)
+		fullLine := content + paddingStr
+		
+		// Apply background style to the full line
+		highlightStyle := lipgloss.NewStyle().Background(lipgloss.Color("238"))
+		return highlightStyle.Render(fullLine)
+	}
+	
+	return content
 }
 
 // renderRepository renders a repository line
 func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, indent int) string {
-	style := lipgloss.NewStyle()
-	if isSelected {
-		style = style.Background(lipgloss.Color("238"))
-	}
-	
 	// Status indicator
 	var status string
 	if repo.Status.Error != "" {
@@ -345,6 +425,11 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		statusStyle = statusStyle.Foreground(lipgloss.Color("78")) // green
 	}
 	
+	// Apply status color even when selected
+	if isSelected {
+		statusStyle = statusStyle.Background(lipgloss.Color("238"))
+	}
+	
 	// Branch info with color
 	branchName := repo.Status.Branch
 	if branchName == "" {
@@ -357,6 +442,9 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	if isBold {
 		branchStyle = branchStyle.Bold(true)
 	}
+	if isSelected {
+		branchStyle = branchStyle.Background(lipgloss.Color("238"))
+	}
 	coloredBranch := branchStyle.Render(branchName)
 	
 	// Ahead/Behind indicators
@@ -365,9 +453,70 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		aheadBehind = fmt.Sprintf(" (%d↑ %d↓)", repo.Status.AheadCount, repo.Status.BehindCount)
 	}
 	
-	// Build the line
+	// Build the line content
 	indentStr := strings.Repeat("  ", indent)
-	line := fmt.Sprintf("%s%s %s (%s%s)", 
+	
+	if isSelected {
+		// When selected, we need to carefully construct the line with backgrounds
+		bgColor := lipgloss.Color("238")
+		
+		// Build each component with its styling but without rendering yet
+		var parts []string
+		
+		// Indent
+		parts = append(parts, indentStr)
+		
+		// Status with its color and background
+		parts = append(parts, statusStyle.Render(status))
+		
+		// Space
+		parts = append(parts, " ")
+		
+		// Repo name with background
+		nameStyle := lipgloss.NewStyle().Background(bgColor)
+		parts = append(parts, nameStyle.Render(repo.Name))
+		
+		// Opening paren with background
+		parenStyle := lipgloss.NewStyle().Background(bgColor)
+		parts = append(parts, parenStyle.Render(" ("))
+		
+		// Branch (already has background from earlier)
+		parts = append(parts, coloredBranch)
+		
+		// Ahead/behind with closing paren
+		if aheadBehind != "" {
+			// aheadBehind already includes the space before it
+			aheadBehindWithBg := lipgloss.NewStyle().Background(bgColor).Render(aheadBehind)
+			parts = append(parts, aheadBehindWithBg)
+		}
+		
+		// Closing paren with background
+		parts = append(parts, parenStyle.Render(")"))
+		
+		// Join all parts
+		content := strings.Join(parts, "")
+		
+		// Calculate padding needed to fill the width
+		contentWidth := lipgloss.Width(content)
+		availableWidth := m.width - 4 // Account for outer padding
+		if availableWidth < 1 {
+			availableWidth = 80 // Fallback width
+		}
+		
+		// Add padding to fill the entire row
+		padding := availableWidth - contentWidth
+		if padding < 0 {
+			padding = 0
+		}
+		paddingStr := strings.Repeat(" ", padding)
+		
+		// Apply background to padding as well
+		paddingStyle := lipgloss.NewStyle().Background(bgColor)
+		return content + paddingStyle.Render(paddingStr)
+	}
+	
+	// Not selected - render normally
+	content := fmt.Sprintf("%s%s %s (%s%s)", 
 		indentStr,
 		statusStyle.Render(status),
 		repo.Name,
@@ -375,7 +524,7 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		aheadBehind,
 	)
 	
-	return style.Render(line)
+	return content
 }
 
 // branchColor returns the color and bold flag for a branch name
@@ -457,6 +606,81 @@ func (m *Model) getMaxIndex() int {
 		}
 	}
 	return count - 1
+}
+
+// updateViewportHeight calculates the available height for the repository list
+func (m *Model) updateViewportHeight() {
+	// Account for title (2 lines), status (2 lines), help (1 line), and padding
+	reservedLines := 7
+	if m.showHelp {
+		// Full help takes more space
+		reservedLines += 8
+	}
+	
+	m.viewportHeight = m.height - reservedLines
+	if m.viewportHeight < 1 {
+		m.viewportHeight = 1
+	}
+	
+	// Ensure viewport offset is still valid
+	m.ensureSelectedVisible()
+}
+
+// getSelectedGroup returns the group name if a group header is selected
+func (m *Model) getSelectedGroup() string {
+	currentIndex := 0
+	
+	// Check ungrouped repos first
+	ungroupedCount := len(m.getUngroupedRepos())
+	if m.selectedIndex < ungroupedCount {
+		return "" // Not a group
+	}
+	currentIndex += ungroupedCount
+	
+	// Check groups
+	for _, groupName := range m.orderedGroups {
+		if currentIndex == m.selectedIndex {
+			return groupName // This is the selected group
+		}
+		currentIndex++
+		
+		// Skip group contents
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			currentIndex += len(group.Repos)
+		}
+		
+		if currentIndex > m.selectedIndex {
+			break
+		}
+	}
+	
+	return ""
+}
+
+// ensureSelectedVisible adjusts the viewport to keep the selected item visible
+func (m *Model) ensureSelectedVisible() {
+	// If selected item is above viewport, scroll up
+	if m.selectedIndex < m.viewportOffset {
+		m.viewportOffset = m.selectedIndex
+	}
+	
+	// If selected item is below viewport, scroll down
+	if m.selectedIndex >= m.viewportOffset + m.viewportHeight {
+		m.viewportOffset = m.selectedIndex - m.viewportHeight + 1
+	}
+	
+	// Ensure viewport offset is within bounds
+	maxOffset := m.getMaxIndex() - m.viewportHeight + 1
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.viewportOffset > maxOffset {
+		m.viewportOffset = maxOffset
+	}
+	if m.viewportOffset < 0 {
+		m.viewportOffset = 0
+	}
 }
 
 // keyBindings returns the help key bindings
