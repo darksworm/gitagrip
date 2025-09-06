@@ -16,6 +16,7 @@ import (
 	"gitagrip/internal/config"
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/logic"
 )
 
 // Key bindings
@@ -135,16 +136,6 @@ const (
 	InputModeFilter
 )
 
-// SortMode represents different sort modes
-type SortMode int
-
-const (
-	SortByName SortMode = iota
-	SortByStatus
-	SortByBranch
-	SortByGroup
-)
-
 // Model represents the UI state
 type Model struct {
 	bus          eventbus.EventBus
@@ -179,7 +170,7 @@ type Model struct {
 	searchQuery    string                      // current search query
 	searchMatches  []int                       // indices of matching items
 	searchIndex    int                         // current match index
-	currentSort    SortMode                    // current sort mode
+	currentSort    logic.SortMode                    // current sort mode
 	ungroupedRepos []string                    // cached ungrouped repos
 	filterQuery    string                      // current filter query
 	isFiltered     bool                        // whether filter is active
@@ -209,7 +200,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		textInput:      ti,
 		inputMode:      InputModeNormal,
 		selectedIndex:  0,
-		currentSort:    SortByName,
+		currentSort:    logic.SortByName,
 	}
 	
 	// Initialize groups from config
@@ -1057,22 +1048,22 @@ func (m *Model) renderRepositoryList() string {
 			copy(sortedRepos, group.Repos)
 			
 			switch m.currentSort {
-			case SortByStatus:
+			case logic.SortByStatus:
 				sort.Slice(sortedRepos, func(i, j int) bool {
 					repoI, okI := m.repositories[sortedRepos[i]]
 					repoJ, okJ := m.repositories[sortedRepos[j]]
 					if !okI || !okJ {
 						return !okI // Put missing repos at the end
 					}
-					statusI := m.getStatusPriority(repoI)
-					statusJ := m.getStatusPriority(repoJ)
+					statusI := logic.GetStatusPriority(repoI)
+					statusJ := logic.GetStatusPriority(repoJ)
 					if statusI != statusJ {
 						return statusI > statusJ
 					}
 					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 				})
 				
-			case SortByBranch:
+			case logic.SortByBranch:
 				sort.Slice(sortedRepos, func(i, j int) bool {
 					repoI, okI := m.repositories[sortedRepos[i]]
 					repoJ, okJ := m.repositories[sortedRepos[j]]
@@ -1093,7 +1084,7 @@ func (m *Model) renderRepositoryList() string {
 					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 				})
 				
-			case SortByName, SortByGroup:
+			case logic.SortByName, logic.SortByGroup:
 				sort.Slice(sortedRepos, func(i, j int) bool {
 					repoI, okI := m.repositories[sortedRepos[i]]
 					repoJ, okJ := m.repositories[sortedRepos[j]]
@@ -1483,7 +1474,7 @@ func (m *Model) updateOrderedLists() {
 	
 	// Sort repositories based on current sort mode
 	switch m.currentSort {
-	case SortByName:
+	case logic.SortByName:
 		sort.Slice(m.orderedRepos, func(i, j int) bool {
 			repoI, okI := m.repositories[m.orderedRepos[i]]
 			repoJ, okJ := m.repositories[m.orderedRepos[j]]
@@ -1493,7 +1484,7 @@ func (m *Model) updateOrderedLists() {
 			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 		})
 		
-	case SortByStatus:
+	case logic.SortByStatus:
 		sort.Slice(m.orderedRepos, func(i, j int) bool {
 			repoI, okI := m.repositories[m.orderedRepos[i]]
 			repoJ, okJ := m.repositories[m.orderedRepos[j]]
@@ -1501,15 +1492,15 @@ func (m *Model) updateOrderedLists() {
 				return !okI
 			}
 			// Order: error, dirty, clean
-			statusI := m.getStatusPriority(repoI)
-			statusJ := m.getStatusPriority(repoJ)
+			statusI := logic.GetStatusPriority(repoI)
+			statusJ := logic.GetStatusPriority(repoJ)
 			if statusI != statusJ {
 				return statusI > statusJ // Higher priority first
 			}
 			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 		})
 		
-	case SortByBranch:
+	case logic.SortByBranch:
 		sort.Slice(m.orderedRepos, func(i, j int) bool {
 			repoI, okI := m.repositories[m.orderedRepos[i]]
 			repoJ, okJ := m.repositories[m.orderedRepos[j]]
@@ -1531,7 +1522,7 @@ func (m *Model) updateOrderedLists() {
 			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 		})
 		
-	case SortByGroup:
+	case logic.SortByGroup:
 		// For group sort, we don't sort the repos here, but we sort groups alphabetically
 		// Repos will be displayed in their groups
 		
@@ -1541,7 +1532,7 @@ func (m *Model) updateOrderedLists() {
 	}
 	
 	// Update ordered groups
-	if m.currentSort == SortByGroup {
+	if m.currentSort == logic.SortByGroup {
 		// Sort groups alphabetically
 		m.orderedGroups = make([]string, 0, len(m.groups))
 		for name := range m.groups {
@@ -1563,25 +1554,25 @@ func (m *Model) updateOrderedLists() {
 	m.ungroupedRepos = m.getUngroupedRepos()
 	
 	// Sort ungrouped repos if needed
-	if m.currentSort != SortByName {
+	if m.currentSort != logic.SortByName {
 		// Apply the same sort to ungrouped repos
 		switch m.currentSort {
-		case SortByStatus:
+		case logic.SortByStatus:
 			sort.Slice(m.ungroupedRepos, func(i, j int) bool {
 				repoI, okI := m.repositories[m.ungroupedRepos[i]]
 				repoJ, okJ := m.repositories[m.ungroupedRepos[j]]
 				if !okI || !okJ {
 					return !okI
 				}
-				statusI := m.getStatusPriority(repoI)
-				statusJ := m.getStatusPriority(repoJ)
+				statusI := logic.GetStatusPriority(repoI)
+				statusJ := logic.GetStatusPriority(repoJ)
 				if statusI != statusJ {
 					return statusI > statusJ
 				}
 				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 			})
 			
-		case SortByBranch:
+		case logic.SortByBranch:
 			sort.Slice(m.ungroupedRepos, func(i, j int) bool {
 				repoI, okI := m.repositories[m.ungroupedRepos[i]]
 				repoJ, okJ := m.repositories[m.ungroupedRepos[j]]
@@ -1605,19 +1596,6 @@ func (m *Model) updateOrderedLists() {
 	}
 }
 
-// getStatusPriority returns a priority value for sorting by status
-func (m *Model) getStatusPriority(repo *domain.Repository) int {
-	if repo.Status.Error != "" {
-		return 3 // Highest priority - errors
-	}
-	if repo.Status.IsDirty || repo.Status.HasUntracked {
-		return 2 // Medium priority - dirty/untracked
-	}
-	if repo.Status.AheadCount > 0 || repo.Status.BehindCount > 0 {
-		return 1 // Low priority - ahead/behind
-	}
-	return 0 // Lowest priority - clean
-}
 
 // getUngroupedRepos returns repositories not in any group
 func (m *Model) getUngroupedRepos() []string {
@@ -1716,22 +1694,22 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 			copy(sortedRepos, group.Repos)
 			
 			switch m.currentSort {
-			case SortByStatus:
+			case logic.SortByStatus:
 				sort.Slice(sortedRepos, func(i, j int) bool {
 					repoI, okI := m.repositories[sortedRepos[i]]
 					repoJ, okJ := m.repositories[sortedRepos[j]]
 					if !okI || !okJ {
 						return !okI
 					}
-					statusI := m.getStatusPriority(repoI)
-					statusJ := m.getStatusPriority(repoJ)
+					statusI := logic.GetStatusPriority(repoI)
+					statusJ := logic.GetStatusPriority(repoJ)
 					if statusI != statusJ {
 						return statusI > statusJ
 					}
 					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 				})
 				
-			case SortByBranch:
+			case logic.SortByBranch:
 				sort.Slice(sortedRepos, func(i, j int) bool {
 					repoI, okI := m.repositories[sortedRepos[i]]
 					repoJ, okJ := m.repositories[sortedRepos[j]]
@@ -1752,7 +1730,7 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 				})
 				
-			case SortByName, SortByGroup:
+			case logic.SortByName, logic.SortByGroup:
 				sort.Slice(sortedRepos, func(i, j int) bool {
 					repoI, okI := m.repositories[sortedRepos[i]]
 					repoJ, okJ := m.repositories[sortedRepos[j]]
@@ -2212,7 +2190,7 @@ func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "n":
 			// Sort by name
-			m.currentSort = SortByName
+			m.currentSort = logic.SortByName
 			m.updateOrderedLists()
 			m.statusMessage = "Sorted by name"
 			m.inputMode = InputModeNormal
@@ -2220,7 +2198,7 @@ func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case "s":
 			// Sort by status
-			m.currentSort = SortByStatus
+			m.currentSort = logic.SortByStatus
 			m.updateOrderedLists()
 			m.statusMessage = "Sorted by status"
 			m.inputMode = InputModeNormal
@@ -2228,7 +2206,7 @@ func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case "b":
 			// Sort by branch
-			m.currentSort = SortByBranch
+			m.currentSort = logic.SortByBranch
 			m.updateOrderedLists()
 			m.statusMessage = "Sorted by branch"
 			m.inputMode = InputModeNormal
@@ -2236,7 +2214,7 @@ func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case "g":
 			// Sort by group
-			m.currentSort = SortByGroup
+			m.currentSort = logic.SortByGroup
 			m.updateOrderedLists()
 			m.statusMessage = "Sorted by group"
 			m.inputMode = InputModeNormal
