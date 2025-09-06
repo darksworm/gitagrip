@@ -362,7 +362,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputMode = InputModeNewGroup
 			m.textInput.Reset()
 			m.textInput.Focus()
-			m.statusMessage = "Enter new group name (ESC to cancel)"
+			m.statusMessage = ""
+			m.updateViewportHeight()
 			return m, textinput.Blink
 			
 		case key.Matches(msg, keyMoveToGroup):
@@ -416,7 +417,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if groupName := m.getSelectedGroup(); groupName != "" {
 				m.deleteTarget = groupName
 				m.inputMode = InputModeDeleteConfirm
-				m.statusMessage = fmt.Sprintf("Delete group '%s'? (y/n)", groupName)
+				m.statusMessage = ""
+				m.updateViewportHeight()
 				return m, nil
 			}
 			
@@ -642,7 +644,25 @@ func (m *Model) View() string {
 		Foreground(lipgloss.Color("205"))
 	
 	content.WriteString(titleStyle.Render("GitaGrip"))
-	content.WriteString("\n\n")
+	content.WriteString("\n")
+	
+	// Show text input if in input mode
+	if m.inputMode != InputModeNormal {
+		content.WriteString("\n")
+		if m.inputMode == InputModeNewGroup {
+			content.WriteString("Enter new group name: ")
+		} else if m.inputMode == InputModeMoveToGroup {
+			content.WriteString("Move to group: ")
+		} else if m.inputMode == InputModeDeleteConfirm {
+			confirmStyle := lipgloss.NewStyle().Bold(true)
+			content.WriteString(confirmStyle.Render(fmt.Sprintf("Delete group '%s'? (y/n): ", m.deleteTarget)))
+		}
+		if m.inputMode != InputModeDeleteConfirm {
+			content.WriteString(m.textInput.View())
+		}
+		content.WriteString("\n")
+	}
+	content.WriteString("\n")
 	
 	// Repository list
 	if m.scanning && len(m.repositories) == 0 {
@@ -701,11 +721,6 @@ func (m *Model) View() string {
 		content.WriteString(statusStyle.Render(strings.Join(statusParts, " | ")))
 	}
 	
-	// Show text input if in input mode
-	if m.inputMode != InputModeNormal {
-		content.WriteString("\n\n")
-		content.WriteString(m.textInput.View())
-	}
 	
 	// Log popup
 	if m.showLog && m.logContent != "" {
@@ -1154,6 +1169,10 @@ func (m *Model) updateViewportHeight() {
 		// Full help takes more space
 		reservedLines += 8
 	}
+	// Account for input field when active
+	if m.inputMode != InputModeNormal {
+		reservedLines += 2 // Input prompt and field
+	}
 	
 	m.viewportHeight = m.height - reservedLines
 	if m.viewportHeight < 1 {
@@ -1298,6 +1317,7 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Return to normal mode
 			m.inputMode = InputModeNormal
 			m.textInput.Blur()
+			m.updateViewportHeight()
 			return m, nil
 			
 		case tea.KeyEsc:
@@ -1306,6 +1326,7 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textInput.Blur()
 			m.statusMessage = ""
 			m.deleteTarget = ""
+			m.updateViewportHeight()
 			return m, nil
 		}
 		
@@ -1354,6 +1375,7 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.inputMode = InputModeNormal
 				m.deleteTarget = ""
+				m.updateViewportHeight()
 				return m, nil
 				
 			case "n", "N":
@@ -1361,6 +1383,7 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.inputMode = InputModeNormal
 				m.statusMessage = "Delete cancelled"
 				m.deleteTarget = ""
+				m.updateViewportHeight()
 				return m, nil
 			}
 		}
