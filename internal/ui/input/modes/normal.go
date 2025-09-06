@@ -130,14 +130,14 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		if ctx.HasSelection() {
 			return []types.Action{types.ChangeModeAction{Mode: types.ModeNewGroup}}, true
 		}
-		return nil, false
+		return nil, true // Consume the key even if no action
 		
 	case "N":
 		// Navigate to previous search result
 		if ctx.SearchQuery() != "" {
 			return []types.Action{types.SearchNavigateAction{Direction: "prev"}}, true
 		}
-		return nil, false
+		return nil, true // Consume the key even if no action
 		
 	case "m":
 		// Move to group (only if selection or on repo)
