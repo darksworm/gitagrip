@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -204,42 +203,9 @@ func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *confi
 }
 
 // generateGroupsFromDirectory creates groups based on directory structure
+// For now, return empty groups and let the discovery service populate them
 func generateGroupsFromDirectory(baseDir string) map[string][]string {
-	groups := make(map[string][]string)
-	
-	// First pass - find all git repos
-	var allRepos []string
-	filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		
-		// Check if it's a .git directory
-		if d.IsDir() && d.Name() == ".git" {
-			repoPath := filepath.Dir(path)
-			allRepos = append(allRepos, repoPath)
-			// Don't descend into .git directories
-			return filepath.SkipDir
-		}
-		
-		return nil
-	})
-	
-	// Second pass - group by parent directory
-	for _, repoPath := range allRepos {
-		relPath, err := filepath.Rel(baseDir, repoPath)
-		if err != nil {
-			continue
-		}
-		
-		// Get the parent directory as group name
-		parts := strings.Split(relPath, string(filepath.Separator))
-		if len(parts) > 1 {
-			// Use the parent directory as group name
-			groupName := parts[0]
-			groups[groupName] = append(groups[groupName], repoPath)
-		}
-	}
-	
-	return groups
+	// Don't do any scanning here - let the background discovery service handle it
+	// This prevents the UI from hanging on large directories
+	return make(map[string][]string)
 }

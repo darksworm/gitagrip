@@ -106,6 +106,7 @@ func (ds *discoveryService) StopScan() {
 // scanDirectory recursively scans a directory for git repositories
 func (ds *discoveryService) scanDirectory(ctx context.Context, root string) int {
 	reposFound := 0
+	maxDepth := 5 // Maximum depth to scan
 	
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		// Check context cancellation
@@ -126,8 +127,28 @@ func (ds *discoveryService) scanDirectory(ctx context.Context, root string) int 
 			return nil
 		}
 		
+		// Check depth limit
+		relPath, _ := filepath.Rel(root, path)
+		depth := strings.Count(relPath, string(filepath.Separator))
+		if depth > maxDepth {
+			return filepath.SkipDir
+		}
+		
+		// Skip common non-repository directories to speed up scanning
+		dirName := d.Name()
+		if dirName == "node_modules" || dirName == ".npm" || 
+		   dirName == "vendor" || dirName == ".cache" ||
+		   dirName == "dist" || dirName == "build" ||
+		   dirName == "target" || dirName == ".gradle" ||
+		   dirName == "__pycache__" || dirName == ".pytest_cache" ||
+		   dirName == ".tox" || dirName == "venv" ||
+		   dirName == ".venv" || dirName == "env" ||
+		   strings.HasPrefix(dirName, ".") && dirName != ".git" {
+			return filepath.SkipDir
+		}
+		
 		// Check if this is a .git directory
-		if d.Name() == ".git" {
+		if dirName == ".git" {
 			// Found a git repository - the parent is the repo root
 			repoPath := filepath.Dir(path)
 			repoName := filepath.Base(repoPath)
