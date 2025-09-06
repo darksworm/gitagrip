@@ -80,14 +80,13 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 		}
 	}
 	
-	// If we're in a text mode, handle text input updates
+	// If we're in a text mode and didn't handle the key, pass it to text input
 	if h.isTextMode(h.currentMode) && len(actions) == 0 {
 		var textCmd tea.Cmd
 		h.textInput, textCmd = h.textInput.Update(msg)
-		if textCmd != nil {
-			cmd = textCmd
-			allActions = append(allActions, types.UpdateTextAction{Text: h.textInput.Value()})
-		}
+		cmd = textCmd
+		// Always append an update action when in text mode to keep view in sync
+		allActions = append(allActions, types.UpdateTextAction{Text: h.textInput.Value()})
 	}
 	
 	return allActions, cmd
@@ -121,4 +120,14 @@ func (h *Handler) Reset() {
 	h.currentMode = types.ModeNormal
 	h.textInput.Reset()
 	h.textInput.Blur()
+}
+
+// Update handles non-keyboard messages for text input
+func (h *Handler) Update(msg tea.Msg) tea.Cmd {
+	if h.isTextMode(h.currentMode) {
+		var cmd tea.Cmd
+		h.textInput, cmd = h.textInput.Update(msg)
+		return cmd
+	}
+	return nil
 }

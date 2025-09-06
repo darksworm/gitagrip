@@ -5,7 +5,9 @@ import (
 	"gitagrip/internal/ui/input/types"
 )
 
-type NormalMode struct{}
+type NormalMode struct{
+	lastKeyWasG bool
+}
 
 func NewNormalMode() *NormalMode {
 	return &NormalMode{}
@@ -115,7 +117,7 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		// Enter search mode
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeSearch}}, true
 		
-	case "ctrl+f":
+	case "ctrl+f", "F":
 		// Enter filter mode
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeFilter}}, true
 		
@@ -162,6 +164,28 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 	case "q":
 		// Quit
 		return []types.Action{types.QuitAction{Force: false}}, true
+		
+	case "g":
+		if m.lastKeyWasG {
+			// gg - go to top
+			m.lastKeyWasG = false
+			return []types.Action{types.NavigateAction{Direction: "home"}}, true
+		} else {
+			// First g, wait for next key
+			m.lastKeyWasG = true
+			return nil, true // consume the key but don't do anything
+		}
+		
+	case "G":
+		// G - go to bottom
+		m.lastKeyWasG = false
+		return []types.Action{types.NavigateAction{Direction: "end"}}, true
+		
+	default:
+		// Any other key cancels the 'g' prefix
+		if m.lastKeyWasG && msg.String() != "g" {
+			m.lastKeyWasG = false
+		}
 	}
 	
 	return nil, false

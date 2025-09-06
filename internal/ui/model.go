@@ -305,7 +305,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 			
 		default:
-			// Handle non-keyboard messages as before
+			// Handle non-keyboard messages
+			if cmd := m.inputHandler.Update(msg); cmd != nil {
+				// Update text input in view model if in text mode
+				if m.inputHandler.TextInput() != nil {
+					m.viewModel.UpdateTextInput(*m.inputHandler.TextInput())
+				}
+				return m, cmd
+			}
 			return m.handleNonKeyboardMsg(msg)
 		}
 		
