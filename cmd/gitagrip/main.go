@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +21,34 @@ import (
 )
 
 func main() {
+	// Parse command line arguments
+	var targetDir string
+	flag.StringVar(&targetDir, "dir", "", "Directory to scan for repositories")
+	flag.StringVar(&targetDir, "d", "", "Directory to scan for repositories (shorthand)")
+	flag.Parse()
+	
+	// If no directory specified, check for remaining args
+	if targetDir == "" && flag.NArg() > 0 {
+		targetDir = flag.Arg(0)
+	}
+	
+	// If still no directory, use current directory
+	if targetDir == "" {
+		var err error
+		targetDir, err = os.Getwd()
+		if err != nil {
+			fmt.Printf("Error getting current directory: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	
+	// Resolve to absolute path
+	absDir, err := filepath.Abs(targetDir)
+	if err != nil {
+		fmt.Printf("Error resolving path: %v\n", err)
+		os.Exit(1)
+	}
+	
 	// Set up logging
 	logFile, err := os.OpenFile("gitagrip.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
@@ -39,14 +70,9 @@ func main() {
 		cancel()
 	}()
 
-	// Load configuration
+	// Load configuration from the target directory
 	configSvc := config.NewConfigService()
-	cfg, err := configSvc.Load()
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		// Use default config
-		cfg = config.DefaultConfig()
-	}
+	cfg := loadOrCreateConfig(configSvc, absDir)
 
 	// Create event bus
 	bus := eventbus.New()
@@ -141,4 +167,79 @@ func main() {
 	// Cleanup
 	close(eventChan)
 	cancel()
+}
+
+// loadOrCreateConfig loads config from the directory or creates a new one with auto-generated groups
+func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *config.Config {
+	// Try to load config from the target directory
+	configPath := filepath.Join(targetDir, ".gitagrip", "config.json")
+	
+	// Check if config exists
+	if _, err := os.Stat(configPath); err == nil {
+		// Config exists, try to load it
+		if cfg, err := configSvc.LoadFromPath(configPath); err == nil {
+			log.Printf("Loaded config from %s", configPath)
+			return cfg
+		}
+	}
+	
+	// No config or failed to load - create new one
+	log.Printf("Creating new config for %s", targetDir)
+	cfg := &config.Config{
+		Version: 1,
+		BaseDir: targetDir,
+		UISettings: config.UISettings{
+			ShowAheadBehind: true,
+			AutosaveOnExit:  true,
+		},
+		Groups: generateGroupsFromDirectory(targetDir),
+	}
+	
+	// Save the config
+	if err := configSvc.SaveToPath(cfg, configPath); err != nil {
+		log.Printf("Failed to save config: %v", err)
+	}
+	
+	return cfg
+}
+
+// generateGroupsFromDirectory creates groups based on directory structure
+func generateGroupsFromDirectory(baseDir string) map[string][]string {
+	groups := make(map[string][]string)
+	
+	// First pass - find all git repos
+	var allRepos []string
+	filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		
+		// Check if it's a .git directory
+		if d.IsDir() && d.Name() == ".git" {
+			repoPath := filepath.Dir(path)
+			allRepos = append(allRepos, repoPath)
+			// Don't descend into .git directories
+			return filepath.SkipDir
+		}
+		
+		return nil
+	})
+	
+	// Second pass - group by parent directory
+	for _, repoPath := range allRepos {
+		relPath, err := filepath.Rel(baseDir, repoPath)
+		if err != nil {
+			continue
+		}
+		
+		// Get the parent directory as group name
+		parts := strings.Split(relPath, string(filepath.Separator))
+		if len(parts) > 1 {
+			// Use the parent directory as group name
+			groupName := parts[0]
+			groups[groupName] = append(groups[groupName], repoPath)
+		}
+	}
+	
+	return groups
 }

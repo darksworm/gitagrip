@@ -27,6 +27,8 @@ type UISettings struct {
 type ConfigService interface {
 	Load() (*Config, error)
 	Save(config *Config) error
+	LoadFromPath(path string) (*Config, error)
+	SaveToPath(config *Config, path string) error
 }
 
 // configService is the concrete implementation
@@ -131,6 +133,55 @@ func (cs *configService) Save(config *Config) error {
 	// Publish ConfigSaved event if bus is available
 	if cs.bus != nil {
 		cs.bus.Publish(eventbus.ConfigSavedEvent{})
+	}
+	
+	return nil
+}
+
+// LoadFromPath loads configuration from a specific path
+func (cs *configService) LoadFromPath(path string) (*Config, error) {
+	// Check if config file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("config file not found: %s", path)
+	}
+	
+	// Read config file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	
+	// Parse config
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	
+	// Initialize maps if nil
+	if cfg.Groups == nil {
+		cfg.Groups = make(map[string][]string)
+	}
+	
+	return &cfg, nil
+}
+
+// SaveToPath saves configuration to a specific path
+func (cs *configService) SaveToPath(config *Config, path string) error {
+	// Ensure config directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	
+	// Marshal config to JSON
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	
+	// Write to file
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
 	}
 	
 	return nil
