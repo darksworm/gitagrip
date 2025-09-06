@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -137,6 +138,8 @@ type Model struct {
 	width         int
 	height        int
 	showHelp      bool
+	showLog       bool
+	logContent    string
 	help          help.Model
 	viewportOffset int                         // offset for scrolling
 	viewportHeight int                         // available height for repo list
@@ -206,6 +209,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportHeight()
 		
 	case tea.KeyMsg:
+		// Handle log popup shortcuts
+		if m.showLog {
+			switch msg.String() {
+			case "esc", "l", "q":
+				m.showLog = false
+				m.logContent = ""
+				return m, nil
+			}
+		}
+		
 		switch {
 		case key.Matches(msg, keyQuit):
 			return m, tea.Quit
@@ -292,6 +305,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case key.Matches(msg, keyHelp):
 			m.showHelp = !m.showHelp
+			
+		case key.Matches(msg, keyLog):
+			// Show log for selected repository
+			if !m.showLog {
+				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+					// Get git log asynchronously
+					return m, m.fetchGitLog(repoPath)
+				}
+			} else {
+				m.showLog = false
+				m.logContent = ""
+			}
 			
 		case key.Matches(msg, keySelect):
 			// Toggle selection for current repository
@@ -452,6 +477,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
 				return tickMsg(t)
 			})
+		}
+		return m, nil
+		
+	case gitLogMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to get log: %v", msg.err)
+		} else {
+			m.showLog = true
+			m.logContent = msg.content
 		}
 		return m, nil
 	}
@@ -623,6 +657,25 @@ func (m *Model) View() string {
 	if m.inputMode != InputModeNormal {
 		content.WriteString("\n\n")
 		content.WriteString(m.textInput.View())
+	}
+	
+	// Log popup
+	if m.showLog && m.logContent != "" {
+		// Create a box for the log content
+		logBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("205")).
+			Padding(1).
+			MaxHeight(m.height - 4).
+			MaxWidth(m.width - 4).
+			Render(m.logContent)
+		
+		// Center the log box
+		centeredLog := lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			logBox)
+		
+		return centeredLog
 	}
 	
 	// Help
@@ -1319,5 +1372,34 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyNewGroup, keyMoveToGroup},
 		{keyRefresh, keyFullScan, keyFetch, keyLog},
 		{keyHelp, keyQuit},
+	}
+}
+
+// gitLogMsg contains the result of a git log command
+type gitLogMsg struct {
+	repoPath string
+	content  string
+	err      error
+}
+
+// fetchGitLog returns a command that fetches git log for a repository
+func (m *Model) fetchGitLog(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		// Run git log command
+		cmd := exec.Command("git", "log", "--oneline", "-20", "--decorate", "--color=always")
+		cmd.Dir = repoPath
+		
+		output, err := cmd.Output()
+		if err != nil {
+			return gitLogMsg{
+				repoPath: repoPath,
+				err:      err,
+			}
+		}
+		
+		return gitLogMsg{
+			repoPath: repoPath,
+			content:  string(output),
+		}
 	}
 }
