@@ -217,7 +217,7 @@ func (m *Model) syncNavigatorState() {
 		m.state.ViewportOffset,
 		m.state.ViewportHeight,
 		m.state.ExpandedGroups,
-		m.state.OrderedGroups,
+		m.store.GetOrderedGroups(),
 		m.state.Groups,
 		m.state.Repositories,
 	)
@@ -306,7 +306,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keyRefresh):
 			// Refresh selected repositories, group, or current one
 			var repoPaths []string
-			if len(m.state.SelectedRepos) > 0 {
+			if m.store.GetSelectionCount() > 0 {
 				// Refresh selected repos
 				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
@@ -314,7 +314,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.SetRefreshing(repoPaths, true)
 			} else if groupName := m.getSelectedGroup(); groupName != "" {
 				// Refresh all repos in the selected group
-				if group, ok := m.state.Groups[groupName]; ok {
+				if group, ok := m.store.GetGroup(groupName); ok {
 					for _, repoPath := range group.Repos {
 						repoPaths = append(repoPaths, repoPath)
 					}
@@ -346,15 +346,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keyFetch):
 			// Fetch selected repositories, group, or current one
 			var repoPaths []string
-			if len(m.state.SelectedRepos) > 0 {
+			if m.store.GetSelectionCount() > 0 {
 				// Fetch selected repos
-				for path := range m.state.SelectedRepos {
+				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
 				m.state.SetFetching(repoPaths, true)
 			} else if groupName := m.getSelectedGroup(); groupName != "" {
 				// Fetch all repos in the selected group
-				if group, ok := m.state.Groups[groupName]; ok {
+				if group, ok := m.store.GetGroup(groupName); ok {
 					for _, repoPath := range group.Repos {
 						repoPaths = append(repoPaths, repoPath)
 					}
@@ -378,15 +378,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keyPull):
 			// Pull selected repositories, group, or current one
 			var repoPaths []string
-			if len(m.state.SelectedRepos) > 0 {
+			if m.store.GetSelectionCount() > 0 {
 				// Pull selected repos
-				for path := range m.state.SelectedRepos {
+				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
 				m.state.SetPulling(repoPaths, true)
 			} else if groupName := m.getSelectedGroup(); groupName != "" {
 				// Pull all repos in the selected group
-				if group, ok := m.state.Groups[groupName]; ok {
+				if group, ok := m.store.GetGroup(groupName); ok {
 					for _, repoPath := range group.Repos {
 						repoPaths = append(repoPaths, repoPath)
 					}
@@ -491,13 +491,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case key.Matches(msg, keyMoveToGroup):
 			// Move selected repositories to a group
-			if len(m.state.SelectedRepos) > 0 && len(m.state.OrderedGroups) > 0 {
+			if m.store.GetSelectionCount() > 0 && len(m.store.GetOrderedGroups()) > 0 {
 				// For now, just move to the first group
 				// TODO: Implement group selection UI
-				targetGroup := m.state.OrderedGroups[0]
+				targetGroup := m.store.GetOrderedGroups()[0]
 				movedCount := 0
 				
-				for repoPath := range m.state.SelectedRepos {
+				for repoPath := range m.store.GetSelectedRepositories() {
 					// Find current group (if any)
 					var fromGroup string
 					for _, group := range m.state.Groups {
@@ -529,7 +529,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						Groups: m.getGroupsMap(),
 					})
 				}
-			} else if len(m.state.OrderedGroups) == 0 {
+			} else if len(m.store.GetOrderedGroups()) == 0 {
 				m.state.StatusMessage = "No groups available. Press 'n' to create one."
 			} else {
 				m.state.StatusMessage = "No repositories selected"
@@ -741,8 +741,8 @@ func (m *Model) View() string {
 // updateOrderedLists updates the ordered lists for display
 func (m *Model) updateOrderedLists() {
 	// Update ordered repos
-	m.state.OrderedRepos = make([]string, 0, len(m.state.Repositories))
-	for path := range m.state.Repositories {
+	m.state.OrderedRepos = make([]string, 0, len(m.store.GetAllRepositories()))
+	for path := range m.store.GetAllRepositories() {
 		m.state.OrderedRepos = append(m.state.OrderedRepos, path)
 	}
 	
@@ -818,7 +818,7 @@ func (m *Model) updateOrderedLists() {
 		m.state.OrderedGroups = make([]string, 0, len(m.state.GroupCreationOrder))
 		// Only include groups that still exist
 		for _, name := range m.state.GroupCreationOrder {
-			if _, exists := m.state.Groups[name]; exists {
+			if _, exists := m.store.GetGroup(name); exists {
 				m.state.OrderedGroups = append(m.state.OrderedGroups, name)
 			}
 		}
@@ -833,8 +833,8 @@ func (m *Model) updateOrderedLists() {
 		switch m.currentSort {
 		case logic.SortByStatus:
 			sort.Slice(m.state.UngroupedRepos, func(i, j int) bool {
-				repoI, okI := m.state.Repositories[m.state.UngroupedRepos[i]]
-				repoJ, okJ := m.state.Repositories[m.state.UngroupedRepos[j]]
+				repoI, okI := m.store.GetRepository(m.state.UngroupedRepos[i])
+				repoJ, okJ := m.store.GetRepository(m.state.UngroupedRepos[j])
 				if !okI || !okJ {
 					return !okI
 				}
@@ -848,8 +848,8 @@ func (m *Model) updateOrderedLists() {
 			
 		case logic.SortByBranch:
 			sort.Slice(m.state.UngroupedRepos, func(i, j int) bool {
-				repoI, okI := m.state.Repositories[m.state.UngroupedRepos[i]]
-				repoJ, okJ := m.state.Repositories[m.state.UngroupedRepos[j]]
+				repoI, okI := m.store.GetRepository(m.state.UngroupedRepos[i])
+				repoJ, okJ := m.store.GetRepository(m.state.UngroupedRepos[j])
 				if !okI || !okJ {
 					return !okI
 				}
@@ -922,15 +922,15 @@ func (m *Model) getSelectedGroup() string {
 	currentIndex := 0
 	
 	// Check groups first (since they're displayed first now)
-	for _, groupName := range m.state.OrderedGroups {
+	for _, groupName := range m.store.GetOrderedGroups() {
 		if currentIndex == m.state.SelectedIndex {
 			return groupName // This is the selected group
 		}
 		currentIndex++
 		
 		// Skip group contents
-		if m.state.ExpandedGroups[groupName] {
-			group := m.state.Groups[groupName]
+		if m.store.IsGroupExpanded(groupName) {
+			group, _ := m.store.GetGroup(groupName)
 			currentIndex += len(group.Repos)
 		}
 		
@@ -947,7 +947,7 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 	currentIndex := 0
 	
 	// Check groups first (since they're displayed first now)
-	for _, groupName := range m.state.OrderedGroups {
+	for _, groupName := range m.store.GetOrderedGroups() {
 		// Group header itself is not a repo
 		if currentIndex == index {
 			return "" // This is a group header, not a repo
@@ -955,8 +955,8 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 		currentIndex++
 		
 		// Check repos in group if expanded
-		if m.state.ExpandedGroups[groupName] {
-			group := m.state.Groups[groupName]
+		if m.store.IsGroupExpanded(groupName) {
+			group, _ := m.store.GetGroup(groupName)
 			// Apply the same sorting as in renderRepositoryList
 			sortedRepos := make([]string, len(group.Repos))
 			copy(sortedRepos, group.Repos)
@@ -964,8 +964,8 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 			switch m.currentSort {
 			case logic.SortByStatus:
 				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.state.Repositories[sortedRepos[i]]
-					repoJ, okJ := m.state.Repositories[sortedRepos[j]]
+					repoI, okI := m.store.GetRepository(sortedRepos[i])
+					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
 					if !okI || !okJ {
 						return !okI
 					}
@@ -979,8 +979,8 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 				
 			case logic.SortByBranch:
 				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.state.Repositories[sortedRepos[i]]
-					repoJ, okJ := m.state.Repositories[sortedRepos[j]]
+					repoI, okI := m.store.GetRepository(sortedRepos[i])
+					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
 					if !okI || !okJ {
 						return !okI
 					}
@@ -1000,8 +1000,8 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 				
 			case logic.SortByName, logic.SortByGroup:
 				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.state.Repositories[sortedRepos[i]]
-					repoJ, okJ := m.state.Repositories[sortedRepos[j]]
+					repoI, okI := m.store.GetRepository(sortedRepos[i])
+					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
 					if !okI || !okJ {
 						return !okI
 					}
@@ -1061,7 +1061,7 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 					
 					// Move selected repos to the new group
 					movedCount := 0
-					for repoPath := range m.state.SelectedRepos {
+					for repoPath := range m.store.GetSelectedRepositories() {
 						// Find current group (if any)
 						var fromGroup string
 						for _, group := range m.state.Groups {
@@ -1168,7 +1168,7 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Confirm delete
 				if m.deleteTarget != "" {
 					// Get repos in this group before deletion
-					group := m.state.Groups[m.deleteTarget]
+					group, _ := m.store.GetGroup(m.deleteTarget)
 					repoCount := len(group.Repos)
 					
 					// Move repos back to ungrouped
@@ -1407,8 +1407,8 @@ func (m *Model) countVisibleItems() int {
 	count := 0
 	
 	// Count groups and their repos
-	for _, groupName := range m.state.OrderedGroups {
-		group := m.state.Groups[groupName]
+	for _, groupName := range m.store.GetOrderedGroups() {
+		group, _ := m.store.GetGroup(groupName)
 		
 		// Check if group or any of its repos match
 		groupHasMatches := false
@@ -1425,7 +1425,7 @@ func (m *Model) countVisibleItems() int {
 		
 		if groupHasMatches || m.searchFilter.MatchesGroupFilter(groupName, m.state.FilterQuery) {
 			count++ // Count the group header
-			if m.state.ExpandedGroups[groupName] {
+			if m.store.IsGroupExpanded(groupName) {
 				count += repoCount
 			}
 		}
