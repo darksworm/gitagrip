@@ -133,6 +133,13 @@ func main() {
 			log.Println("Event channel full, dropping event")
 		}
 	})
+	bus.Subscribe(eventbus.EventGroupRemoved, func(e eventbus.DomainEvent) {
+		select {
+		case eventChan <- e:
+		default:
+			log.Println("Event channel full, dropping event")
+		}
+	})
 	bus.Subscribe(eventbus.EventStatusRefreshRequested, func(e eventbus.DomainEvent) {
 		select {
 		case eventChan <- e:
