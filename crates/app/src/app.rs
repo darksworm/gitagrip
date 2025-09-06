@@ -4,7 +4,7 @@ use crate::git;
 use std::collections::{HashMap, HashSet};
 use crossterm::event::KeyCode;
 use anyhow::Result;
-use tracing::{info, debug};
+use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppMode {
@@ -85,23 +85,11 @@ impl App {
         }
     }
     
-    
-    /// Convert display line index (including group headers) to repository storage index
-    /// Returns None if the display index points to a group header or empty line
-    pub fn display_line_to_storage_index(&mut self, display_line_index: usize) -> Option<usize> {
-        info!("display_line_to_storage_index called with display_line_index={}", display_line_index);
+    /// Build the display-to-storage mapping based on current grouping
+    pub fn build_display_mapping(&mut self) {
+        self.display_to_storage_mapping.clear();
         
-        // Debug to file
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/gitagrip_debug.log") 
-        {
-            use std::io::Write;
-            writeln!(file, "display_line_to_storage_index called with display_line_index={}", display_line_index).ok();
-        }
-        
-        // Build the same group structure as the UI rendering
+        // Create merged view with manual groups FIRST, then auto groups
         let mut all_groups = Vec::new();
         
         // First add manual groups from config (sorted alphabetically)
@@ -110,17 +98,20 @@ impl App {
         
         for group_name in manual_groups {
             let repos = self.get_repositories_in_group(group_name);
+            // In organize mode, include empty groups for move targets
+            // In normal mode, only show non-empty groups
             if !repos.is_empty() || self.current_mode() == AppMode::Organize {
                 all_groups.push((group_name.clone(), repos));
             }
         }
         
-        // Then add auto groups
+        // Then add auto groups (excluding repositories already in manual groups)
         let auto_grouped_repos = crate::scan::group_repositories(&self.repositories);
         let mut auto_group_names: Vec<_> = auto_grouped_repos.keys().collect();
         auto_group_names.sort();
         
         for group_name in auto_group_names {
+            // Only add auto group if no manual group with same name exists
             if !self.config.groups.contains_key(group_name) {
                 let filtered_repos = self.get_repositories_in_group(group_name);
                 if !filtered_repos.is_empty() {
@@ -129,42 +120,15 @@ impl App {
             }
         }
         
-        // Find which repository corresponds to this line index
-        let mut current_line = 0;
-        for (group_name, repos) in all_groups {
-            info!("  Line {}: Group header '{}'", current_line, group_name);
-            current_line += 1; // Group header
-            
+        // Build the display mapping
+        for (_group_name, repos) in all_groups {
             for repo in repos {
-                info!("  Line {}: Repository '{}' at path '{}'", current_line, repo.name, repo.path.display());
-                if current_line == display_line_index {
-                    // Found the repository at this line
-                    let storage_idx = self.repositories.iter()
-                        .position(|r| r.path == repo.path);
-                    info!("  -> Found match! Storage index = {:?}", storage_idx);
-                    
-                    // Debug to file
-                    if let Ok(mut file) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/gitagrip_debug.log") 
-                    {
-                        use std::io::Write;
-                        writeln!(file, "  Found match at line {}: repo='{}', storage_idx={:?}", 
-                                 current_line, repo.name, storage_idx).ok();
-                    }
-                    
-                    return storage_idx;
-                }
-                current_line += 1;
+                let storage_index = self.repositories.iter()
+                    .position(|r| r.path == repo.path)
+                    .unwrap_or(usize::MAX);
+                self.display_to_storage_mapping.push(storage_index);
             }
-            
-            info!("  Line {}: Empty line", current_line);
-            current_line += 1; // Empty line between groups
         }
-        
-        info!("  -> No match found, returning None");
-        None // Display index points to a group header or empty line
     }
     
     /// Convert display index to storage index
@@ -484,28 +448,21 @@ impl App {
             
             let mut lines = Vec::new();
             let mut repo_index = 0; // Track repository index for selection indicators
-            let mut line_index = 0; // Track absolute line index including group headers
+            let mut temp_display_mapping = Vec::new(); // Build display mapping during UI render
             
             for (group_name, repos) in all_groups {
                 lines.push(Line::from(format!("▼ {}", group_name)));
-                line_index += 1; // Group header takes a line
-                
                 for repo in repos {
-                    // Find storage index for this repository - this must match build_display_mapping logic
+                    // Find storage index for this repository and add to display mapping
                     let storage_index = self.repositories.iter()
                         .position(|r| r.path == repo.path)
                         .unwrap_or(usize::MAX);
+                    temp_display_mapping.push(storage_index);
                     
                     // Determine highlight style for selected repositories in ORGANIZE mode
-                    // Use storage_index for selection check, but line_index for current cursor position
+                    // Use storage_index for selection check, but repo_index for current cursor position
                     let is_selected = self.mode == AppMode::Organize && self.is_repository_selected(storage_index);
-                    let is_current = self.mode == AppMode::Organize && self.current_selection == line_index;
-                    
-                    // Debug log for each repository
-                    if self.mode == AppMode::Organize {
-                        debug!("UI: line_idx={}, repo={}, storage_idx={}, is_selected={}, is_current={}", 
-                               line_index, repo.name, storage_index, is_selected, is_current);
-                    }
+                    let is_current = self.mode == AppMode::Organize && self.current_selection == repo_index;
                     
                     // Choose background color for highlighting
                     let line_style = if is_selected {
@@ -586,12 +543,10 @@ impl App {
                         lines.push(Line::from(vec![span]));
                     }
                     
-                    // CRITICAL: Increment indices for each repository
+                    // CRITICAL: Increment repo_index for each repository
                     repo_index += 1;
-                    line_index += 1;
                 }
                 lines.push(Line::from("")); // Empty line between groups
-                line_index += 1; // Empty line also takes a line index
             }
             
             if !self.scan_complete {
@@ -706,8 +661,6 @@ impl App {
             AppMode::Normal => AppMode::Organize,
             AppMode::Organize => AppMode::Normal,
         };
-        // Clear the display mapping when mode changes since organize mode shows empty groups
-        self.display_to_storage_mapping.clear();
     }
 
     // Group management and navigation methods
@@ -842,28 +795,10 @@ impl App {
             }
             crossterm::event::KeyCode::Char(' ') => {
                 self.pending_g_key = false; // Cancel any pending 'g'
-                
-                // Debug to file
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("/tmp/gitagrip_debug.log") 
-                {
-                    use std::io::Write;
-                    writeln!(file, "Space key pressed: current_selection={}", self.current_selection).ok();
-                }
-                
-                // Space toggles selection - convert display line index to storage index
-                if let Some(storage_index) = self.display_line_to_storage_index(self.current_selection) {
-                    info!("Space key: current_selection={}, storage_index={}, total_repos={}", 
-                          self.current_selection, storage_index, self.repositories.len());
-                    self.toggle_repository_selection(storage_index);
-                    Ok(true)
-                } else {
-                    // Current selection is on a group header or empty line, can't toggle
-                    info!("Space key: current_selection={} is not a repository line", self.current_selection);
-                    Ok(false)
-                }
+                // Space toggles selection - convert display index to storage index
+                let storage_index = self.display_to_storage_index(self.current_selection);
+                self.toggle_repository_selection(storage_index);
+                Ok(true)
             }
             crossterm::event::KeyCode::Char('n') => {
                 self.pending_g_key = false; // Cancel any pending 'g'
@@ -1410,45 +1345,14 @@ impl App {
     }
     
     pub fn toggle_repository_selection(&mut self, index: usize) -> bool {
-        info!("toggle_repository_selection called with index={}, total_repos={}", index, self.repositories.len());
-        
-        // Debug to file
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/gitagrip_debug.log") 
-        {
-            use std::io::Write;
-            writeln!(file, "toggle_repository_selection called with index={}, total_repos={}", 
-                     index, self.repositories.len()).ok();
-        }
-        
         if index < self.repositories.len() {
             if self.selected_repositories.contains(&index) {
-                info!("  Removing index {} from selection", index);
                 self.selected_repositories.remove(&index);
             } else {
-                info!("  Adding index {} to selection", index);
                 self.selected_repositories.insert(index);
             }
-            
-            // Log current selection state
-            let selected_indices: Vec<_> = self.selected_repositories.iter().cloned().collect();
-            info!("  Current selection: {:?}", selected_indices);
-            
-            // Debug to file
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/gitagrip_debug.log") 
-            {
-                use std::io::Write;
-                writeln!(file, "  Current selection after toggle: {:?}", selected_indices).ok();
-            }
-            
             true // Selection changed, redraw needed
         } else {
-            info!("  Index {} out of bounds, ignoring", index);
             false
         }
     }

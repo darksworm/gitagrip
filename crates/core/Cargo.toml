@@ -1,0 +1,14 @@
+[package]
+name = "gitagrip-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core domain logic for GitaGrip - pure business logic with no external dependencies"
+
+[dependencies]
+# Workspace dependencies - pure, no I/O libraries
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

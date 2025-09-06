@@ -1,44 +1,17 @@
-[package]
-name = "gitagrip"
-version = "0.1.0"
-edition = "2024"
-description = "A fast terminal UI for discovering, grouping, and inspecting multiple Git repositories"
-authors = ["Your Name <your.email@example.com>"]
-license = "MIT"
+[workspace]
+members = [
+    "crates/core",
+    "crates/app",
+]
+resolver = "2"
 
-[[bin]]
-name = "gitagrip"
-path = "src/main.rs"
-
-[dependencies]
-# TUI
-ratatui = "0.29"
-crossterm = "0.28"
-
-# Git
-git2 = "0.19"
-
-# FS scan
-walkdir = "2.4"
-
-# Concurrency
-crossbeam-channel = "0.5"
-rayon = "1.8"
-
-# Config
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
-directories = "5.0"
-dirs = "5.0"
-serde_with = "3.4"
-clap = { version = "4.4", features = ["derive"] }
-
-# Errors/logging
+[workspace.dependencies]
+# Core dependencies shared across crates
 anyhow = "1.0"
 thiserror = "2.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "time", "macros"] }
 
-[dev-dependencies]
+# Dev dependencies
 tempfile = "3.8"
-git2 = "0.19"

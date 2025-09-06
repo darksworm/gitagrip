@@ -19,6 +19,11 @@ mod config;
 mod git;
 mod scan;
 mod app;
+// New architecture modules (work in progress)
+mod adapters;
+mod services;
+mod tui;
+mod main_new;
 
 use cli::CliArgs;
 use config::Config;
@@ -52,8 +57,6 @@ impl App {
                     ScanEvent::RepoDiscovered(repo) => {
                         info!("Discovered repository: {}", repo.name);
                         self.repositories.push(repo);
-                        // Clear display mapping since repositories changed
-                        self.display_to_storage_mapping.clear();
                     }
                     ScanEvent::ScanCompleted => {
                         info!("Repository scan completed");
@@ -215,7 +218,20 @@ impl App {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Check environment variable to decide which implementation to use
+    if std::env::var("USE_NEW_ARCHITECTURE").is_ok() {
+        // Use the new hexagonal architecture
+        main_new::main_new().await
+    } else {
+        // Use the old working implementation
+        old_main()
+    }
+}
+
+// The original working main function
+fn old_main() -> Result<()> {
     // Initialize tracing with env filter
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -275,4 +291,11 @@ fn main() -> Result<()> {
     info!("GitaGrip shut down cleanly");
     Ok(())
 }
+
+// Alternative main that uses the new architecture 
+// This would require tokio runtime - commenting out for now
+// #[tokio::main] 
+// async fn main_with_new_architecture() -> Result<()> {
+//     main_new::main_new().await
+// }
 
