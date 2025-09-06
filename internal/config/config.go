@@ -1,26 +1,26 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/pelletier/go-toml/v2"
 	"gitagrip/internal/eventbus"
 )
 
 // Config represents the application configuration
 type Config struct {
-	Version   int                 `json:"version"`
-	BaseDir   string              `json:"base_dir"`
-	Groups    map[string][]string `json:"groups"`    // group name -> repo paths
-	UISettings UISettings         `json:"ui"`
+	Version   int                 `toml:"version"`
+	BaseDir   string              `toml:"base_dir"`
+	Groups    map[string][]string `toml:"groups"`    // group name -> repo paths
+	UISettings UISettings         `toml:"ui"`
 }
 
 // UISettings represents UI-related configuration
 type UISettings struct {
-	ShowAheadBehind bool `json:"show_ahead_behind"`
-	AutosaveOnExit  bool `json:"autosave_on_exit"`
+	ShowAheadBehind bool `toml:"show_ahead_behind"`
+	AutosaveOnExit  bool `toml:"autosave_on_exit"`
 }
 
 // ConfigService handles configuration management
@@ -54,7 +54,7 @@ func NewConfigService() ConfigService {
 	os.MkdirAll(gitagripDir, 0755)
 	
 	return &configService{
-		filePath: filepath.Join(gitagripDir, "config.json"),
+		filePath: filepath.Join(gitagripDir, ".gitagrip.toml"),
 	}
 }
 
@@ -91,7 +91,7 @@ func (cs *configService) Load() (*Config, error) {
 	
 	// Parse config
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	
@@ -119,8 +119,8 @@ func (cs *configService) Save(config *Config) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 	
-	// Marshal config to JSON
-	data, err := json.MarshalIndent(config, "", "  ")
+	// Marshal config to TOML
+	data, err := toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -153,7 +153,7 @@ func (cs *configService) LoadFromPath(path string) (*Config, error) {
 	
 	// Parse config
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	
@@ -173,8 +173,8 @@ func (cs *configService) SaveToPath(config *Config, path string) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 	
-	// Marshal config to JSON
-	data, err := json.MarshalIndent(config, "", "  ")
+	// Marshal config to TOML
+	data, err := toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}

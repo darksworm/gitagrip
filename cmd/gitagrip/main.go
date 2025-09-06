@@ -171,7 +171,7 @@ func main() {
 // loadOrCreateConfig loads config from the directory or creates a new one with auto-generated groups
 func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *config.Config {
 	// Try to load config from the target directory
-	configPath := filepath.Join(targetDir, ".gitagrip", "config.json")
+	configPath := filepath.Join(targetDir, ".gitagrip.toml")
 	
 	// Check if config exists
 	if _, err := os.Stat(configPath); err == nil {
