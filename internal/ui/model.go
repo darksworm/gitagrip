@@ -57,6 +57,30 @@ var (
 		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q", "quit"),
 	)
+	keyTop = key.NewBinding(
+		key.WithKeys("g g", "home"),
+		key.WithHelp("gg/home", "top"),
+	)
+	keyBottom = key.NewBinding(
+		key.WithKeys("G", "end"),
+		key.WithHelp("G/end", "bottom"),
+	)
+	keyPageUp = key.NewBinding(
+		key.WithKeys("pgup", "ctrl+b"),
+		key.WithHelp("pgup/ctrl+b", "page up"),
+	)
+	keyPageDown = key.NewBinding(
+		key.WithKeys("pgdown", "ctrl+f", " "),
+		key.WithHelp("pgdn/ctrl+f/space", "page down"),
+	)
+	keyHalfPageUp = key.NewBinding(
+		key.WithKeys("ctrl+u"),
+		key.WithHelp("ctrl+u", "half page up"),
+	)
+	keyHalfPageDown = key.NewBinding(
+		key.WithKeys("ctrl+d"),
+		key.WithHelp("ctrl+d", "half page down"),
+	)
 )
 
 // EventMsg wraps a domain event for the UI
@@ -82,6 +106,7 @@ type Model struct {
 	help          help.Model
 	viewportOffset int                         // offset for scrolling
 	viewportHeight int                         // available height for repo list
+	lastKeyWasG    bool                        // track 'g' key for 'gg' command
 }
 
 // NewModel creates a new UI model
@@ -171,6 +196,86 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 		case key.Matches(msg, keyHelp):
 			m.showHelp = !m.showHelp
+			
+		// Navigation keys
+		case msg.String() == "g":
+			if m.lastKeyWasG {
+				// gg - go to top
+				m.selectedIndex = 0
+				m.viewportOffset = 0
+				m.lastKeyWasG = false
+			} else {
+				m.lastKeyWasG = true
+				// Don't do anything yet, wait for next key
+			}
+			
+		case key.Matches(msg, keyBottom):
+			// G - go to bottom
+			m.selectedIndex = m.getMaxIndex()
+			m.ensureSelectedVisible()
+			m.lastKeyWasG = false
+			
+		case key.Matches(msg, keyPageDown):
+			// Page down
+			pageSize := m.viewportHeight - 2 // Leave some overlap
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			for i := 0; i < pageSize; i++ {
+				if m.selectedIndex < m.getMaxIndex() {
+					m.selectedIndex++
+				}
+			}
+			m.ensureSelectedVisible()
+			m.lastKeyWasG = false
+			
+		case key.Matches(msg, keyPageUp):
+			// Page up
+			pageSize := m.viewportHeight - 2 // Leave some overlap
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			for i := 0; i < pageSize; i++ {
+				if m.selectedIndex > 0 {
+					m.selectedIndex--
+				}
+			}
+			m.ensureSelectedVisible()
+			m.lastKeyWasG = false
+			
+		case key.Matches(msg, keyHalfPageDown):
+			// Half page down
+			halfPage := m.viewportHeight / 2
+			if halfPage < 1 {
+				halfPage = 1
+			}
+			for i := 0; i < halfPage; i++ {
+				if m.selectedIndex < m.getMaxIndex() {
+					m.selectedIndex++
+				}
+			}
+			m.ensureSelectedVisible()
+			m.lastKeyWasG = false
+			
+		case key.Matches(msg, keyHalfPageUp):
+			// Half page up
+			halfPage := m.viewportHeight / 2
+			if halfPage < 1 {
+				halfPage = 1
+			}
+			for i := 0; i < halfPage; i++ {
+				if m.selectedIndex > 0 {
+					m.selectedIndex--
+				}
+			}
+			m.ensureSelectedVisible()
+			m.lastKeyWasG = false
+			
+		default:
+			// Any other key cancels the 'g' prefix
+			if m.lastKeyWasG && msg.String() != "g" {
+				m.lastKeyWasG = false
+			}
 		}
 		
 	case EventMsg:
@@ -774,6 +879,8 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{keyUp, keyDown, keyLeft, keyRight},
+		{keyPageUp, keyPageDown, keyHalfPageUp, keyHalfPageDown},
+		{keyTop, keyBottom},
 		{keyRefresh, keyFullScan, keyFetch, keyLog},
 		{keyHelp, keyQuit},
 	}
