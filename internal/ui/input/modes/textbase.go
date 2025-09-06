@@ -31,7 +31,7 @@ func (m TextInputMode) Enter(ctx types.Context) []types.Action {
 	if m.textInput != nil {
 		m.textInput.Reset()
 		m.textInput.Focus()
-		m.textInput.Prompt = m.prompt
+		m.textInput.Prompt = "" // Prompt is handled in the UI layer
 	}
 	return nil
 }

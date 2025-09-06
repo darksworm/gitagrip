@@ -38,25 +38,26 @@ func (it *InputTransformer) SetMode(mode InputMode) {
 
 // GetInputText returns the current text input string for the view
 func (it *InputTransformer) GetInputText() string {
-	if it.mode == InputModeNormal || it.mode == InputModeDeleteConfirm {
+	if it.mode == InputModeNormal {
 		return ""
 	}
 	
-	var prefix string
 	switch it.mode {
+	case InputModeDeleteConfirm:
+		return "Disband group? (y/n): "
 	case InputModeNewGroup:
-		prefix = "Enter new group name: "
+		return "Enter new group name: " + it.textInput.View()
 	case InputModeMoveToGroup:
-		prefix = "Move to group: "
+		return "Move to group: " + it.textInput.View()
 	case InputModeSearch:
-		prefix = "Search: "
+		return "Search: " + it.textInput.View()
 	case InputModeFilter:
-		prefix = "Filter: "
+		return "Filter: " + it.textInput.View()
 	case InputModeSort:
-		prefix = "Sort by: "
+		return "Sort by: " + it.textInput.View()
+	default:
+		return it.textInput.View()
 	}
-	
-	return prefix + it.textInput.View()
 }
 
 // GetInputModeString returns the string representation of the input mode
