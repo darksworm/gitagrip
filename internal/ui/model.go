@@ -17,6 +17,7 @@ import (
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/logic"
+	"gitagrip/internal/ui/views"
 )
 
 // Key bindings
@@ -176,6 +177,7 @@ type Model struct {
 	isFiltered     bool                        // whether filter is active
 	searchFilter   *logic.SearchFilter         // search and filter handler
 	navigator      *logic.Navigator            // navigation and viewport handler
+	renderer       *views.Renderer             // view renderer
 }
 
 // NewModel creates a new UI model
@@ -205,6 +207,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		currentSort:    logic.SortByName,
 		searchFilter:   logic.NewSearchFilter(nil), // Will be updated when repos are added
 		navigator:      logic.NewNavigator(),
+		renderer:       views.NewRenderer(cfg.UISettings.ShowAheadBehind),
 	}
 	
 	// Initialize groups from config
@@ -833,657 +836,85 @@ func (m *Model) View() string {
 		return "Loading..."
 	}
 	
-	// Build the main content
-	var content strings.Builder
-	
-	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("205"))
-	
-	content.WriteString(titleStyle.Render("GitaGrip"))
-	content.WriteString("\n")
-	
-	// Show text input if in input mode
-	if m.inputMode != InputModeNormal {
-		content.WriteString("\n")
-		if m.inputMode == InputModeNewGroup {
-			content.WriteString("Enter new group name: ")
-		} else if m.inputMode == InputModeMoveToGroup {
-			content.WriteString("Move to group: ")
-		} else if m.inputMode == InputModeDeleteConfirm {
-			confirmStyle := lipgloss.NewStyle().Bold(true)
-			content.WriteString(confirmStyle.Render(fmt.Sprintf("Delete group '%s'? (y/n): ", m.deleteTarget)))
-		} else if m.inputMode == InputModeSearch {
-			content.WriteString("Search: ")
-		} else if m.inputMode == InputModeFilter {
-			content.WriteString("Filter: ")
-		}
-		if m.inputMode != InputModeDeleteConfirm {
-			content.WriteString(m.textInput.View())
-		}
-		content.WriteString("\n")
-	}
-	content.WriteString("\n")
-	
-	// Repository list
-	if m.scanning && len(m.repositories) == 0 {
-		// Show scanning animation
-		scanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
-		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		frame := (time.Now().UnixMilli() / 80) % int64(len(spinner))
-		content.WriteString(scanStyle.Render(fmt.Sprintf("%s Scanning for repositories...", spinner[frame])))
-		content.WriteString("\n")
-	} else if len(m.repositories) == 0 && !m.scanning {
-		dimStyle := lipgloss.NewStyle().Faint(true)
-		content.WriteString(dimStyle.Render("No repositories found. Press F for full scan."))
-	} else {
-		content.WriteString(m.renderRepositoryList())
+	// Create view state
+	state := views.ViewState{
+		Width:            m.width,
+		Height:           m.height,
+		Repositories:     m.repositories,
+		Groups:           m.groups,
+		OrderedGroups:    m.orderedGroups,
+		SelectedIndex:    m.selectedIndex,
+		SelectedRepos:    m.selectedRepos,
+		RefreshingRepos:  m.refreshingRepos,
+		FetchingRepos:    m.fetchingRepos,
+		PullingRepos:     m.pullingRepos,
+		ExpandedGroups:   m.expandedGroups,
+		Scanning:         m.scanning,
+		StatusMessage:    m.statusMessage,
+		ShowHelp:         m.showHelp,
+		ShowLog:          m.showLog,
+		LogContent:       m.logContent,
+		ShowInfo:         m.showInfo,
+		InfoContent:      m.infoContent,
+		ViewportOffset:   m.viewportOffset,
+		ViewportHeight:   m.viewportHeight,
+		SearchQuery:      m.searchQuery,
+		FilterQuery:      m.filterQuery,
+		IsFiltered:       m.isFiltered,
+		ShowAheadBehind:  m.config.UISettings.ShowAheadBehind,
+		HelpModel:        m.help,
+		DeleteTarget:     m.deleteTarget,
+		TextInput:        m.getInputText(),
+		InputMode:        m.getInputModeString(),
+		UngroupedRepos:   m.getUngroupedRepos(),
 	}
 	
-	// Status bar
-	content.WriteString("\n\n")
-	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241"))
-	
-	// Build status components
-	var statusParts []string
-	
-	// Selection count
-	if len(m.selectedRepos) > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d selected", len(m.selectedRepos)))
-	}
-	
-	// Progress indicators for operations
-	refreshingCount := len(m.refreshingRepos)
-	fetchingCount := len(m.fetchingRepos)
-	pullingCount := len(m.pullingRepos)
-	
-	if refreshingCount > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("Refreshing %d", refreshingCount))
-	}
-	if fetchingCount > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("Fetching %d", fetchingCount))
-	}
-	if pullingCount > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("Pulling %d", pullingCount))
-	}
-	
-	// Scanning indicator
-	if m.scanning {
-		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		frame := (time.Now().UnixMilli() / 80) % int64(len(spinner))
-		scanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
-		statusParts = append(statusParts, scanStyle.Render(fmt.Sprintf("%s Scanning...", spinner[frame])))
-	}
-	
-	// Filter indicator
-	if m.isFiltered {
-		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // yellow
-		filterText := fmt.Sprintf("Filter: %s", m.filterQuery)
-		statusParts = append(statusParts, filterStyle.Render(filterText))
-	}
-	
-	// Status message (if any)
-	if m.statusMessage != "" && refreshingCount == 0 && fetchingCount == 0 && pullingCount == 0 && !m.scanning {
-		statusParts = append(statusParts, m.statusMessage)
-	}
-	
-	// Join and render status
-	if len(statusParts) > 0 {
-		content.WriteString(statusStyle.Render(strings.Join(statusParts, " | ")))
-	}
-	
-	
-	// Log popup
-	if m.showLog && m.logContent != "" {
-		// Create a box for the log content
-		logBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("205")).
-			Padding(1).
-			MaxHeight(m.height - 4).
-			MaxWidth(m.width - 4).
-			Render(m.logContent)
-		
-		// Center the log box
-		centeredLog := lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			logBox)
-		
-		return centeredLog
-	}
-	
-	// Info popup
-	if m.showInfo && m.infoContent != "" {
-		// Create a box for the info content
-		infoBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("78")).
-			Padding(1).
-			MaxHeight(m.height - 4).
-			MaxWidth(m.width - 4).
-			Render(m.infoContent)
-		
-		// Center the info box
-		centeredInfo := lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			infoBox)
-		
-		return centeredInfo
-	}
-	
-	// Help
-	if m.showHelp {
-		content.WriteString("\n\n")
-		content.WriteString(m.help.View(m.keyBindings()))
-	} else {
-		content.WriteString("\n")
-		helpStyle := lipgloss.NewStyle().Faint(true)
-		content.WriteString(helpStyle.Render("Press ? for help"))
-	}
-	
-	// Apply padding and size constraints
-	mainStyle := lipgloss.NewStyle().
-		Padding(1, 2).
-		Width(m.width).
-		Height(m.height)
-		
-	return mainStyle.Render(content.String())
+	return m.renderer.Render(state)
 }
 
-// renderRepositoryList renders the grouped repository list
-func (m *Model) renderRepositoryList() string {
-	var visibleLines []string
-	currentIndex := 0
-	totalItems := 0
-	
-	// Calculate the total number of items first
-	// Groups first
-	for _, groupName := range m.orderedGroups {
-		totalItems++ // Group header
-		if m.expandedGroups[groupName] {
-			group := m.groups[groupName]
-			totalItems += len(group.Repos)
-		}
-	}
-	// Then ungrouped repos
-	totalItems += len(m.getUngroupedRepos())
-	
-	// Determine if we need scroll indicators
-	needsTopIndicator := m.viewportOffset > 0
-	needsBottomIndicator := m.viewportOffset + m.viewportHeight < totalItems
-	
-	// Adjust effective viewport to account for scroll indicators
-	effectiveViewportHeight := m.viewportHeight
-	effectiveViewportOffset := m.viewportOffset
-	
-	// Reserve space for indicators within the viewport
-	if needsTopIndicator {
-		effectiveViewportHeight--
-	}
-	if needsBottomIndicator {
-		effectiveViewportHeight--
+// getInputText returns the current text input string for the view
+func (m *Model) getInputText() string {
+	if m.inputMode == InputModeNormal || m.inputMode == InputModeDeleteConfirm {
+		return ""
 	}
 	
-	// Ensure we have at least 1 line for content
-	if effectiveViewportHeight < 1 {
-		effectiveViewportHeight = 1
+	var prefix string
+	switch m.inputMode {
+	case InputModeNewGroup:
+		prefix = "Enter new group name: "
+	case InputModeMoveToGroup:
+		prefix = "Move to group: "
+	case InputModeSearch:
+		prefix = "Search: "
+	case InputModeFilter:
+		prefix = "Filter: "
+	case InputModeSort:
+		prefix = "Sort by: "
 	}
 	
-	// Reset index
-	currentIndex = 0
-	
-	// Render groups first
-	for _, groupName := range m.orderedGroups {
-		group := m.groups[groupName]
-		isExpanded := m.expandedGroups[groupName]
-		
-		// Skip group if filtered and has no matching repos
-		groupHasMatches := false
-		if m.isFiltered {
-			for _, repoPath := range group.Repos {
-				if repo, ok := m.repositories[repoPath]; ok {
-					if m.searchFilter.MatchesFilter(repo, groupName, m.filterQuery) {
-						groupHasMatches = true
-						break
-					}
-				}
-			}
-			if !groupHasMatches && !m.searchFilter.MatchesGroupFilter(groupName, m.filterQuery) {
-				continue
-			}
-		}
-		
-		// Render group header
-		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
-			isSelected := currentIndex == m.selectedIndex
-			line := m.renderGroupHeader(group, isExpanded, isSelected)
-			visibleLines = append(visibleLines, line)
-		}
-		currentIndex++
-		
-		// Render group contents if expanded
-		if isExpanded {
-			// Sort repos within the group based on current sort mode
-			sortedRepos := make([]string, len(group.Repos))
-			copy(sortedRepos, group.Repos)
-			
-			switch m.currentSort {
-			case logic.SortByStatus:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.repositories[sortedRepos[i]]
-					repoJ, okJ := m.repositories[sortedRepos[j]]
-					if !okI || !okJ {
-						return !okI // Put missing repos at the end
-					}
-					statusI := logic.GetStatusPriority(repoI)
-					statusJ := logic.GetStatusPriority(repoJ)
-					if statusI != statusJ {
-						return statusI > statusJ
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-				
-			case logic.SortByBranch:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.repositories[sortedRepos[i]]
-					repoJ, okJ := m.repositories[sortedRepos[j]]
-					if !okI || !okJ {
-						return !okI // Put missing repos at the end
-					}
-					branchI := strings.ToLower(repoI.Status.Branch)
-					branchJ := strings.ToLower(repoJ.Status.Branch)
-					if branchI != branchJ {
-						if branchI == "main" || branchI == "master" {
-							return true
-						}
-						if branchJ == "main" || branchJ == "master" {
-							return false
-						}
-						return branchI < branchJ
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-				
-			case logic.SortByName, logic.SortByGroup:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.repositories[sortedRepos[i]]
-					repoJ, okJ := m.repositories[sortedRepos[j]]
-					if !okI || !okJ {
-						return !okI // Put missing repos at the end
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-			}
-			
-			for _, repoPath := range sortedRepos {
-				if repo, ok := m.repositories[repoPath]; ok {
-					// Skip if filtered and doesn't match
-					if m.isFiltered && !m.searchFilter.MatchesFilter(repo, groupName, m.filterQuery) {
-						continue
-					}
-					
-					if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
-						isSelected := currentIndex == m.selectedIndex
-						line := m.renderRepository(repo, isSelected, 1)
-						visibleLines = append(visibleLines, line)
-					}
-					currentIndex++
-				}
-			}
-		}
-	}
-	
-	// Then render ungrouped repositories
-	ungroupedRepos := m.ungroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-	for _, repoPath := range ungroupedRepos {
-		if repo, ok := m.repositories[repoPath]; ok {
-			// Skip if filtered and doesn't match
-			if m.isFiltered && !m.searchFilter.MatchesFilter(repo, "", m.filterQuery) {
-				continue
-			}
-			
-			if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
-				isSelected := currentIndex == m.selectedIndex
-				line := m.renderRepository(repo, isSelected, 0)
-				visibleLines = append(visibleLines, line)
-			}
-			currentIndex++
-		}
-	}
-	
-	// Build final result with indicators
-	var result []string
-	
-	// Add top scroll indicator if needed
-	if needsTopIndicator {
-		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
-		result = append(result, scrollStyle.Render(fmt.Sprintf("↑ %d more above ↑", m.viewportOffset)))
-	}
-	
-	// Add visible lines
-	result = append(result, visibleLines...)
-	
-	// Add bottom scroll indicator if needed
-	if needsBottomIndicator {
-		itemsBelow := totalItems - (m.viewportOffset + m.viewportHeight)
-		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
-		result = append(result, scrollStyle.Render(fmt.Sprintf("↓ %d more below ↓", itemsBelow)))
-	}
-	
-	return strings.Join(result, "\n")
+	return prefix + m.textInput.View()
 }
 
-// renderGroupHeader renders a group header line
-func (m *Model) renderGroupHeader(group *domain.Group, isExpanded bool, isSelected bool) string {
-	arrow := "▶"
-	if isExpanded {
-		arrow = "▼"
+// getInputModeString returns the string representation of the input mode
+func (m *Model) getInputModeString() string {
+	switch m.inputMode {
+	case InputModeNormal:
+		return ""
+	case InputModeNewGroup:
+		return "new-group"
+	case InputModeMoveToGroup:
+		return "move-to-group"
+	case InputModeDeleteConfirm:
+		return "delete-confirm"
+	case InputModeSearch:
+		return "search"
+	case InputModeFilter:
+		return "filter"
+	case InputModeSort:
+		return "sort"
+	default:
+		return ""
 	}
-	
-	count := 0
-	for _, repoPath := range group.Repos {
-		if _, ok := m.repositories[repoPath]; ok {
-			count++
-		}
-	}
-	
-	// Check if this group is in search results
-	isSearchMatch := false
-	if m.searchQuery != "" && len(m.searchMatches) > 0 {
-		currentIndex := m.getCurrentIndexForGroup(group.Name)
-		for _, matchIndex := range m.searchMatches {
-			if currentIndex == matchIndex {
-				isSearchMatch = true
-				break
-			}
-		}
-	}
-	
-	// Build the content
-	groupName := group.Name
-	if isSearchMatch && m.searchQuery != "" && !strings.HasPrefix(m.searchQuery, "status:") {
-		// Highlight matching text
-		highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
-		groupName = m.highlightMatch(group.Name, m.searchQuery, highlightStyle, lipgloss.NewStyle())
-	}
-	
-	content := fmt.Sprintf("%s %s (%d)", arrow, groupName, count)
-	
-	// Calculate padding for full-width highlighting
-	contentWidth := lipgloss.Width(content)
-	availableWidth := m.width - 4 // Account for outer padding
-	if availableWidth < 1 {
-		availableWidth = 80 // Fallback width
-	}
-	
-	if isSelected {
-		// Apply background to the entire line
-		padding := availableWidth - contentWidth
-		if padding < 0 {
-			padding = 0
-		}
-		paddingStr := strings.Repeat(" ", padding)
-		fullLine := content + paddingStr
-		
-		// Apply background style to the full line
-		highlightStyle := lipgloss.NewStyle().Background(lipgloss.Color("238"))
-		return highlightStyle.Render(fullLine)
-	}
-	
-	return content
-}
-
-// renderRepository renders a repository line
-func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, indent int) string {
-	// Check if this repo is in search results
-	isSearchMatch := false
-	if m.searchQuery != "" && len(m.searchMatches) > 0 {
-		currentIndex := m.getCurrentIndexForRepo(repo.Path)
-		for _, matchIndex := range m.searchMatches {
-			if currentIndex == matchIndex {
-				isSearchMatch = true
-				break
-			}
-		}
-	}
-	// Selection indicator
-	selectionIndicator := "[ ]"
-	if m.selectedRepos[repo.Path] {
-		selectionIndicator = "[✓]"
-	}
-	
-	
-	// Check if this repo is currently refreshing, fetching, or pulling
-	isRefreshing := m.refreshingRepos[repo.Path]
-	isFetching := m.fetchingRepos[repo.Path]
-	isPulling := m.pullingRepos[repo.Path]
-	
-	// Status indicator
-	var status string
-	if isPulling {
-		status = "⤓" // Pulling indicator (stronger down arrow)
-	} else if isFetching {
-		status = "⇣" // Fetching indicator (down arrow)
-	} else if isRefreshing {
-		status = "⟳" // Refreshing indicator
-	} else if repo.Status.Error != "" {
-		status = "⚠"
-	} else if repo.Status.IsDirty || repo.Status.HasUntracked {
-		status = "●"
-	} else if repo.Status.Branch == "⋯" {
-		status = "⋯"
-	} else {
-		status = "✓"
-	}
-	
-	// Status color
-	statusStyle := lipgloss.NewStyle()
-	if isFetching {
-		statusStyle = statusStyle.Foreground(lipgloss.Color("214")) // yellow for fetching
-	} else if isRefreshing {
-		statusStyle = statusStyle.Foreground(lipgloss.Color("51")) // cyan for refreshing
-	} else if repo.Status.Error != "" {
-		statusStyle = statusStyle.Foreground(lipgloss.Color("203")) // red
-	} else if repo.Status.IsDirty || repo.Status.HasUntracked {
-		statusStyle = statusStyle.Foreground(lipgloss.Color("214")) // yellow
-	} else if repo.Status.Branch == "⋯" {
-		statusStyle = statusStyle.Foreground(lipgloss.Color("241")) // gray for loading
-	} else {
-		statusStyle = statusStyle.Foreground(lipgloss.Color("78")) // green
-	}
-	
-	// Apply status color even when selected
-	if isSelected {
-		statusStyle = statusStyle.Background(lipgloss.Color("238"))
-	}
-	
-	// Branch info with color
-	branchName := repo.Status.Branch
-	if branchName == "" {
-		branchName = "?"
-	}
-	
-	// Apply branch color
-	branchColor, isBold := m.branchColor(branchName)
-	branchStyle := lipgloss.NewStyle().Foreground(branchColor)
-	if isBold {
-		branchStyle = branchStyle.Bold(true)
-	}
-	if isSelected {
-		branchStyle = branchStyle.Background(lipgloss.Color("238"))
-	}
-	coloredBranch := branchStyle.Render(branchName)
-	
-	// Ahead/Behind indicators
-	var aheadBehind string
-	if repo.Status.AheadCount > 0 || repo.Status.BehindCount > 0 {
-		aheadBehind = fmt.Sprintf(" (%d↑ %d↓)", repo.Status.AheadCount, repo.Status.BehindCount)
-	}
-	
-	// Stash indicator
-	var stashIndicator string
-	if repo.Status.StashCount > 0 {
-		stashIndicator = fmt.Sprintf(" 📦%d", repo.Status.StashCount)
-	}
-	
-	// Build the line content
-	indentStr := strings.Repeat("  ", indent)
-	
-	if isSelected {
-		// When selected, we need to carefully construct the line with backgrounds
-		bgColor := lipgloss.Color("238")
-		
-		// Build each component with its styling but without rendering yet
-		var parts []string
-		
-		// Indent
-		parts = append(parts, indentStr)
-		
-		// Selection indicator with background
-		selectionStyle := lipgloss.NewStyle().Background(bgColor)
-		parts = append(parts, selectionStyle.Render(selectionIndicator))
-		
-		// Space
-		parts = append(parts, " ")
-		
-		// Status with its color and background
-		parts = append(parts, statusStyle.Render(status))
-		
-		// Space
-		parts = append(parts, " ")
-		
-		// Repo name with background and potential search highlight
-		nameStyle := lipgloss.NewStyle().Background(bgColor)
-		repoName := repo.Name
-		if isSearchMatch && m.searchQuery != "" && !strings.HasPrefix(m.searchQuery, "status:") {
-			// Highlight matching text
-			highlightStyle := nameStyle.Copy().Foreground(lipgloss.Color("226")) // bright yellow
-			repoName = m.highlightMatch(repo.Name, m.searchQuery, highlightStyle, nameStyle)
-		}
-		parts = append(parts, nameStyle.Render(repoName))
-		
-		// Opening paren with background
-		parenStyle := lipgloss.NewStyle().Background(bgColor)
-		parts = append(parts, parenStyle.Render(" ("))
-		
-		// Branch (already has background from earlier)
-		parts = append(parts, coloredBranch)
-		
-		// Ahead/behind with closing paren
-		if aheadBehind != "" {
-			// aheadBehind already includes the space before it
-			aheadBehindWithBg := lipgloss.NewStyle().Background(bgColor).Render(aheadBehind)
-			parts = append(parts, aheadBehindWithBg)
-		}
-		
-		// Closing paren with background
-		parts = append(parts, parenStyle.Render(")"))
-		
-		// Stash indicator with background
-		if stashIndicator != "" {
-			stashStyle := lipgloss.NewStyle().Background(bgColor)
-			parts = append(parts, stashStyle.Render(stashIndicator))
-		}
-		
-		// Join all parts
-		content := strings.Join(parts, "")
-		
-		// Calculate padding needed to fill the width
-		contentWidth := lipgloss.Width(content)
-		availableWidth := m.width - 4 // Account for outer padding
-		if availableWidth < 1 {
-			availableWidth = 80 // Fallback width
-		}
-		
-		// Add padding to fill the entire row
-		padding := availableWidth - contentWidth
-		if padding < 0 {
-			padding = 0
-		}
-		paddingStr := strings.Repeat(" ", padding)
-		
-		// Apply background to padding as well
-		paddingStyle := lipgloss.NewStyle().Background(bgColor)
-		return content + paddingStyle.Render(paddingStr)
-	}
-	
-	// Not selected - render normally
-	repoName := repo.Name
-	if isSearchMatch && m.searchQuery != "" && !strings.HasPrefix(m.searchQuery, "status:") {
-		// Highlight matching text
-		highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
-		repoName = m.highlightMatch(repo.Name, m.searchQuery, highlightStyle, lipgloss.NewStyle())
-	}
-	
-	content := fmt.Sprintf("%s%s %s %s (%s%s)%s", 
-		indentStr,
-		selectionIndicator,
-		statusStyle.Render(status),
-		repoName,
-		coloredBranch,
-		aheadBehind,
-		stashIndicator,
-	)
-	
-	return content
-}
-
-// branchColor returns the color and bold flag for a branch name
-func (m *Model) branchColor(branchName string) (lipgloss.Color, bool) {
-	// Main and master get special treatment - bold green
-	if branchName == "main" || branchName == "master" {
-		return lipgloss.Color("78"), true // bold green
-	}
-	
-	// Special cases for loading and unknown
-	if branchName == "⋯" || branchName == "?" {
-		return lipgloss.Color("241"), false // gray, not bold
-	}
-	
-	// Use a simple hash function to assign consistent colors to branch names
-	var hash uint32
-	for _, b := range branchName {
-		hash = hash*31 + uint32(b)
-	}
-	
-	// Map to a set of colors (avoiding red which might indicate errors)
-	// Using a wider range of ANSI 256 colors for better variety
-	colors := []lipgloss.Color{
-		lipgloss.Color("51"),   // Cyan
-		lipgloss.Color("214"),  // Yellow/Orange
-		lipgloss.Color("33"),   // Blue
-		lipgloss.Color("205"),  // Magenta/Pink
-		lipgloss.Color("87"),   // Light Cyan
-		lipgloss.Color("228"),  // Light Yellow
-		lipgloss.Color("111"),  // Light Blue
-		lipgloss.Color("213"),  // Light Magenta
-		lipgloss.Color("45"),   // Turquoise
-		lipgloss.Color("39"),   // Deep Sky Blue
-		lipgloss.Color("171"),  // Purple
-		lipgloss.Color("220"),  // Gold
-		lipgloss.Color("208"),  // Dark Orange
-		lipgloss.Color("159"),  // Pale Cyan
-		lipgloss.Color("141"),  // Light Purple
-		lipgloss.Color("117"),  // Sky Blue
-		lipgloss.Color("183"),  // Plum
-		lipgloss.Color("186"),  // Khaki
-		lipgloss.Color("222"),  // Light Salmon
-		lipgloss.Color("156"),  // Light Green
-		lipgloss.Color("48"),   // Spring Green
-		lipgloss.Color("85"),   // Sea Green
-		lipgloss.Color("120"),  // Light Green
-		lipgloss.Color("135"),  // Purple Blue
-		lipgloss.Color("177"),  // Violet
-		lipgloss.Color("215"),  // Sandy Brown
-	}
-	
-	color := colors[hash%uint32(len(colors))]
-	return color, false // regular weight
 }
 
 // updateOrderedLists updates the ordered lists for display
@@ -1617,7 +1048,6 @@ func (m *Model) updateOrderedLists() {
 		}
 	}
 }
-
 
 // getUngroupedRepos returns repositories not in any group
 func (m *Model) getUngroupedRepos() []string {
@@ -2047,7 +1477,6 @@ func (m *Model) performSearch() {
 	}
 }
 
-
 // handleSortMode handles input when in sort mode
 func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -2156,7 +1585,6 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 	return info.String()
 }
 
-
 // countVisibleItems counts how many items are visible with current filter
 func (m *Model) countVisibleItems() int {
 	count := 0
@@ -2216,29 +1644,6 @@ func (m *Model) getCurrentIndexForRepo(repoPath string) int {
 		ungroupedRepos = m.getUngroupedRepos()
 	}
 	return m.navigator.GetCurrentIndexForRepo(repoPath, ungroupedRepos)
-}
-
-// highlightMatch highlights matching text within a string
-func (m *Model) highlightMatch(text, query string, highlightStyle, normalStyle lipgloss.Style) string {
-	lowerText := strings.ToLower(text)
-	lowerQuery := strings.ToLower(query)
-	
-	index := strings.Index(lowerText, lowerQuery)
-	if index == -1 {
-		return text
-	}
-	
-	// Build the highlighted string
-	var result string
-	if index > 0 {
-		result += text[:index]
-	}
-	result += highlightStyle.Render(text[index:index+len(query)])
-	if index+len(query) < len(text) {
-		result += text[index+len(query):]
-	}
-	
-	return result
 }
 
 // jumpToGroupBoundary jumps to the beginning or end of the current group
