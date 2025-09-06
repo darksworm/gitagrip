@@ -16,6 +16,7 @@ import (
 	"gitagrip/internal/config"
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/commands"
 	"gitagrip/internal/ui/handlers"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/repositories"
@@ -165,6 +166,7 @@ type Model struct {
 	eventHandler  *handlers.EventHandler      // event processing handler
 	viewModel     *viewmodels.ViewModel        // view model for rendering
 	store         repositories.RepositoryStore // repository store for data access
+	cmdExecutor   *commands.Executor          // command executor
 }
 
 // NewModel creates a new UI model
@@ -193,6 +195,9 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	
 	// Create repository store
 	m.store = repositories.NewStateRepositoryStore(appState)
+	
+	// Create command executor
+	m.cmdExecutor = commands.NewExecutor(appState, bus)
 	
 	// Create view model
 	m.viewModel = viewmodels.NewViewModel(appState, cfg, ti)
@@ -311,29 +316,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
-				m.state.SetRefreshing(repoPaths, true)
 			} else if groupName := m.getSelectedGroup(); groupName != "" {
 				// Refresh all repos in the selected group
 				if group, ok := m.store.GetGroup(groupName); ok {
 					for _, repoPath := range group.Repos {
 						repoPaths = append(repoPaths, repoPath)
 					}
-					m.state.SetRefreshing(repoPaths, true)
 					m.state.StatusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
 				}
 			} else {
 				// Refresh current repository
 				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
 					repoPaths = []string{repoPath}
-					m.state.SetRefreshing(repoPaths, true)
 				}
 			}
 			
-			if len(repoPaths) > 0 && m.bus != nil {
-				m.bus.Publish(eventbus.StatusRefreshRequestedEvent{
-					RepoPaths: repoPaths,
-				})
-			}
+			return m, m.cmdExecutor.ExecuteRefresh(repoPaths)
 			
 		case key.Matches(msg, keyFilter):
 			// Enter filter mode
@@ -351,29 +349,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
-				m.state.SetFetching(repoPaths, true)
 			} else if groupName := m.getSelectedGroup(); groupName != "" {
 				// Fetch all repos in the selected group
 				if group, ok := m.store.GetGroup(groupName); ok {
 					for _, repoPath := range group.Repos {
 						repoPaths = append(repoPaths, repoPath)
 					}
-					m.state.SetFetching(repoPaths, true)
 					m.state.StatusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
 				}
 			} else {
 				// Fetch current repository
 				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
 					repoPaths = []string{repoPath}
-					m.state.SetFetching(repoPaths, true)
 				}
 			}
 			
-			if len(repoPaths) > 0 && m.bus != nil {
-				m.bus.Publish(eventbus.FetchRequestedEvent{
-					RepoPaths: repoPaths,
-				})
-			}
+			return m, m.cmdExecutor.ExecuteFetch(repoPaths)
 			
 		case key.Matches(msg, keyPull):
 			// Pull selected repositories, group, or current one
@@ -383,37 +374,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
-				m.state.SetPulling(repoPaths, true)
 			} else if groupName := m.getSelectedGroup(); groupName != "" {
 				// Pull all repos in the selected group
 				if group, ok := m.store.GetGroup(groupName); ok {
 					for _, repoPath := range group.Repos {
 						repoPaths = append(repoPaths, repoPath)
 					}
-					m.state.SetPulling(repoPaths, true)
 					m.state.StatusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
 				}
 			} else {
 				// Pull current repository
 				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
 					repoPaths = []string{repoPath}
-					m.state.SetPulling(repoPaths, true)
 				}
 			}
 			
-			if len(repoPaths) > 0 && m.bus != nil {
-				m.bus.Publish(eventbus.PullRequestedEvent{
-					RepoPaths: repoPaths,
-				})
-			}
+			return m, m.cmdExecutor.ExecutePull(repoPaths)
 			
 		case key.Matches(msg, keyFullScan):
-			m.state.StatusMessage = "Starting full repository scan..."
-			if m.bus != nil && m.config.BaseDir != "" {
-				m.bus.Publish(eventbus.ScanRequestedEvent{
-					Paths: []string{m.config.BaseDir},
-				})
-			}
+			return m, m.cmdExecutor.ExecuteFullScan(m.config.BaseDir)
 			
 		case key.Matches(msg, keyHelp):
 			m.state.ShowHelp = !m.state.ShowHelp

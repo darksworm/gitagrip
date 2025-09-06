@@ -103,13 +103,15 @@ func (c *PullCommand) Execute() tea.Cmd {
 
 // FullScanCommand initiates a full repository scan
 type FullScanCommand struct {
-	ctx *CommandContext
+	ctx      *CommandContext
+	scanPath string
 }
 
 // NewFullScanCommand creates a new full scan command
-func NewFullScanCommand(ctx *CommandContext) *FullScanCommand {
+func NewFullScanCommand(ctx *CommandContext, scanPath string) *FullScanCommand {
 	return &FullScanCommand{
-		ctx: ctx,
+		ctx:      ctx,
+		scanPath: scanPath,
 	}
 }
 
@@ -117,8 +119,10 @@ func NewFullScanCommand(ctx *CommandContext) *FullScanCommand {
 func (c *FullScanCommand) Execute() tea.Cmd {
 	c.ctx.State.Scanning = true
 	c.ctx.State.StatusMessage = "Starting full scan..."
-	if c.ctx.Bus != nil {
-		c.ctx.Bus.Publish(eventbus.FullScanRequestedEvent{})
+	if c.ctx.Bus != nil && c.scanPath != "" {
+		c.ctx.Bus.Publish(eventbus.ScanRequestedEvent{
+			Paths: []string{c.scanPath},
+		})
 	}
 	return nil
 }
