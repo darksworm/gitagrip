@@ -100,6 +100,10 @@ var (
 		key.WithKeys("m"),
 		key.WithHelp("m", "move to group"),
 	)
+	keyDelete = key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "delete group"),
+	)
 )
 
 // EventMsg wraps a domain event for the UI
@@ -117,6 +121,7 @@ const (
 	InputModeNormal InputMode = iota
 	InputModeNewGroup
 	InputModeMoveToGroup
+	InputModeDeleteConfirm
 )
 
 // Model represents the UI state
@@ -146,6 +151,7 @@ type Model struct {
 	lastKeyWasG    bool                        // track 'g' key for 'gg' command
 	inputMode      InputMode                   // current input mode
 	textInput      textinput.Model             // text input for group names
+	deleteTarget   string                      // group name being deleted
 }
 
 // NewModel creates a new UI model
@@ -405,6 +411,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "No repositories selected"
 			}
 			
+		case key.Matches(msg, keyDelete):
+			// Delete group if a group is selected
+			if groupName := m.getSelectedGroup(); groupName != "" {
+				m.deleteTarget = groupName
+				m.inputMode = InputModeDeleteConfirm
+				m.statusMessage = fmt.Sprintf("Delete group '%s'? (y/n)", groupName)
+				return m, nil
+			}
+			
 		// Navigation keys
 		case msg.String() == "g":
 			if m.lastKeyWasG {
@@ -547,6 +562,21 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 			m.expandedGroups[e.Name] = true // Start expanded so user can see the contents
 			// Add to beginning of creation order so new groups appear first
 			m.groupCreationOrder = append([]string{e.Name}, m.groupCreationOrder...)
+			m.updateOrderedLists()
+		}
+		
+	case eventbus.GroupRemovedEvent:
+		if _, exists := m.groups[e.Name]; exists {
+			delete(m.groups, e.Name)
+			delete(m.expandedGroups, e.Name)
+			// Remove from creation order
+			newOrder := []string{}
+			for _, name := range m.groupCreationOrder {
+				if name != e.Name {
+					newOrder = append(newOrder, name)
+				}
+			}
+			m.groupCreationOrder = newOrder
 			m.updateOrderedLists()
 		}
 		
@@ -1275,7 +1305,64 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputMode = InputModeNormal
 			m.textInput.Blur()
 			m.statusMessage = ""
+			m.deleteTarget = ""
 			return m, nil
+		}
+		
+		// Handle delete confirmation
+		if m.inputMode == InputModeDeleteConfirm {
+			switch msg.String() {
+			case "y", "Y":
+				// Confirm delete
+				if m.deleteTarget != "" {
+					// Get repos in this group before deletion
+					group := m.groups[m.deleteTarget]
+					repoCount := len(group.Repos)
+					
+					// Move repos back to ungrouped
+					for _, repoPath := range group.Repos {
+						if m.bus != nil {
+							m.bus.Publish(eventbus.RepoMovedEvent{
+								RepoPath:  repoPath,
+								FromGroup: m.deleteTarget,
+								ToGroup:   "",
+							})
+						}
+					}
+					
+					// Remove the group
+					if m.bus != nil {
+						m.bus.Publish(eventbus.GroupRemovedEvent{
+							Name: m.deleteTarget,
+						})
+					}
+					
+					// Emit config changed event
+					if m.bus != nil {
+						m.bus.Publish(eventbus.ConfigChangedEvent{
+							Groups: m.getGroupsMap(),
+						})
+					}
+					
+					m.statusMessage = fmt.Sprintf("Deleted group '%s' (%d repos moved to ungrouped)", m.deleteTarget, repoCount)
+					
+					// Adjust selection if needed
+					if m.selectedIndex > 0 {
+						m.selectedIndex--
+					}
+					m.ensureSelectedVisible()
+				}
+				m.inputMode = InputModeNormal
+				m.deleteTarget = ""
+				return m, nil
+				
+			case "n", "N":
+				// Cancel delete
+				m.inputMode = InputModeNormal
+				m.statusMessage = "Delete cancelled"
+				m.deleteTarget = ""
+				return m, nil
+			}
 		}
 	}
 	
@@ -1391,7 +1478,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyPageUp, keyPageDown, keyHalfPageUp, keyHalfPageDown},
 		{keyTop, keyBottom},
 		{keySelect, keySelectAll},
-		{keyNewGroup, keyMoveToGroup},
+		{keyNewGroup, keyMoveToGroup, keyDelete},
 		{keyRefresh, keyFullScan, keyFetch, keyLog},
 		{keyHelp, keyQuit},
 	}
