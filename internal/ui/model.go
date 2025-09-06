@@ -888,8 +888,12 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		}
 
 	case inputtypes.SearchNavigateAction:
-		log.Printf("SearchNavigateAction: direction=%s, query=%s, matches=%d", a.Direction, m.state.SearchQuery, len(m.state.SearchMatches))
+		log.Printf("SearchNavigateAction: direction=%s, query=%s, matches=%v, currentSearchIndex=%d", 
+			a.Direction, m.state.SearchQuery, m.state.SearchMatches, m.state.SearchIndex)
+		
 		if m.state.SearchQuery != "" && len(m.state.SearchMatches) > 0 {
+			oldIndex := m.state.SearchIndex
+			
 			if a.Direction == "next" {
 				// Navigate to next search result
 				m.state.SearchIndex = (m.state.SearchIndex + 1) % len(m.state.SearchMatches)
@@ -900,12 +904,16 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					m.state.SearchIndex = len(m.state.SearchMatches) - 1
 				}
 			}
+			
 			// Jump to the match
 			if m.state.SearchIndex >= 0 && m.state.SearchIndex < len(m.state.SearchMatches) {
 				m.state.SelectedIndex = m.state.SearchMatches[m.state.SearchIndex]
 				m.ensureSelectedVisible()
-				log.Printf("SearchNavigate: jumped to index %d (match %d of %d)", m.state.SelectedIndex, m.state.SearchIndex+1, len(m.state.SearchMatches))
+				log.Printf("SearchNavigate: moved from match %d to %d, jumped to index %d", 
+					oldIndex, m.state.SearchIndex, m.state.SelectedIndex)
 			}
+		} else {
+			log.Printf("SearchNavigate: no action - query empty or no matches")
 		}
 
 	case inputtypes.SelectAllAction:
@@ -1356,17 +1364,22 @@ func (m *Model) getGroupsMap() map[string][]string {
 
 // performSearch searches for repositories matching the search query
 func (m *Model) performSearch() {
+	// Save the old matches to see if they changed
+	oldMatches := m.state.SearchMatches
 	m.state.SearchMatches = nil
-	m.state.SearchIndex = 0
 	
 	if m.state.SearchQuery == "" {
+		m.state.SearchIndex = 0
 		return
 	}
 	
 	query := strings.ToLower(m.state.SearchQuery)
 	currentIdx := 0
 	
-	// First pass: check all groups (including group headers)
+	// Search through ALL repositories in the display order
+	// This should match exactly what the UI renders
+	
+	// First, check all groups
 	for _, groupName := range m.state.OrderedGroups {
 		group := m.state.Groups[groupName]
 		if group == nil {
@@ -1384,50 +1397,90 @@ func (m *Model) performSearch() {
 		// Only process repos if group is expanded
 		if m.state.ExpandedGroups[groupName] {
 			for _, repoPath := range group.Repos {
-				repo, exists := m.store.GetRepository(repoPath)
-				if !exists {
-					currentIdx++
-					continue
-				}
-				
-				// Search in repository name
-				if strings.Contains(strings.ToLower(repo.Name), query) {
-					m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-					log.Printf("Search match found at index %d: %s", currentIdx, repo.Name)
+				// Get repository from the main repositories map
+				if repo, exists := m.state.Repositories[repoPath]; exists {
+					if strings.Contains(strings.ToLower(repo.Name), query) {
+						m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
+						log.Printf("Search match found at index %d: %s (in group %s)", currentIdx, repo.Name, groupName)
+					}
 				}
 				currentIdx++
 			}
 		}
 	}
 	
-	// Check ungrouped repos if they exist
-	ungrouped := m.state.Groups["Ungrouped"]
-	if ungrouped != nil && len(ungrouped.Repos) > 0 {
-		// Check ungrouped header
-		if strings.Contains(strings.ToLower("Ungrouped"), query) {
-			m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-			log.Printf("Search match found at index %d: Ungrouped", currentIdx)
+	// Now handle ungrouped repos - get them the same way the UI does
+	ungroupedRepos := m.getUngroupedRepos()
+	if len(ungroupedRepos) > 0 {
+		// Check if we should show ungrouped header
+		hasUngroupedHeader := false
+		for _, repoPath := range ungroupedRepos {
+			if _, exists := m.state.Repositories[repoPath]; exists {
+				hasUngroupedHeader = true
+				break
+			}
 		}
-		currentIdx++
 		
-		// Only process if expanded
-		if m.state.ExpandedGroups["Ungrouped"] {
-			for _, repoPath := range ungrouped.Repos {
-				repo, exists := m.store.GetRepository(repoPath)
-				if !exists {
-					currentIdx++
-					continue
-				}
-				
-				// Search in repository name
-				if strings.Contains(strings.ToLower(repo.Name), query) {
-					m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
-					log.Printf("Search match found at index %d: %s", currentIdx, repo.Name)
+		if hasUngroupedHeader {
+			// Check ungrouped header
+			if strings.Contains(strings.ToLower("Ungrouped"), query) {
+				m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
+				log.Printf("Search match found at index %d: Ungrouped", currentIdx)
+			}
+			// No expansion check needed - ungrouped repos are always visible
+			// Process ungrouped repos
+			for _, repoPath := range ungroupedRepos {
+				// Get repository from the main repositories map
+				if repo, exists := m.state.Repositories[repoPath]; exists {
+					if strings.Contains(strings.ToLower(repo.Name), query) {
+						m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
+						log.Printf("Search match found at index %d: %s (ungrouped)", currentIdx, repo.Name)
+					}
 				}
 				currentIdx++
 			}
 		}
 	}
 	
-	log.Printf("Search completed for '%s': found %d matches", query, len(m.state.SearchMatches))
+	// Only reset search index if the matches changed
+	matchesChanged := len(oldMatches) != len(m.state.SearchMatches)
+	if !matchesChanged && len(oldMatches) > 0 {
+		for i, match := range oldMatches {
+			if i >= len(m.state.SearchMatches) || match != m.state.SearchMatches[i] {
+				matchesChanged = true
+				break
+			}
+		}
+	}
+	
+	if matchesChanged {
+		m.state.SearchIndex = 0
+	} else {
+		// Keep current index but ensure it's within bounds
+		if m.state.SearchIndex >= len(m.state.SearchMatches) {
+			m.state.SearchIndex = 0
+		}
+	}
+	
+	log.Printf("Search completed for '%s': found %d matches, searchIndex=%d", query, len(m.state.SearchMatches), m.state.SearchIndex)
+	
+	// Debug: Log all repositories in state
+	log.Printf("Total repositories in state: %d", len(m.state.Repositories))
+	for path, repo := range m.state.Repositories {
+		log.Printf("  Repo: %s (name: %s)", path, repo.Name)
+	}
+	
+	// Debug: Log what's in groups
+	totalInGroups := 0
+	for name, group := range m.state.Groups {
+		totalInGroups += len(group.Repos)
+		log.Printf("  Group %s has %d repos", name, len(group.Repos))
+	}
+	log.Printf("Total repos in groups: %d", totalInGroups)
+	
+	// Debug: Log ungrouped
+	log.Printf("Ungrouped repos: %d", len(ungroupedRepos))
+	for _, path := range ungroupedRepos {
+		log.Printf("  Ungrouped: %s", path)
+	}
 }
