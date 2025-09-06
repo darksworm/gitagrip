@@ -273,30 +273,54 @@ func (m *Model) View() string {
 
 // renderRepositoryList renders the grouped repository list
 func (m *Model) renderRepositoryList() string {
-	var allLines []string
 	var visibleLines []string
 	currentIndex := 0
 	totalItems := 0
 	
-	// First, build all lines to determine what's visible
+	// Calculate the total number of items first
+	totalItems = len(m.getUngroupedRepos())
+	for _, groupName := range m.orderedGroups {
+		totalItems++ // Group header
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			totalItems += len(group.Repos)
+		}
+	}
+	
+	// Determine if we need scroll indicators
+	needsTopIndicator := m.viewportOffset > 0
+	needsBottomIndicator := m.viewportOffset + m.viewportHeight < totalItems
+	
+	// Adjust effective viewport to account for scroll indicators
+	effectiveViewportHeight := m.viewportHeight
+	effectiveViewportOffset := m.viewportOffset
+	
+	// Reserve space for indicators within the viewport
+	if needsTopIndicator {
+		effectiveViewportHeight--
+	}
+	if needsBottomIndicator {
+		effectiveViewportHeight--
+	}
+	
+	// Ensure we have at least 1 line for content
+	if effectiveViewportHeight < 1 {
+		effectiveViewportHeight = 1
+	}
+	
+	// Reset index
+	currentIndex = 0
+	
 	// Render ungrouped repositories first
 	ungroupedRepos := m.getUngroupedRepos()
-	if len(ungroupedRepos) > 0 {
-		for _, repoPath := range ungroupedRepos {
+	for _, repoPath := range ungroupedRepos {
+		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
 			repo := m.repositories[repoPath]
 			isSelected := currentIndex == m.selectedIndex
 			line := m.renderRepository(repo, isSelected, 0)
-			
-			allLines = append(allLines, line)
-			
-			// Add to visible lines if within viewport
-			if currentIndex >= m.viewportOffset && currentIndex < m.viewportOffset+m.viewportHeight {
-				visibleLines = append(visibleLines, line)
-			}
-			
-			currentIndex++
-			totalItems++
+			visibleLines = append(visibleLines, line)
 		}
+		currentIndex++
 	}
 	
 	// Render groups
@@ -305,57 +329,48 @@ func (m *Model) renderRepositoryList() string {
 		isExpanded := m.expandedGroups[groupName]
 		
 		// Render group header
-		isSelected := currentIndex == m.selectedIndex
-		line := m.renderGroupHeader(group, isExpanded, isSelected)
-		
-		allLines = append(allLines, line)
-		
-		// Add to visible lines if within viewport
-		if currentIndex >= m.viewportOffset && currentIndex < m.viewportOffset+m.viewportHeight {
+		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
+			isSelected := currentIndex == m.selectedIndex
+			line := m.renderGroupHeader(group, isExpanded, isSelected)
 			visibleLines = append(visibleLines, line)
 		}
-		
 		currentIndex++
-		totalItems++
 		
 		// Render group contents if expanded
 		if isExpanded {
 			for _, repoPath := range group.Repos {
-				if repo, ok := m.repositories[repoPath]; ok {
-					isSelected := currentIndex == m.selectedIndex
-					line := m.renderRepository(repo, isSelected, 1)
-					
-					allLines = append(allLines, line)
-					
-					// Add to visible lines if within viewport
-					if currentIndex >= m.viewportOffset && currentIndex < m.viewportOffset+m.viewportHeight {
+				if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
+					if repo, ok := m.repositories[repoPath]; ok {
+						isSelected := currentIndex == m.selectedIndex
+						line := m.renderRepository(repo, isSelected, 1)
 						visibleLines = append(visibleLines, line)
 					}
-					
-					currentIndex++
-					totalItems++
 				}
+				currentIndex++
 			}
 		}
 	}
 	
-	// Add scroll indicators if needed
-	result := strings.Join(visibleLines, "\n")
+	// Build final result with indicators
+	var result []string
 	
-	// Add scroll indicator at top if scrolled down
-	if m.viewportOffset > 0 {
+	// Add top scroll indicator if needed
+	if needsTopIndicator {
 		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
-		result = scrollStyle.Render(fmt.Sprintf("↑ %d more above ↑", m.viewportOffset)) + "\n" + result
+		result = append(result, scrollStyle.Render(fmt.Sprintf("↑ %d more above ↑", m.viewportOffset)))
 	}
 	
-	// Add scroll indicator at bottom if more items below
-	itemsBelow := totalItems - (m.viewportOffset + m.viewportHeight)
-	if itemsBelow > 0 {
+	// Add visible lines
+	result = append(result, visibleLines...)
+	
+	// Add bottom scroll indicator if needed
+	if needsBottomIndicator {
+		itemsBelow := totalItems - (m.viewportOffset + m.viewportHeight)
 		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
-		result = result + "\n" + scrollStyle.Render(fmt.Sprintf("↓ %d more below ↓", itemsBelow))
+		result = append(result, scrollStyle.Render(fmt.Sprintf("↓ %d more below ↓", itemsBelow)))
 	}
 	
-	return result
+	return strings.Join(result, "\n")
 }
 
 // renderGroupHeader renders a group header line
@@ -660,27 +675,86 @@ func (m *Model) getSelectedGroup() string {
 
 // ensureSelectedVisible adjusts the viewport to keep the selected item visible
 func (m *Model) ensureSelectedVisible() {
+	// Calculate total items using the same logic as renderRepositoryList
+	totalItems := len(m.getUngroupedRepos())
+	for _, groupName := range m.orderedGroups {
+		totalItems++ // Group header
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			totalItems += len(group.Repos)
+		}
+	}
+	
 	// If selected item is above viewport, scroll up
 	if m.selectedIndex < m.viewportOffset {
 		m.viewportOffset = m.selectedIndex
 	}
 	
-	// If selected item is below viewport, scroll down
-	if m.selectedIndex >= m.viewportOffset + m.viewportHeight {
-		m.viewportOffset = m.selectedIndex - m.viewportHeight + 1
+	// If selected item is below viewport, we need to calculate the effective visible area
+	// This must match the logic in renderRepositoryList exactly
+	
+	// Determine if we'll have scroll indicators using the same logic as rendering
+	needsTopIndicator := m.viewportOffset > 0
+	needsBottomIndicator := m.viewportOffset + m.viewportHeight < totalItems
+	
+	// Special case: if we're showing items but can't fit them all even without bottom indicator,
+	// we still need the bottom indicator
+	if !needsBottomIndicator && needsTopIndicator {
+		// Check if all remaining items can fit
+		remainingItems := totalItems - m.viewportOffset
+		availableSpace := m.viewportHeight - 1 // -1 for top indicator
+		if remainingItems > availableSpace {
+			needsBottomIndicator = true
+		}
 	}
 	
-	// Ensure viewport offset is within bounds
-	maxOffset := m.getMaxIndex() - m.viewportHeight + 1
-	if maxOffset < 0 {
-		maxOffset = 0
+	// Calculate effective visible area (same as in renderRepositoryList)
+	effectiveHeight := m.viewportHeight
+	if needsTopIndicator {
+		effectiveHeight--
 	}
-	if m.viewportOffset > maxOffset {
-		m.viewportOffset = maxOffset
+	if needsBottomIndicator {
+		effectiveHeight--
 	}
-	if m.viewportOffset < 0 {
-		m.viewportOffset = 0
+	
+	// Ensure we have at least 1 line for content
+	if effectiveHeight < 1 {
+		effectiveHeight = 1
 	}
+	
+	// Check if selected item is beyond the effective visible area
+	// The rendering uses "len(visibleLines) < effectiveHeight" which means
+	// it will render effectiveHeight items (0 through effectiveHeight-1)
+	// So the last visible item is at viewportOffset + effectiveHeight - 1
+	lastVisibleIndex := m.viewportOffset + effectiveHeight - 1
+	
+	if m.selectedIndex > lastVisibleIndex {
+		// Selected item is below visible area, need to scroll down
+		// Calculate how much to scroll
+		scrollAmount := m.selectedIndex - lastVisibleIndex
+		m.viewportOffset += scrollAmount
+		
+		// Ensure we don't scroll past the end
+		maxOffset := totalItems - m.viewportHeight
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if m.viewportOffset > maxOffset {
+			m.viewportOffset = maxOffset
+			
+			// Double-check: if we're at max offset and still can't see the selected item,
+			// it means our effective height calculation is wrong
+			// Force the viewport to show the last item
+			if m.selectedIndex >= m.viewportOffset + effectiveHeight {
+				// Adjust viewport to ensure selected item is visible
+				m.viewportOffset = m.selectedIndex - effectiveHeight + 1
+				if m.viewportOffset < 0 {
+					m.viewportOffset = 0
+				}
+			}
+		}
+	}
+	
 }
 
 // keyBindings returns the help key bindings
