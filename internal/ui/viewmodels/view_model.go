@@ -51,6 +51,11 @@ func (vm *ViewModel) SetInputMode(mode InputMode) {
 	vm.inputTransformer.SetMode(mode)
 }
 
+// UpdateTextInput updates the text input model
+func (vm *ViewModel) UpdateTextInput(textInput textinput.Model) {
+	vm.inputTransformer.textInput = textInput
+}
+
 // SetUngroupedRepos sets the ungrouped repositories
 func (vm *ViewModel) SetUngroupedRepos(repos []string) {
 	vm.ungroupedRepos = repos

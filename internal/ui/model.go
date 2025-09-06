@@ -709,6 +709,7 @@ func (m *Model) View() string {
 	m.viewModel.SetDimensions(m.width, m.height)
 	m.viewModel.SetDeleteTarget(m.deleteTarget)
 	m.viewModel.SetInputMode(m.inputMode)
+	m.viewModel.UpdateTextInput(m.textInput)
 	m.viewModel.SetUngroupedRepos(m.getUngroupedRepos())
 	
 	// Build view state and render
