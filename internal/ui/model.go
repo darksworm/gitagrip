@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -105,6 +106,9 @@ type EventMsg struct {
 	Event eventbus.DomainEvent
 }
 
+// tickMsg is sent on a timer for animations
+type tickMsg time.Time
+
 // InputMode represents different input modes
 type InputMode int
 
@@ -182,7 +186,9 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 func (m *Model) Init() tea.Cmd {
 	// Initialize viewport with reasonable defaults
 	m.viewportHeight = 20 // Will be updated on first WindowSizeMsg
-	return nil
+	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 // Update handles messages
@@ -439,6 +445,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 	case EventMsg:
 		return m.handleEvent(msg.Event)
+		
+	case tickMsg:
+		// Only return a new tick if we're scanning
+		if m.scanning {
+			return m, tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			})
+		}
+		return m, nil
 	}
 	
 	return m, nil
@@ -517,6 +532,10 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 	case eventbus.ScanStartedEvent:
 		m.scanning = true
 		m.statusMessage = "Scanning for repositories..."
+		// Return a tick command to start the spinner animation
+		return m, tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
+			return tickMsg(t)
+		})
 		
 	case eventbus.ScanCompletedEvent:
 		m.scanning = false
@@ -544,7 +563,14 @@ func (m *Model) View() string {
 	content.WriteString("\n\n")
 	
 	// Repository list
-	if len(m.repositories) == 0 && !m.scanning {
+	if m.scanning && len(m.repositories) == 0 {
+		// Show scanning animation
+		scanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
+		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		frame := (time.Now().UnixMilli() / 80) % int64(len(spinner))
+		content.WriteString(scanStyle.Render(fmt.Sprintf("%s Scanning for repositories...", spinner[frame])))
+		content.WriteString("\n")
+	} else if len(m.repositories) == 0 && !m.scanning {
 		dimStyle := lipgloss.NewStyle().Faint(true)
 		content.WriteString(dimStyle.Render("No repositories found. Press F for full scan."))
 	} else {
@@ -575,8 +601,16 @@ func (m *Model) View() string {
 		statusParts = append(statusParts, fmt.Sprintf("Fetching %d", fetchingCount))
 	}
 	
+	// Scanning indicator
+	if m.scanning {
+		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		frame := (time.Now().UnixMilli() / 80) % int64(len(spinner))
+		scanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
+		statusParts = append(statusParts, scanStyle.Render(fmt.Sprintf("%s Scanning...", spinner[frame])))
+	}
+	
 	// Status message (if any)
-	if m.statusMessage != "" && refreshingCount == 0 && fetchingCount == 0 {
+	if m.statusMessage != "" && refreshingCount == 0 && fetchingCount == 0 && !m.scanning {
 		statusParts = append(statusParts, m.statusMessage)
 	}
 	
