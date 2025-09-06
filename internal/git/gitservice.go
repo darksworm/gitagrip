@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,6 +114,42 @@ func NewGitService(bus eventbus.EventBus) GitService {
 		}
 	})
 	
+	// Subscribe to pull requests
+	bus.Subscribe(eventbus.EventPullRequested, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.PullRequestedEvent); ok {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second) // Longer timeout for network ops
+				defer cancel()
+				
+				var repos []string
+				if len(event.RepoPaths) == 0 {
+					// Pull all known repos
+					gs.mu.Lock()
+					for path := range gs.knownRepos {
+						repos = append(repos, path)
+					}
+					gs.mu.Unlock()
+				} else {
+					repos = event.RepoPaths
+				}
+				
+				// Pull each repository
+				for _, repoPath := range repos {
+					if err := gs.pullRepo(ctx, repoPath); err != nil {
+						log.Printf("Failed to pull %s: %v", repoPath, err)
+						// Publish error event
+						gs.bus.Publish(eventbus.ErrorEvent{
+							Message: fmt.Sprintf("Pull failed for %s", filepath.Base(repoPath)),
+							Err:     err,
+						})
+					}
+					// Refresh status after pull
+					gs.RefreshRepo(ctx, repoPath)
+				}
+			}()
+		}
+	})
+	
 	return gs
 }
 
@@ -152,6 +189,13 @@ func (gs *gitService) RefreshRepo(ctx context.Context, repoPath string) (domain.
 	}
 	status.AheadCount = ahead
 	status.BehindCount = behind
+	
+	// Get stash count
+	stashCount, err := gs.getStashCount(ctx, repoPath)
+	if err != nil {
+		log.Printf("Failed to get stash count for %s: %v", repoPath, err)
+	}
+	status.StashCount = stashCount
 	
 	// Publish status update
 	gs.publishStatus(repoPath, status)
@@ -341,6 +385,54 @@ func (gs *gitService) fetchRepo(ctx context.Context, repoPath string) error {
 	
 	log.Printf("Fetched %s successfully", repoPath)
 	return nil
+}
+
+// pullRepo performs a git pull operation on the repository
+func (gs *gitService) pullRepo(ctx context.Context, repoPath string) error {
+	// Acquire worker slot
+	select {
+	case gs.workerPool <- struct{}{}:
+		defer func() { <-gs.workerPool }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// Run git pull
+	cmd := exec.CommandContext(ctx, "git", "pull", "--rebase")
+	cmd.Dir = repoPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git pull failed: %v\nOutput: %s", err, output)
+	}
+
+	log.Printf("Pulled %s successfully", repoPath)
+	return nil
+}
+
+// getStashCount gets the number of stashed changes
+func (gs *gitService) getStashCount(ctx context.Context, repoPath string) (int, error) {
+	// Use git stash list to count stashes
+	cmd := exec.CommandContext(ctx, "git", "stash", "list")
+	cmd.Dir = repoPath
+	
+	output, err := cmd.Output()
+	if err != nil {
+		// If git stash list fails, it might be because there's no stash
+		// or the repository doesn't support stashes, so return 0
+		return 0, nil
+	}
+	
+	// Count non-empty lines
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	count := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	
+	return count, nil
 }
 
 // publishStatus publishes a status update event

@@ -41,12 +41,20 @@ var (
 		key.WithHelp("r", "refresh"),
 	)
 	keyFullScan = key.NewBinding(
-		key.WithKeys("F"),
-		key.WithHelp("F", "full scan"),
+		key.WithKeys("S"),
+		key.WithHelp("S", "full scan"),
 	)
 	keyFetch = key.NewBinding(
+		key.WithKeys("F"),
+		key.WithHelp("F", "fetch"),
+	)
+	keyFilter = key.NewBinding(
 		key.WithKeys("f"),
-		key.WithHelp("f", "fetch"),
+		key.WithHelp("f", "filter"),
+	)
+	keyPull = key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "pull"),
 	)
 	keyLog = key.NewBinding(
 		key.WithKeys("l"),
@@ -104,6 +112,14 @@ var (
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete group"),
 	)
+	keyCopy = key.NewBinding(
+		key.WithKeys("y"),
+		key.WithHelp("y", "copy path"),
+	)
+	keyInfo = key.NewBinding(
+		key.WithKeys("i"),
+		key.WithHelp("i", "repo info"),
+	)
 )
 
 // EventMsg wraps a domain event for the UI
@@ -123,6 +139,18 @@ const (
 	InputModeMoveToGroup
 	InputModeDeleteConfirm
 	InputModeSearch
+	InputModeSort
+	InputModeFilter
+)
+
+// SortMode represents different sort modes
+type SortMode int
+
+const (
+	SortByName SortMode = iota
+	SortByStatus
+	SortByBranch
+	SortByGroup
 )
 
 // Model represents the UI state
@@ -138,6 +166,7 @@ type Model struct {
 	selectedRepos map[string]bool              // selected repository paths
 	refreshingRepos map[string]bool            // repositories currently being refreshed
 	fetchingRepos map[string]bool              // repositories currently being fetched
+	pullingRepos map[string]bool               // repositories currently being pulled
 	expandedGroups map[string]bool             // which groups are expanded
 	scanning      bool                         // whether scanning is in progress
 	statusMessage string                       // status bar message
@@ -146,6 +175,8 @@ type Model struct {
 	showHelp      bool
 	showLog       bool
 	logContent    string
+	showInfo      bool
+	infoContent   string
 	help          help.Model
 	viewportOffset int                         // offset for scrolling
 	viewportHeight int                         // available height for repo list
@@ -156,6 +187,10 @@ type Model struct {
 	searchQuery    string                      // current search query
 	searchMatches  []int                       // indices of matching items
 	searchIndex    int                         // current match index
+	currentSort    SortMode                    // current sort mode
+	ungroupedRepos []string                    // cached ungrouped repos
+	filterQuery    string                      // current filter query
+	isFiltered     bool                        // whether filter is active
 }
 
 // NewModel creates a new UI model
@@ -175,10 +210,14 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		selectedRepos:  make(map[string]bool),
 		refreshingRepos: make(map[string]bool),
 		fetchingRepos:  make(map[string]bool),
+		pullingRepos:   make(map[string]bool),
 		expandedGroups: make(map[string]bool),
+		ungroupedRepos: make([]string, 0),
 		help:           help.New(),
 		textInput:      ti,
 		inputMode:      InputModeNormal,
+		selectedIndex:  0,
+		currentSort:    SortByName,
 	}
 	
 	// Initialize groups from config
@@ -229,6 +268,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		
+		// Handle info popup shortcuts
+		if m.showInfo {
+			switch msg.String() {
+			case "esc", "i", "q":
+				m.showInfo = false
+				m.infoContent = ""
+				return m, nil
+			}
+		}
+		
 		switch {
 		case key.Matches(msg, keyQuit):
 			// If autosave is enabled, emit config changed event before quitting
@@ -266,13 +315,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			
 		case key.Matches(msg, keyRefresh):
-			// Refresh selected repositories or current one
+			// Refresh selected repositories, group, or current one
 			var repoPaths []string
 			if len(m.selectedRepos) > 0 {
 				// Refresh selected repos
 				for path := range m.selectedRepos {
 					repoPaths = append(repoPaths, path)
 					m.refreshingRepos[path] = true
+				}
+			} else if groupName := m.getSelectedGroup(); groupName != "" {
+				// Refresh all repos in the selected group
+				if group, ok := m.groups[groupName]; ok {
+					for _, repoPath := range group.Repos {
+						repoPaths = append(repoPaths, repoPath)
+						m.refreshingRepos[repoPath] = true
+					}
+					m.statusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
 				}
 			} else {
 				// Refresh current repository
@@ -288,14 +346,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				})
 			}
 			
+		case key.Matches(msg, keyFilter):
+			// Enter filter mode
+			m.inputMode = InputModeFilter
+			m.textInput.Reset()
+			m.textInput.Focus()
+			m.updateViewportHeight()
+			return m, textinput.Blink
+			
 		case key.Matches(msg, keyFetch):
-			// Fetch selected repositories or current one
+			// Fetch selected repositories, group, or current one
 			var repoPaths []string
 			if len(m.selectedRepos) > 0 {
 				// Fetch selected repos
 				for path := range m.selectedRepos {
 					repoPaths = append(repoPaths, path)
 					m.fetchingRepos[path] = true
+				}
+			} else if groupName := m.getSelectedGroup(); groupName != "" {
+				// Fetch all repos in the selected group
+				if group, ok := m.groups[groupName]; ok {
+					for _, repoPath := range group.Repos {
+						repoPaths = append(repoPaths, repoPath)
+						m.fetchingRepos[repoPath] = true
+					}
+					m.statusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
 				}
 			} else {
 				// Fetch current repository
@@ -307,6 +382,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			if len(repoPaths) > 0 && m.bus != nil {
 				m.bus.Publish(eventbus.FetchRequestedEvent{
+					RepoPaths: repoPaths,
+				})
+			}
+			
+		case key.Matches(msg, keyPull):
+			// Pull selected repositories, group, or current one
+			var repoPaths []string
+			if len(m.selectedRepos) > 0 {
+				// Pull selected repos
+				for path := range m.selectedRepos {
+					repoPaths = append(repoPaths, path)
+					m.pullingRepos[path] = true
+				}
+			} else if groupName := m.getSelectedGroup(); groupName != "" {
+				// Pull all repos in the selected group
+				if group, ok := m.groups[groupName]; ok {
+					for _, repoPath := range group.Repos {
+						repoPaths = append(repoPaths, repoPath)
+						m.pullingRepos[repoPath] = true
+					}
+					m.statusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
+				}
+			} else {
+				// Pull current repository
+				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+					repoPaths = []string{repoPath}
+					m.pullingRepos[repoPath] = true
+				}
+			}
+			
+			if len(repoPaths) > 0 && m.bus != nil {
+				m.bus.Publish(eventbus.PullRequestedEvent{
 					RepoPaths: repoPaths,
 				})
 			}
@@ -455,6 +562,50 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			
+		case msg.String() == "s":
+			// Show sort options
+			m.inputMode = InputModeSort
+			m.statusMessage = "Sort by: (n)ame (s)tatus (b)ranch (g)roup"
+			return m, nil
+			
+		case key.Matches(msg, keyCopy):
+			// Copy repository path to clipboard
+			if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+				if repo, ok := m.repositories[repoPath]; ok {
+					// Use pbcopy on macOS, xclip on Linux
+					var cmd *exec.Cmd
+					cmd = exec.Command("pbcopy")
+					stdin, err := cmd.StdinPipe()
+					if err == nil {
+						go func() {
+							defer stdin.Close()
+							stdin.Write([]byte(repo.Path))
+						}()
+						if err := cmd.Start(); err == nil {
+							m.statusMessage = fmt.Sprintf("Copied: %s", repo.Path)
+						} else {
+							m.statusMessage = "Failed to copy path"
+						}
+					} else {
+						m.statusMessage = "Failed to copy path"
+					}
+				}
+			}
+			
+		case key.Matches(msg, keyInfo):
+			// Show info for selected repository
+			if !m.showInfo {
+				if repoPath := m.getRepoPathAtIndex(m.selectedIndex); repoPath != "" {
+					if repo, ok := m.repositories[repoPath]; ok {
+						m.showInfo = true
+						m.infoContent = m.buildRepoInfo(repo)
+					}
+				}
+			} else {
+				m.showInfo = false
+				m.infoContent = ""
+			}
+			
 		// Navigation keys
 		case msg.String() == "g":
 			if m.lastKeyWasG {
@@ -574,12 +725,13 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 		if repo, ok := m.repositories[e.RepoPath]; ok {
 			repo.Status = e.Status
 		}
-		// Clear refreshing and fetching states
+		// Clear refreshing, fetching, and pulling states
 		delete(m.refreshingRepos, e.RepoPath)
 		delete(m.fetchingRepos, e.RepoPath)
+		delete(m.pullingRepos, e.RepoPath)
 		
 		// If all operations completed, show a completion message
-		if len(m.refreshingRepos) == 0 && len(m.fetchingRepos) == 0 {
+		if len(m.refreshingRepos) == 0 && len(m.fetchingRepos) == 0 && len(m.pullingRepos) == 0 {
 			m.statusMessage = "All operations completed"
 		}
 		
@@ -691,6 +843,8 @@ func (m *Model) View() string {
 			content.WriteString(confirmStyle.Render(fmt.Sprintf("Delete group '%s'? (y/n): ", m.deleteTarget)))
 		} else if m.inputMode == InputModeSearch {
 			content.WriteString("Search: ")
+		} else if m.inputMode == InputModeFilter {
+			content.WriteString("Filter: ")
 		}
 		if m.inputMode != InputModeDeleteConfirm {
 			content.WriteString(m.textInput.View())
@@ -730,12 +884,16 @@ func (m *Model) View() string {
 	// Progress indicators for operations
 	refreshingCount := len(m.refreshingRepos)
 	fetchingCount := len(m.fetchingRepos)
+	pullingCount := len(m.pullingRepos)
 	
 	if refreshingCount > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("Refreshing %d", refreshingCount))
 	}
 	if fetchingCount > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("Fetching %d", fetchingCount))
+	}
+	if pullingCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("Pulling %d", pullingCount))
 	}
 	
 	// Scanning indicator
@@ -746,8 +904,15 @@ func (m *Model) View() string {
 		statusParts = append(statusParts, scanStyle.Render(fmt.Sprintf("%s Scanning...", spinner[frame])))
 	}
 	
+	// Filter indicator
+	if m.isFiltered {
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // yellow
+		filterText := fmt.Sprintf("Filter: %s", m.filterQuery)
+		statusParts = append(statusParts, filterStyle.Render(filterText))
+	}
+	
 	// Status message (if any)
-	if m.statusMessage != "" && refreshingCount == 0 && fetchingCount == 0 && !m.scanning {
+	if m.statusMessage != "" && refreshingCount == 0 && fetchingCount == 0 && pullingCount == 0 && !m.scanning {
 		statusParts = append(statusParts, m.statusMessage)
 	}
 	
@@ -774,6 +939,25 @@ func (m *Model) View() string {
 			logBox)
 		
 		return centeredLog
+	}
+	
+	// Info popup
+	if m.showInfo && m.infoContent != "" {
+		// Create a box for the info content
+		infoBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("78")).
+			Padding(1).
+			MaxHeight(m.height - 4).
+			MaxWidth(m.width - 4).
+			Render(m.infoContent)
+		
+		// Center the info box
+		centeredInfo := lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			infoBox)
+		
+		return centeredInfo
 	}
 	
 	// Help
@@ -842,6 +1026,22 @@ func (m *Model) renderRepositoryList() string {
 		group := m.groups[groupName]
 		isExpanded := m.expandedGroups[groupName]
 		
+		// Skip group if filtered and has no matching repos
+		groupHasMatches := false
+		if m.isFiltered {
+			for _, repoPath := range group.Repos {
+				if repo, ok := m.repositories[repoPath]; ok {
+					if m.matchesFilter(repo, groupName) {
+						groupHasMatches = true
+						break
+					}
+				}
+			}
+			if !groupHasMatches && !m.matchesGroupFilter(groupName) {
+				continue
+			}
+		}
+		
 		// Render group header
 		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
 			isSelected := currentIndex == m.selectedIndex
@@ -852,29 +1052,95 @@ func (m *Model) renderRepositoryList() string {
 		
 		// Render group contents if expanded
 		if isExpanded {
-			for _, repoPath := range group.Repos {
-				if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
-					if repo, ok := m.repositories[repoPath]; ok {
+			// Sort repos within the group based on current sort mode
+			sortedRepos := make([]string, len(group.Repos))
+			copy(sortedRepos, group.Repos)
+			
+			switch m.currentSort {
+			case SortByStatus:
+				sort.Slice(sortedRepos, func(i, j int) bool {
+					repoI, okI := m.repositories[sortedRepos[i]]
+					repoJ, okJ := m.repositories[sortedRepos[j]]
+					if !okI || !okJ {
+						return !okI // Put missing repos at the end
+					}
+					statusI := m.getStatusPriority(repoI)
+					statusJ := m.getStatusPriority(repoJ)
+					if statusI != statusJ {
+						return statusI > statusJ
+					}
+					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+				})
+				
+			case SortByBranch:
+				sort.Slice(sortedRepos, func(i, j int) bool {
+					repoI, okI := m.repositories[sortedRepos[i]]
+					repoJ, okJ := m.repositories[sortedRepos[j]]
+					if !okI || !okJ {
+						return !okI // Put missing repos at the end
+					}
+					branchI := strings.ToLower(repoI.Status.Branch)
+					branchJ := strings.ToLower(repoJ.Status.Branch)
+					if branchI != branchJ {
+						if branchI == "main" || branchI == "master" {
+							return true
+						}
+						if branchJ == "main" || branchJ == "master" {
+							return false
+						}
+						return branchI < branchJ
+					}
+					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+				})
+				
+			case SortByName, SortByGroup:
+				sort.Slice(sortedRepos, func(i, j int) bool {
+					repoI, okI := m.repositories[sortedRepos[i]]
+					repoJ, okJ := m.repositories[sortedRepos[j]]
+					if !okI || !okJ {
+						return !okI // Put missing repos at the end
+					}
+					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+				})
+			}
+			
+			for _, repoPath := range sortedRepos {
+				if repo, ok := m.repositories[repoPath]; ok {
+					// Skip if filtered and doesn't match
+					if m.isFiltered && !m.matchesFilter(repo, groupName) {
+						continue
+					}
+					
+					if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
 						isSelected := currentIndex == m.selectedIndex
 						line := m.renderRepository(repo, isSelected, 1)
 						visibleLines = append(visibleLines, line)
 					}
+					currentIndex++
 				}
-				currentIndex++
 			}
 		}
 	}
 	
 	// Then render ungrouped repositories
-	ungroupedRepos := m.getUngroupedRepos()
+	ungroupedRepos := m.ungroupedRepos
+	if len(ungroupedRepos) == 0 {
+		ungroupedRepos = m.getUngroupedRepos()
+	}
 	for _, repoPath := range ungroupedRepos {
-		if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
-			repo := m.repositories[repoPath]
-			isSelected := currentIndex == m.selectedIndex
-			line := m.renderRepository(repo, isSelected, 0)
-			visibleLines = append(visibleLines, line)
+		if repo, ok := m.repositories[repoPath]; ok {
+			// Skip if filtered and doesn't match
+			if m.isFiltered && !m.matchesFilter(repo, "") {
+				continue
+			}
+			
+			if currentIndex >= effectiveViewportOffset && len(visibleLines) < effectiveViewportHeight {
+				isSelected := currentIndex == m.selectedIndex
+				line := m.renderRepository(repo, isSelected, 0)
+				visibleLines = append(visibleLines, line)
+			}
+			currentIndex++
 		}
-		currentIndex++
 	}
 	
 	// Build final result with indicators
@@ -913,8 +1179,27 @@ func (m *Model) renderGroupHeader(group *domain.Group, isExpanded bool, isSelect
 		}
 	}
 	
+	// Check if this group is in search results
+	isSearchMatch := false
+	if m.searchQuery != "" && len(m.searchMatches) > 0 {
+		currentIndex := m.getCurrentIndexForGroup(group.Name)
+		for _, matchIndex := range m.searchMatches {
+			if currentIndex == matchIndex {
+				isSearchMatch = true
+				break
+			}
+		}
+	}
+	
 	// Build the content
-	content := fmt.Sprintf("%s %s (%d)", arrow, group.Name, count)
+	groupName := group.Name
+	if isSearchMatch && m.searchQuery != "" && !strings.HasPrefix(m.searchQuery, "status:") {
+		// Highlight matching text
+		highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
+		groupName = m.highlightMatch(group.Name, m.searchQuery, highlightStyle, lipgloss.NewStyle())
+	}
+	
+	content := fmt.Sprintf("%s %s (%d)", arrow, groupName, count)
 	
 	// Calculate padding for full-width highlighting
 	contentWidth := lipgloss.Width(content)
@@ -942,6 +1227,17 @@ func (m *Model) renderGroupHeader(group *domain.Group, isExpanded bool, isSelect
 
 // renderRepository renders a repository line
 func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, indent int) string {
+	// Check if this repo is in search results
+	isSearchMatch := false
+	if m.searchQuery != "" && len(m.searchMatches) > 0 {
+		currentIndex := m.getCurrentIndexForRepo(repo.Path)
+		for _, matchIndex := range m.searchMatches {
+			if currentIndex == matchIndex {
+				isSearchMatch = true
+				break
+			}
+		}
+	}
 	// Selection indicator
 	selectionIndicator := "[ ]"
 	if m.selectedRepos[repo.Path] {
@@ -949,13 +1245,16 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	}
 	
 	
-	// Check if this repo is currently refreshing or fetching
+	// Check if this repo is currently refreshing, fetching, or pulling
 	isRefreshing := m.refreshingRepos[repo.Path]
 	isFetching := m.fetchingRepos[repo.Path]
+	isPulling := m.pullingRepos[repo.Path]
 	
 	// Status indicator
 	var status string
-	if isFetching {
+	if isPulling {
+		status = "⤓" // Pulling indicator (stronger down arrow)
+	} else if isFetching {
 		status = "⇣" // Fetching indicator (down arrow)
 	} else if isRefreshing {
 		status = "⟳" // Refreshing indicator
@@ -1013,6 +1312,12 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		aheadBehind = fmt.Sprintf(" (%d↑ %d↓)", repo.Status.AheadCount, repo.Status.BehindCount)
 	}
 	
+	// Stash indicator
+	var stashIndicator string
+	if repo.Status.StashCount > 0 {
+		stashIndicator = fmt.Sprintf(" 📦%d", repo.Status.StashCount)
+	}
+	
 	// Build the line content
 	indentStr := strings.Repeat("  ", indent)
 	
@@ -1039,9 +1344,15 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		// Space
 		parts = append(parts, " ")
 		
-		// Repo name with background
+		// Repo name with background and potential search highlight
 		nameStyle := lipgloss.NewStyle().Background(bgColor)
-		parts = append(parts, nameStyle.Render(repo.Name))
+		repoName := repo.Name
+		if isSearchMatch && m.searchQuery != "" && !strings.HasPrefix(m.searchQuery, "status:") {
+			// Highlight matching text
+			highlightStyle := nameStyle.Copy().Foreground(lipgloss.Color("226")) // bright yellow
+			repoName = m.highlightMatch(repo.Name, m.searchQuery, highlightStyle, nameStyle)
+		}
+		parts = append(parts, nameStyle.Render(repoName))
 		
 		// Opening paren with background
 		parenStyle := lipgloss.NewStyle().Background(bgColor)
@@ -1059,6 +1370,12 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 		
 		// Closing paren with background
 		parts = append(parts, parenStyle.Render(")"))
+		
+		// Stash indicator with background
+		if stashIndicator != "" {
+			stashStyle := lipgloss.NewStyle().Background(bgColor)
+			parts = append(parts, stashStyle.Render(stashIndicator))
+		}
 		
 		// Join all parts
 		content := strings.Join(parts, "")
@@ -1083,13 +1400,21 @@ func (m *Model) renderRepository(repo *domain.Repository, isSelected bool, inden
 	}
 	
 	// Not selected - render normally
-	content := fmt.Sprintf("%s%s %s %s (%s%s)", 
+	repoName := repo.Name
+	if isSearchMatch && m.searchQuery != "" && !strings.HasPrefix(m.searchQuery, "status:") {
+		// Highlight matching text
+		highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
+		repoName = m.highlightMatch(repo.Name, m.searchQuery, highlightStyle, lipgloss.NewStyle())
+	}
+	
+	content := fmt.Sprintf("%s%s %s %s (%s%s)%s", 
 		indentStr,
 		selectionIndicator,
 		statusStyle.Render(status),
-		repo.Name,
+		repoName,
 		coloredBranch,
 		aheadBehind,
+		stashIndicator,
 	)
 	
 	return content
@@ -1155,16 +1480,143 @@ func (m *Model) updateOrderedLists() {
 	for path := range m.repositories {
 		m.orderedRepos = append(m.orderedRepos, path)
 	}
-	sort.Strings(m.orderedRepos)
 	
-	// Update ordered groups - use creation order (newest first)
-	m.orderedGroups = make([]string, 0, len(m.groupCreationOrder))
-	// Only include groups that still exist
-	for _, name := range m.groupCreationOrder {
-		if _, exists := m.groups[name]; exists {
+	// Sort repositories based on current sort mode
+	switch m.currentSort {
+	case SortByName:
+		sort.Slice(m.orderedRepos, func(i, j int) bool {
+			repoI, okI := m.repositories[m.orderedRepos[i]]
+			repoJ, okJ := m.repositories[m.orderedRepos[j]]
+			if !okI || !okJ {
+				return !okI
+			}
+			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+		})
+		
+	case SortByStatus:
+		sort.Slice(m.orderedRepos, func(i, j int) bool {
+			repoI, okI := m.repositories[m.orderedRepos[i]]
+			repoJ, okJ := m.repositories[m.orderedRepos[j]]
+			if !okI || !okJ {
+				return !okI
+			}
+			// Order: error, dirty, clean
+			statusI := m.getStatusPriority(repoI)
+			statusJ := m.getStatusPriority(repoJ)
+			if statusI != statusJ {
+				return statusI > statusJ // Higher priority first
+			}
+			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+		})
+		
+	case SortByBranch:
+		sort.Slice(m.orderedRepos, func(i, j int) bool {
+			repoI, okI := m.repositories[m.orderedRepos[i]]
+			repoJ, okJ := m.repositories[m.orderedRepos[j]]
+			if !okI || !okJ {
+				return !okI
+			}
+			branchI := strings.ToLower(repoI.Status.Branch)
+			branchJ := strings.ToLower(repoJ.Status.Branch)
+			if branchI != branchJ {
+				// Put main/master first
+				if branchI == "main" || branchI == "master" {
+					return true
+				}
+				if branchJ == "main" || branchJ == "master" {
+					return false
+				}
+				return branchI < branchJ
+			}
+			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+		})
+		
+	case SortByGroup:
+		// For group sort, we don't sort the repos here, but we sort groups alphabetically
+		// Repos will be displayed in their groups
+		
+	default:
+		// Default to alphabetical by path
+		sort.Strings(m.orderedRepos)
+	}
+	
+	// Update ordered groups
+	if m.currentSort == SortByGroup {
+		// Sort groups alphabetically
+		m.orderedGroups = make([]string, 0, len(m.groups))
+		for name := range m.groups {
 			m.orderedGroups = append(m.orderedGroups, name)
 		}
+		sort.Strings(m.orderedGroups)
+	} else {
+		// Use creation order (newest first)
+		m.orderedGroups = make([]string, 0, len(m.groupCreationOrder))
+		// Only include groups that still exist
+		for _, name := range m.groupCreationOrder {
+			if _, exists := m.groups[name]; exists {
+				m.orderedGroups = append(m.orderedGroups, name)
+			}
+		}
 	}
+	
+	// Update ungrouped repos cache
+	m.ungroupedRepos = m.getUngroupedRepos()
+	
+	// Sort ungrouped repos if needed
+	if m.currentSort != SortByName {
+		// Apply the same sort to ungrouped repos
+		switch m.currentSort {
+		case SortByStatus:
+			sort.Slice(m.ungroupedRepos, func(i, j int) bool {
+				repoI, okI := m.repositories[m.ungroupedRepos[i]]
+				repoJ, okJ := m.repositories[m.ungroupedRepos[j]]
+				if !okI || !okJ {
+					return !okI
+				}
+				statusI := m.getStatusPriority(repoI)
+				statusJ := m.getStatusPriority(repoJ)
+				if statusI != statusJ {
+					return statusI > statusJ
+				}
+				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+			})
+			
+		case SortByBranch:
+			sort.Slice(m.ungroupedRepos, func(i, j int) bool {
+				repoI, okI := m.repositories[m.ungroupedRepos[i]]
+				repoJ, okJ := m.repositories[m.ungroupedRepos[j]]
+				if !okI || !okJ {
+					return !okI
+				}
+				branchI := strings.ToLower(repoI.Status.Branch)
+				branchJ := strings.ToLower(repoJ.Status.Branch)
+				if branchI != branchJ {
+					if branchI == "main" || branchI == "master" {
+						return true
+					}
+					if branchJ == "main" || branchJ == "master" {
+						return false
+					}
+					return branchI < branchJ
+				}
+				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+			})
+		}
+	}
+}
+
+// getStatusPriority returns a priority value for sorting by status
+func (m *Model) getStatusPriority(repo *domain.Repository) int {
+	if repo.Status.Error != "" {
+		return 3 // Highest priority - errors
+	}
+	if repo.Status.IsDirty || repo.Status.HasUntracked {
+		return 2 // Medium priority - dirty/untracked
+	}
+	if repo.Status.AheadCount > 0 || repo.Status.BehindCount > 0 {
+		return 1 // Low priority - ahead/behind
+	}
+	return 0 // Lowest priority - clean
 }
 
 // getUngroupedRepos returns repositories not in any group
@@ -1288,6 +1740,11 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	
+	// Handle sort mode separately as it doesn't use text input
+	if m.inputMode == InputModeSort {
+		return m.handleSortMode(msg)
+	}
+	
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -1364,6 +1821,19 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusMessage = fmt.Sprintf("No matches found for '%s'", searchQuery)
 					}
 				}
+				
+			case InputModeFilter:
+				filterQuery := strings.TrimSpace(m.textInput.Value())
+				m.filterQuery = filterQuery
+				m.isFiltered = filterQuery != ""
+				m.updateOrderedLists() // Rebuild lists with filter applied
+				if m.isFiltered {
+					// Count visible items
+					visibleCount := m.countVisibleItems()
+					m.statusMessage = fmt.Sprintf("Showing %d items matching filter", visibleCount)
+				} else {
+					m.statusMessage = "Filter cleared"
+				}
 			}
 			// Return to normal mode
 			m.inputMode = InputModeNormal
@@ -1382,6 +1852,12 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchQuery = ""
 				m.searchMatches = nil
 				m.searchIndex = 0
+			}
+			// Clear filter if we were filtering
+			if m.inputMode == InputModeFilter {
+				m.filterQuery = ""
+				m.isFiltered = false
+				m.updateOrderedLists()
 			}
 			m.updateViewportHeight()
 			return m, nil
@@ -1559,7 +2035,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyTop, keyBottom},
 		{keySelect, keySelectAll},
 		{keyNewGroup, keyMoveToGroup, keyDelete},
-		{keyRefresh, keyFullScan, keyFetch, keyLog},
+		{keyRefresh, keyFilter, keyFetch, keyPull},
+		{keyFullScan, keyLog, keyCopy, keyInfo},
 		{keyHelp, keyQuit},
 	}
 }
@@ -1591,10 +2068,18 @@ func (m *Model) performSearch() {
 	query := strings.ToLower(m.searchQuery)
 	currentIndex := 0
 	
+	// Check if it's a status filter
+	isStatusFilter := false
+	statusFilter := ""
+	if strings.HasPrefix(query, "status:") {
+		isStatusFilter = true
+		statusFilter = strings.TrimPrefix(query, "status:")
+	}
+	
 	// Search in groups first
 	for _, groupName := range m.orderedGroups {
-		// Check group name
-		if strings.Contains(strings.ToLower(groupName), query) {
+		// Check group name (only for non-status searches)
+		if !isStatusFilter && strings.Contains(strings.ToLower(groupName), query) {
 			m.searchMatches = append(m.searchMatches, currentIndex)
 		}
 		currentIndex++
@@ -1604,11 +2089,18 @@ func (m *Model) performSearch() {
 			group := m.groups[groupName]
 			for _, repoPath := range group.Repos {
 				if repo, ok := m.repositories[repoPath]; ok {
-					// Search in repo name, path, or branch
-					if strings.Contains(strings.ToLower(repo.Name), query) ||
-						strings.Contains(strings.ToLower(repo.Path), query) ||
-						strings.Contains(strings.ToLower(repo.Status.Branch), query) {
-						m.searchMatches = append(m.searchMatches, currentIndex)
+					if isStatusFilter {
+						// Filter by status
+						if m.matchesStatusFilter(*repo, statusFilter) {
+							m.searchMatches = append(m.searchMatches, currentIndex)
+						}
+					} else {
+						// Regular search
+						if strings.Contains(strings.ToLower(repo.Name), query) ||
+							strings.Contains(strings.ToLower(repo.Path), query) ||
+							strings.Contains(strings.ToLower(repo.Status.Branch), query) {
+							m.searchMatches = append(m.searchMatches, currentIndex)
+						}
 					}
 				}
 				currentIndex++
@@ -1617,18 +2109,325 @@ func (m *Model) performSearch() {
 	}
 	
 	// Search in ungrouped repos
-	ungroupedRepos := m.getUngroupedRepos()
+	ungroupedRepos := m.ungroupedRepos
+	if len(ungroupedRepos) == 0 {
+		ungroupedRepos = m.getUngroupedRepos()
+	}
 	for _, repoPath := range ungroupedRepos {
 		if repo, ok := m.repositories[repoPath]; ok {
-			// Search in repo name, path, or branch
-			if strings.Contains(strings.ToLower(repo.Name), query) ||
-				strings.Contains(strings.ToLower(repo.Path), query) ||
-				strings.Contains(strings.ToLower(repo.Status.Branch), query) {
-				m.searchMatches = append(m.searchMatches, currentIndex)
+			if isStatusFilter {
+				// Filter by status
+				if m.matchesStatusFilter(*repo, statusFilter) {
+					m.searchMatches = append(m.searchMatches, currentIndex)
+				}
+			} else {
+				// Regular search
+				if strings.Contains(strings.ToLower(repo.Name), query) ||
+					strings.Contains(strings.ToLower(repo.Path), query) ||
+					strings.Contains(strings.ToLower(repo.Status.Branch), query) {
+					m.searchMatches = append(m.searchMatches, currentIndex)
+				}
 			}
 		}
 		currentIndex++
 	}
+	
+	// Jump to first match if any
+	if len(m.searchMatches) > 0 {
+		m.searchIndex = 0
+		m.selectedIndex = m.searchMatches[0]
+		m.ensureSelectedVisible()
+	}
+}
+
+// matchesStatusFilter checks if a repo matches the given status filter
+func (m *Model) matchesStatusFilter(repo domain.Repository, filter string) bool {
+	switch filter {
+	case "dirty":
+		return repo.Status.IsDirty
+	case "clean":
+		return !repo.Status.IsDirty && !repo.Status.HasUntracked
+	case "untracked":
+		return repo.Status.HasUntracked
+	case "ahead":
+		return repo.Status.AheadCount > 0
+	case "behind":
+		return repo.Status.BehindCount > 0
+	case "diverged":
+		return repo.Status.AheadCount > 0 && repo.Status.BehindCount > 0
+	case "stashed", "stash":
+		return repo.Status.StashCount > 0
+	case "error":
+		return repo.Status.Error != ""
+	default:
+		// Check if it's a branch name
+		return strings.Contains(strings.ToLower(repo.Status.Branch), filter)
+	}
+}
+
+// handleSortMode handles input when in sort mode
+func (m *Model) handleSortMode(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "n":
+			// Sort by name
+			m.currentSort = SortByName
+			m.updateOrderedLists()
+			m.statusMessage = "Sorted by name"
+			m.inputMode = InputModeNormal
+			return m, nil
+			
+		case "s":
+			// Sort by status
+			m.currentSort = SortByStatus
+			m.updateOrderedLists()
+			m.statusMessage = "Sorted by status"
+			m.inputMode = InputModeNormal
+			return m, nil
+			
+		case "b":
+			// Sort by branch
+			m.currentSort = SortByBranch
+			m.updateOrderedLists()
+			m.statusMessage = "Sorted by branch"
+			m.inputMode = InputModeNormal
+			return m, nil
+			
+		case "g":
+			// Sort by group
+			m.currentSort = SortByGroup
+			m.updateOrderedLists()
+			m.statusMessage = "Sorted by group"
+			m.inputMode = InputModeNormal
+			return m, nil
+			
+		case "esc", "q":
+			// Cancel sort
+			m.inputMode = InputModeNormal
+			m.statusMessage = ""
+			return m, nil
+		}
+	}
+	
+	return m, nil
+}
+
+// buildRepoInfo builds detailed information about a repository
+func (m *Model) buildRepoInfo(repo *domain.Repository) string {
+	var info strings.Builder
+	
+	// Repository name and path
+	info.WriteString(lipgloss.NewStyle().Bold(true).Render(repo.Name))
+	info.WriteString("\n\n")
+	
+	// Path
+	info.WriteString(fmt.Sprintf("Path: %s\n", repo.Path))
+	
+	// Group
+	groupName := "Ungrouped"
+	for _, group := range m.groups {
+		for _, path := range group.Repos {
+			if path == repo.Path {
+				groupName = group.Name
+				break
+			}
+		}
+	}
+	info.WriteString(fmt.Sprintf("Group: %s\n\n", groupName))
+	
+	// Status information
+	info.WriteString(lipgloss.NewStyle().Bold(true).Render("Status:"))
+	info.WriteString("\n")
+	info.WriteString(fmt.Sprintf("  Branch: %s\n", repo.Status.Branch))
+	
+	// Clean/Dirty status
+	if repo.Status.IsDirty {
+		info.WriteString("  State: Dirty (uncommitted changes)\n")
+	} else if repo.Status.HasUntracked {
+		info.WriteString("  State: Has untracked files\n")
+	} else {
+		info.WriteString("  State: Clean\n")
+	}
+	
+	// Ahead/Behind
+	if repo.Status.AheadCount > 0 || repo.Status.BehindCount > 0 {
+		info.WriteString(fmt.Sprintf("  Ahead: %d commits\n", repo.Status.AheadCount))
+		info.WriteString(fmt.Sprintf("  Behind: %d commits\n", repo.Status.BehindCount))
+	}
+	
+	// Stashes
+	if repo.Status.StashCount > 0 {
+		info.WriteString(fmt.Sprintf("  Stashes: %d\n", repo.Status.StashCount))
+	}
+	
+	// Error
+	if repo.Status.Error != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+		info.WriteString(fmt.Sprintf("  Error: %s\n", errorStyle.Render(repo.Status.Error)))
+	}
+	
+	info.WriteString("\n")
+	info.WriteString("Press ESC or 'i' to close")
+	
+	return info.String()
+}
+
+// matchesFilter checks if a repo matches the current filter
+func (m *Model) matchesFilter(repo *domain.Repository, groupName string) bool {
+	if !m.isFiltered || m.filterQuery == "" {
+		return true
+	}
+	
+	query := strings.ToLower(m.filterQuery)
+	
+	// Check if it's a status filter
+	if strings.HasPrefix(query, "status:") {
+		statusFilter := strings.TrimPrefix(query, "status:")
+		return m.matchesStatusFilter(*repo, statusFilter)
+	}
+	
+	// Regular filter - check name, path, branch, group
+	return strings.Contains(strings.ToLower(repo.Name), query) ||
+		strings.Contains(strings.ToLower(repo.Path), query) ||
+		strings.Contains(strings.ToLower(repo.Status.Branch), query) ||
+		(groupName != "" && strings.Contains(strings.ToLower(groupName), query))
+}
+
+// matchesGroupFilter checks if a group name matches the filter
+func (m *Model) matchesGroupFilter(groupName string) bool {
+	if !m.isFiltered || m.filterQuery == "" {
+		return true
+	}
+	
+	// Status filters don't match group names
+	if strings.HasPrefix(m.filterQuery, "status:") {
+		return false
+	}
+	
+	query := strings.ToLower(m.filterQuery)
+	return strings.Contains(strings.ToLower(groupName), query)
+}
+
+// countVisibleItems counts how many items are visible with current filter
+func (m *Model) countVisibleItems() int {
+	count := 0
+	
+	// Count groups and their repos
+	for _, groupName := range m.orderedGroups {
+		group := m.groups[groupName]
+		
+		// Check if group or any of its repos match
+		groupHasMatches := false
+		repoCount := 0
+		
+		for _, repoPath := range group.Repos {
+			if repo, ok := m.repositories[repoPath]; ok {
+				if m.matchesFilter(repo, groupName) {
+					groupHasMatches = true
+					repoCount++
+				}
+			}
+		}
+		
+		if groupHasMatches || m.matchesGroupFilter(groupName) {
+			count++ // Count the group header
+			if m.expandedGroups[groupName] {
+				count += repoCount
+			}
+		}
+	}
+	
+	// Count ungrouped repos
+	ungroupedRepos := m.ungroupedRepos
+	if len(ungroupedRepos) == 0 {
+		ungroupedRepos = m.getUngroupedRepos()
+	}
+	for _, repoPath := range ungroupedRepos {
+		if repo, ok := m.repositories[repoPath]; ok {
+			if m.matchesFilter(repo, "") {
+				count++
+			}
+		}
+	}
+	
+	return count
+}
+
+// getCurrentIndexForGroup finds the current display index for a group
+func (m *Model) getCurrentIndexForGroup(groupName string) int {
+	currentIndex := 0
+	
+	for _, name := range m.orderedGroups {
+		if name == groupName {
+			return currentIndex
+		}
+		currentIndex++
+		
+		if m.expandedGroups[name] {
+			group := m.groups[name]
+			currentIndex += len(group.Repos)
+		}
+	}
+	
+	return -1
+}
+
+// getCurrentIndexForRepo finds the current display index for a repo
+func (m *Model) getCurrentIndexForRepo(repoPath string) int {
+	currentIndex := 0
+	
+	// Check groups first
+	for _, groupName := range m.orderedGroups {
+		currentIndex++ // Group header
+		
+		if m.expandedGroups[groupName] {
+			group := m.groups[groupName]
+			for _, path := range group.Repos {
+				if path == repoPath {
+					return currentIndex
+				}
+				currentIndex++
+			}
+		}
+	}
+	
+	// Check ungrouped repos
+	ungroupedRepos := m.ungroupedRepos
+	if len(ungroupedRepos) == 0 {
+		ungroupedRepos = m.getUngroupedRepos()
+	}
+	for _, path := range ungroupedRepos {
+		if path == repoPath {
+			return currentIndex
+		}
+		currentIndex++
+	}
+	
+	return -1
+}
+
+// highlightMatch highlights matching text within a string
+func (m *Model) highlightMatch(text, query string, highlightStyle, normalStyle lipgloss.Style) string {
+	lowerText := strings.ToLower(text)
+	lowerQuery := strings.ToLower(query)
+	
+	index := strings.Index(lowerText, lowerQuery)
+	if index == -1 {
+		return text
+	}
+	
+	// Build the highlighted string
+	var result string
+	if index > 0 {
+		result += text[:index]
+	}
+	result += highlightStyle.Render(text[index:index+len(query)])
+	if index+len(query) < len(text) {
+		result += text[index+len(query):]
+	}
+	
+	return result
 }
 
 // fetchGitLog returns a command that fetches git log for a repository

@@ -17,6 +17,7 @@ type RepoStatus struct {
 	UnpushedCommits int // commits ahead of remote
 	IsDirty         bool
 	HasUntracked    bool
+	StashCount      int    // number of stashed changes
 	Error           string // error message if status check failed
 }
 

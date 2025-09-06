@@ -161,6 +161,13 @@ func main() {
 			log.Println("Event channel full, dropping event")
 		}
 	})
+	bus.Subscribe(eventbus.EventPullRequested, func(e eventbus.DomainEvent) {
+		select {
+		case eventChan <- e:
+		default:
+			log.Println("Event channel full, dropping event")
+		}
+	})
 
 	// Start forwarding events to UI in background
 	go func() {

@@ -16,6 +16,7 @@ const (
 	EventScanRequested  EventType = "ScanRequested"
 	EventStatusRefreshRequested EventType = "StatusRefreshRequested"
 	EventFetchRequested EventType = "FetchRequested"
+	EventPullRequested  EventType = "PullRequested"
 	EventConfigLoaded   EventType = "ConfigLoaded"
 	EventConfigSaved    EventType = "ConfigSaved"
 	EventConfigChanged  EventType = "ConfigChanged"
@@ -126,3 +127,10 @@ type FetchRequestedEvent struct {
 }
 
 func (e FetchRequestedEvent) Type() EventType { return EventFetchRequested }
+
+// PullRequestedEvent is emitted to request git pull for specific repositories
+type PullRequestedEvent struct {
+	RepoPaths []string // Empty means pull all
+}
+
+func (e PullRequestedEvent) Type() EventType { return EventPullRequested }
