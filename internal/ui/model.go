@@ -45,12 +45,12 @@ var (
 		key.WithHelp("S", "full scan"),
 	)
 	keyFetch = key.NewBinding(
-		key.WithKeys("F"),
-		key.WithHelp("F", "fetch"),
+		key.WithKeys("f"),
+		key.WithHelp("f", "fetch"),
 	)
 	keyFilter = key.NewBinding(
-		key.WithKeys("f"),
-		key.WithHelp("f", "filter"),
+		key.WithKeys("F"),
+		key.WithHelp("F", "filter"),
 	)
 	keyPull = key.NewBinding(
 		key.WithKeys("p"),
@@ -2095,7 +2095,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{keyTop, keyBottom},
 		{keySelect, keySelectAll},
 		{keyNewGroup, keyMoveToGroup, keyDelete},
-		{keyRefresh, keyFilter, keyFetch, keyPull},
+		{keyRefresh, keyFetch, keyFilter, keyPull},
 		{keyFullScan, keyLog, keyCopy, keyInfo},
 		{keyHelp, keyQuit},
 	}
