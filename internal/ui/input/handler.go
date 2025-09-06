@@ -10,7 +10,7 @@ import (
 type Handler struct {
 	currentMode types.Mode
 	modes       map[types.Mode]types.ModeHandler
-	textInput   textinput.Model // Shared text input for text modes
+	textInput   *textinput.Model // Shared text input for text modes
 }
 
 func New() *Handler {
@@ -18,18 +18,18 @@ func New() *Handler {
 	
 	h := &Handler{
 		currentMode: types.ModeNormal,
-		textInput:   ti,
+		textInput:   &ti,
 		modes:       make(map[types.Mode]types.ModeHandler),
 	}
 	
 	// Register all mode handlers
 	h.modes[types.ModeNormal] = modes.NewNormalMode()
-	h.modes[types.ModeSearch] = modes.NewSearchMode(&ti)
-	h.modes[types.ModeFilter] = modes.NewFilterMode(&ti)
-	h.modes[types.ModeNewGroup] = modes.NewNewGroupMode(&ti)
-	h.modes[types.ModeMoveToGroup] = modes.NewMoveToGroupMode(&ti)
+	h.modes[types.ModeSearch] = modes.NewSearchMode(h.textInput)
+	h.modes[types.ModeFilter] = modes.NewFilterMode(h.textInput)
+	h.modes[types.ModeNewGroup] = modes.NewNewGroupMode(h.textInput)
+	h.modes[types.ModeMoveToGroup] = modes.NewMoveToGroupMode(h.textInput)
 	h.modes[types.ModeDeleteConfirm] = modes.NewConfirmMode()
-	h.modes[types.ModeSort] = modes.NewSortMode(&ti)
+	h.modes[types.ModeSort] = modes.NewSortMode(h.textInput)
 	
 	return h
 }
@@ -85,7 +85,7 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 	// If we're in a text mode and didn't handle the key, pass it to text input
 	if h.isTextMode(h.currentMode) && (!consumed || len(actions) == 0) {
 		var textCmd tea.Cmd
-		h.textInput, textCmd = h.textInput.Update(msg)
+		*h.textInput, textCmd = h.textInput.Update(msg)
 		cmd = textCmd
 		// Always append an update action when in text mode to keep view in sync
 		allActions = append(allActions, types.UpdateTextAction{Text: h.textInput.Value()})
@@ -100,7 +100,7 @@ func (h *Handler) CurrentMode() types.Mode {
 
 func (h *Handler) TextInput() *textinput.Model {
 	if h.isTextMode(h.currentMode) {
-		return &h.textInput
+		return h.textInput
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func (h *Handler) Reset() {
 func (h *Handler) Update(msg tea.Msg) tea.Cmd {
 	if h.isTextMode(h.currentMode) {
 		var cmd tea.Cmd
-		h.textInput, cmd = h.textInput.Update(msg)
+		*h.textInput, cmd = h.textInput.Update(msg)
 		return cmd
 	}
 	return nil
