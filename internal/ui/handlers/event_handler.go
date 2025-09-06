@@ -72,6 +72,7 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 
 	case eventbus.RepoMovedEvent:
 		h.state.MoveRepoToGroup(e.RepoPath, e.FromGroup, e.ToGroup)
+		h.updateOrderedLists()
 
 	case eventbus.ScanStartedEvent:
 		h.state.Scanning = true

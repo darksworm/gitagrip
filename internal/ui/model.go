@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"sort"
 	"strings"
@@ -836,6 +837,7 @@ func (m *Model) fetchGitLog(repoPath string) tea.Cmd {
 
 // processAction processes an action from the input handler
 func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
+	log.Printf("processAction: %T", action)
 	switch a := action.(type) {
 	case inputtypes.NavigateAction:
 		switch a.Direction {
@@ -997,6 +999,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		}
 		
 	case inputtypes.CreateGroupAction:
+		log.Printf("processAction: CreateGroupAction received with name: %s", a.Name)
 		// Create the new group
 		if m.bus != nil {
 			m.bus.Publish(eventbus.GroupAddedEvent{
@@ -1139,7 +1142,6 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			
 		case inputtypes.ModeSort:
 			m.handleSortInput(a.Text)
-			
 		case inputtypes.ModeNewGroup:
 			groupName := strings.TrimSpace(a.Text)
 			if groupName != "" {
@@ -1211,6 +1213,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 
 // handleNonKeyboardMsg handles non-keyboard messages
 func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	log.Printf("handleNonKeyboardMsg: %T", msg)
 	switch msg := msg.(type) {
 	case EventMsg:
 		// Process domain events
