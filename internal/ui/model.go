@@ -16,6 +16,7 @@ import (
 	"gitagrip/internal/config"
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/handlers"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/state"
 	"gitagrip/internal/ui/views"
@@ -158,6 +159,7 @@ type Model struct {
 	searchFilter  *logic.SearchFilter         // search and filter handler
 	navigator     *logic.Navigator            // navigation and viewport handler
 	renderer      *views.Renderer             // view renderer
+	eventHandler  *handlers.EventHandler      // event processing handler
 }
 
 // NewModel creates a new UI model
@@ -181,10 +183,12 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		renderer:     views.NewRenderer(cfg.UISettings.ShowAheadBehind),
 	}
 	
+	// Create event handler with reference to updateOrderedLists method
+	m.eventHandler = handlers.NewEventHandler(appState, m.updateOrderedLists)
+	
 	// Initialize groups from config
 	for name, repoPaths := range cfg.Groups {
 		m.state.AddGroup(name, repoPaths)
-		m.state.GroupCreationOrder = append(m.state.GroupCreationOrder, name)
 	}
 	m.updateOrderedLists()
 	
@@ -674,6 +678,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 		
+	case handlers.TickMsg:
+		// Handle TickMsg from event handler (same as tickMsg)
+		if m.state.Scanning {
+			return m, tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			})
+		}
+		return m, nil
+		
 	case gitLogMsg:
 		if msg.err != nil {
 			m.state.StatusMessage = fmt.Sprintf("Failed to get log: %v", msg.err)
@@ -689,61 +702,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleEvent processes domain events
 func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
-	switch e := event.(type) {
-	case eventbus.RepoDiscoveredEvent:
-		// Add or update repository
-		m.state.AddRepository(&e.Repo)
-		m.updateOrderedLists()
-		// Update searchFilter with new repositories
-		m.searchFilter = logic.NewSearchFilter(m.state.Repositories)
-		
-	case eventbus.StatusUpdatedEvent:
-		// Update repository status
-		if repo, ok := m.state.Repositories[e.RepoPath]; ok {
-			repo.Status = e.Status
-		}
-		// Clear operation states
-		m.state.ClearOperationState(e.RepoPath)
-		
-		// If all operations completed, show a completion message
-		if len(m.state.RefreshingRepos) == 0 && len(m.state.FetchingRepos) == 0 && len(m.state.PullingRepos) == 0 {
-			m.state.StatusMessage = "All operations completed"
-		}
-		
-	case eventbus.ErrorEvent:
-		m.state.StatusMessage = fmt.Sprintf("Error: %s", e.Message)
-		// If this is a refresh error for a specific repo, we might need to clear its refreshing state
-		// This would require extending the ErrorEvent to include optional repo path
-		
-	case eventbus.GroupAddedEvent:
-		if _, exists := m.state.Groups[e.Name]; !exists {
-			m.state.AddGroup(e.Name, []string{})
-			m.updateOrderedLists()
-		}
-		
-	case eventbus.GroupRemovedEvent:
-		if _, exists := m.state.Groups[e.Name]; exists {
-			m.state.RemoveGroup(e.Name)
-			m.updateOrderedLists()
-		}
-		
-	case eventbus.RepoMovedEvent:
-		m.state.MoveRepoToGroup(e.RepoPath, e.FromGroup, e.ToGroup)
-		
-	case eventbus.ScanStartedEvent:
-		m.state.Scanning = true
-		m.state.StatusMessage = "Scanning for repositories..."
-		// Return a tick command to start the spinner animation
-		return m, tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
-			return tickMsg(t)
-		})
-		
-	case eventbus.ScanCompletedEvent:
-		m.state.Scanning = false
-		m.state.StatusMessage = fmt.Sprintf("Scan complete. Found %d repositories.", e.ReposFound)
-	}
-	
-	return m, nil
+	cmd := m.eventHandler.HandleEvent(event)
+	// Update searchFilter reference
+	m.searchFilter = m.eventHandler.GetSearchFilter()
+	return m, cmd
 }
 
 // View renders the UI
