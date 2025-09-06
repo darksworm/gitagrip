@@ -122,6 +122,7 @@ type Model struct {
 	groups       map[string]*domain.Group      // name -> group
 	orderedRepos []string                      // ordered repo paths for display
 	orderedGroups []string                     // ordered group names
+	groupCreationOrder []string                // tracks order of group creation
 	selectedIndex int                          // currently selected item
 	selectedRepos map[string]bool              // selected repository paths
 	refreshingRepos map[string]bool            // repositories currently being refreshed
@@ -153,6 +154,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 		groups:         make(map[string]*domain.Group),
 		orderedRepos:   make([]string, 0),
 		orderedGroups:  make([]string, 0),
+		groupCreationOrder: make([]string, 0),
 		selectedRepos:  make(map[string]bool),
 		refreshingRepos: make(map[string]bool),
 		fetchingRepos:  make(map[string]bool),
@@ -169,6 +171,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 			Repos: repoPaths,
 		}
 		m.expandedGroups[name] = true // Start with groups expanded
+		m.groupCreationOrder = append(m.groupCreationOrder, name)
 	}
 	m.updateOrderedLists()
 	
@@ -474,7 +477,9 @@ func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
 				Name:  e.Name,
 				Repos: []string{},
 			}
-			m.expandedGroups[e.Name] = true
+			m.expandedGroups[e.Name] = true // Start expanded so user can see the contents
+			// Add to beginning of creation order so new groups appear first
+			m.groupCreationOrder = append([]string{e.Name}, m.groupCreationOrder...)
 			m.updateOrderedLists()
 		}
 		
@@ -964,12 +969,14 @@ func (m *Model) updateOrderedLists() {
 	}
 	sort.Strings(m.orderedRepos)
 	
-	// Update ordered groups - reverse order so newer groups tend to appear first
-	m.orderedGroups = make([]string, 0, len(m.groups))
-	for name := range m.groups {
-		m.orderedGroups = append(m.orderedGroups, name)
+	// Update ordered groups - use creation order (newest first)
+	m.orderedGroups = make([]string, 0, len(m.groupCreationOrder))
+	// Only include groups that still exist
+	for _, name := range m.groupCreationOrder {
+		if _, exists := m.groups[name]; exists {
+			m.orderedGroups = append(m.orderedGroups, name)
+		}
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(m.orderedGroups)))
 }
 
 // getUngroupedRepos returns repositories not in any group
