@@ -964,12 +964,12 @@ func (m *Model) updateOrderedLists() {
 	}
 	sort.Strings(m.orderedRepos)
 	
-	// Update ordered groups
+	// Update ordered groups - reverse order so newer groups tend to appear first
 	m.orderedGroups = make([]string, 0, len(m.groups))
 	for name := range m.groups {
 		m.orderedGroups = append(m.orderedGroups, name)
 	}
-	sort.Strings(m.orderedGroups)
+	sort.Sort(sort.Reverse(sort.StringSlice(m.orderedGroups)))
 }
 
 // getUngroupedRepos returns repositories not in any group
@@ -1111,7 +1111,45 @@ func (m *Model) handleInputMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 							Name: groupName,
 						})
 					}
-					m.statusMessage = fmt.Sprintf("Created group '%s'", groupName)
+					
+					// Move selected repos to the new group
+					movedCount := 0
+					for repoPath := range m.selectedRepos {
+						// Find current group (if any)
+						var fromGroup string
+						for _, group := range m.groups {
+							for _, path := range group.Repos {
+								if path == repoPath {
+									fromGroup = group.Name
+									break
+								}
+							}
+						}
+						
+						// Publish move event
+						m.bus.Publish(eventbus.RepoMovedEvent{
+							RepoPath:  repoPath,
+							FromGroup: fromGroup,
+							ToGroup:   groupName,
+						})
+						movedCount++
+					}
+					
+					// Clear selection
+					m.selectedRepos = make(map[string]bool)
+					
+					// Set cursor to the new group
+					// Groups come after ungrouped repos, and new group will be first in the groups list
+					ungroupedCount := len(m.getUngroupedRepos())
+					m.selectedIndex = ungroupedCount // This will be the position of the first group
+					m.viewportOffset = 0
+					m.ensureSelectedVisible()
+					
+					if movedCount > 0 {
+						m.statusMessage = fmt.Sprintf("Created group '%s' with %d repositories", groupName, movedCount)
+					} else {
+						m.statusMessage = fmt.Sprintf("Created empty group '%s'", groupName)
+					}
 				}
 			}
 			// Return to normal mode
