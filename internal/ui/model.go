@@ -224,10 +224,6 @@ func (m *Model) syncNavigatorState() {
 func (m *Model) Init() tea.Cmd {
 	// Initialize viewport with reasonable defaults
 	m.state.ViewportHeight = 20 // Will be updated on first WindowSizeMsg
-	
-	// Always show loading state on startup
-	m.state.LoadingState = "Loading repositories..."
-	
 	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})

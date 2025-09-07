@@ -22,6 +22,7 @@ const (
 	EventConfigLoaded   EventType = "ConfigLoaded"
 	EventConfigSaved    EventType = "ConfigSaved"
 	EventConfigChanged  EventType = "ConfigChanged"
+	EventAppReady       EventType = "AppReady"
 )
 
 // DomainEvent is the interface for all domain events
@@ -154,3 +155,10 @@ type PullCompletedEvent struct {
 }
 
 func (e PullCompletedEvent) Type() EventType { return EventPullCompleted }
+
+// AppReadyEvent is emitted when the app is fully initialized and ready
+type AppReadyEvent struct {
+	HasExistingConfig bool
+}
+
+func (e AppReadyEvent) Type() EventType { return EventAppReady }

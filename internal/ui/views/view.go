@@ -67,14 +67,6 @@ func NewRenderer(showAheadBehind bool) *Renderer {
 
 // Render produces the complete view
 func (r *Renderer) Render(state ViewState) string {
-	// If loading, show only the loading screen
-	if state.LoadingState != "" {
-		loadingStyle := lipgloss.NewStyle().
-			Width(state.Width).
-			Height(state.Height)
-		return loadingStyle.Render(r.renderLoadingScreen(state))
-	}
-
 	content := &strings.Builder{}
 
 	// Title

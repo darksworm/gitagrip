@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/state"
@@ -35,37 +34,19 @@ func NewEventHandler(appState *state.AppState, updateOrderedLists func()) *Event
 func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	switch e := event.(type) {
 	case eventbus.RepoDiscoveredEvent:
-		// During scanning, add to pending repos to avoid UI jitter
-		if h.state.Scanning || h.state.LoadingState != "" {
-			h.state.PendingRepos[e.Repo.Path] = &e.Repo
-			h.state.LoadingCount = len(h.state.PendingRepos)
-		} else {
-			// Normal operation - add directly
-			h.state.AddRepository(&e.Repo)
-			h.updateOrderedLists()
-			// Update searchFilter with new repositories
-			h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
-		}
+		// Add or update repository
+		h.state.AddRepository(&e.Repo)
+		h.updateOrderedLists()
+		// Update searchFilter with new repositories
+		h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
 
 	case eventbus.StatusUpdatedEvent:
-		// During loading, update pending repos
-		if h.state.LoadingState != "" {
-			if repo, ok := h.state.PendingRepos[e.RepoPath]; ok {
-				repo.Status = e.Status
-			}
-		} else {
-			// Normal operation - update repository status
-			if repo, ok := h.state.Repositories[e.RepoPath]; ok {
-				repo.Status = e.Status
-			}
+		// Update repository status
+		if repo, ok := h.state.Repositories[e.RepoPath]; ok {
+			repo.Status = e.Status
 		}
 		// Clear operation states
 		h.state.ClearOperationState(e.RepoPath)
-
-		// If all operations completed, show a completion message
-		if len(h.state.RefreshingRepos) == 0 && len(h.state.FetchingRepos) == 0 && len(h.state.PullingRepos) == 0 {
-			h.state.StatusMessage = "All operations completed"
-		}
 
 	case eventbus.ErrorEvent:
 		h.state.StatusMessage = fmt.Sprintf("Error: %s", e.Message)
@@ -91,8 +72,6 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.ScanStartedEvent:
 		h.state.Scanning = true
 		h.state.StatusMessage = "Scanning for repositories..."
-		h.state.LoadingState = "Scanning for repositories..."
-		h.state.LoadingCount = 0
 		// Return a tick command to start the spinner animation
 		return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
 			// Return tick event to trigger animation update
@@ -101,22 +80,7 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 
 	case eventbus.ScanCompletedEvent:
 		h.state.Scanning = false
-		
-		// Apply all pending repositories at once
-		for _, repo := range h.state.PendingRepos {
-			h.state.AddRepository(repo)
-		}
-		// Clear pending repos
-		h.state.PendingRepos = make(map[string]*domain.Repository)
-		
-		// Update ordered lists and search filter once
-		h.updateOrderedLists()
-		h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
-		
 		h.state.StatusMessage = fmt.Sprintf("Scan complete. Found %d repositories.", e.ReposFound)
-		// Always clear loading state when scan completes
-		h.state.LoadingState = ""
-		h.state.LoadingCount = 0
 
 	case eventbus.FetchCompletedEvent:
 		// Clear fetching state for this repo
@@ -128,11 +92,6 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 		} else {
 			h.state.StatusMessage = fmt.Sprintf("Fetch failed for %s: %v", e.RepoPath, e.Error)
 		}
-		
-		// Check if all fetch operations completed
-		if len(h.state.FetchingRepos) == 0 {
-			h.state.StatusMessage = "All fetch operations completed"
-		}
 
 	case eventbus.PullCompletedEvent:
 		// Clear pulling state for this repo
@@ -143,11 +102,6 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 			h.state.StatusMessage = fmt.Sprintf("Pull completed for %s", e.RepoPath)
 		} else {
 			h.state.StatusMessage = fmt.Sprintf("Pull failed for %s: %v", e.RepoPath, e.Error)
-		}
-		
-		// Check if all pull operations completed
-		if len(h.state.PullingRepos) == 0 {
-			h.state.StatusMessage = "All pull operations completed"
 		}
 	}
 
