@@ -1,9 +1,9 @@
 package modes
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/textinput"
 	"gitagrip/internal/ui/input/types"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type RenameGroupMode struct {
@@ -48,21 +48,21 @@ func (m *RenameGroupMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return []types.Action{types.QuitAction{Force: true}}, true
-		
+
 	case tea.KeyEsc:
 		// Cancel and return to normal mode
 		return []types.Action{
 			types.CancelTextAction{},
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	case tea.KeyEnter:
 		// Submit the rename
 		newName := ""
 		if m.textInput != nil {
 			newName = m.textInput.Value()
 		}
-		
+
 		// Only rename if the name changed and is not empty
 		if newName != "" && newName != m.oldName {
 			return []types.Action{
@@ -70,13 +70,13 @@ func (m *RenameGroupMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.
 				types.ChangeModeAction{Mode: types.ModeNormal},
 			}, true
 		}
-		
+
 		// Just cancel if no change
 		return []types.Action{
 			types.CancelTextAction{},
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	default:
 		// Let the main handler update the text input
 		return nil, false

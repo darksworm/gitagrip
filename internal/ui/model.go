@@ -197,7 +197,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	for name, repoPaths := range cfg.Groups {
 		m.state.AddGroup(name, repoPaths)
 	}
-	
+
 	// If we have a saved group order, use it
 	if len(cfg.GroupOrder) > 0 {
 		// Reset GroupCreationOrder to match the saved order
@@ -221,7 +221,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 			}
 		}
 	}
-	
+
 	// Ensure hidden group is collapsed if it exists
 	if _, exists := m.state.Groups[HiddenGroupName]; exists {
 		m.state.ExpandedGroups[HiddenGroupName] = false
@@ -268,7 +268,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportHeight()
 
 	case tea.KeyMsg:
-		// Handle log/info popups first
+		// Handle log/info/help popups first
 		if m.state.ShowLog {
 			switch msg.String() {
 			case "esc", "l", "q":
@@ -283,6 +283,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc", "i", "q":
 				m.state.ShowInfo = false
 				m.state.InfoContent = ""
+				return m, nil
+			}
+		}
+
+		if m.state.ShowHelp {
+			switch msg.String() {
+			case "esc", "?", "q":
+				m.state.ShowHelp = false
+				m.state.HelpScrollOffset = 0
+				return m, nil
+			case "up", "k":
+				if m.state.HelpScrollOffset > 0 {
+					m.state.HelpScrollOffset--
+				}
+				return m, nil
+			case "down", "j":
+				m.state.HelpScrollOffset++
+				return m, nil
+			case "pgup":
+				m.state.HelpScrollOffset -= 10
+				if m.state.HelpScrollOffset < 0 {
+					m.state.HelpScrollOffset = 0
+				}
+				return m, nil
+			case "pgdown":
+				m.state.HelpScrollOffset += 10
 				return m, nil
 			}
 		}
@@ -461,7 +487,7 @@ func (m *Model) updateOrderedLists() {
 			}
 		}
 	}
-	
+
 	// Always put hidden group at the end if it exists
 	if _, exists := m.state.Groups[HiddenGroupName]; exists {
 		m.state.OrderedGroups = append(m.state.OrderedGroups, HiddenGroupName)
@@ -469,7 +495,7 @@ func (m *Model) updateOrderedLists() {
 
 	// Update ungrouped repos cache
 	m.state.UngroupedRepos = m.getUngroupedRepos()
-	
+
 	// Detect and handle duplicate repository names
 	m.updateDuplicateRepoNames()
 
@@ -520,7 +546,7 @@ func (m *Model) updateOrderedLists() {
 		// Create a copy of the repo paths to sort
 		sortedRepos := make([]string, len(group.Repos))
 		copy(sortedRepos, group.Repos)
-		
+
 		switch m.currentSort {
 		case logic.SortByName:
 			sort.Slice(sortedRepos, func(i, j int) bool {
@@ -531,7 +557,7 @@ func (m *Model) updateOrderedLists() {
 				}
 				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 			})
-			
+
 		case logic.SortByStatus:
 			sort.Slice(sortedRepos, func(i, j int) bool {
 				repoI, okI := m.state.Repositories[sortedRepos[i]]
@@ -546,7 +572,7 @@ func (m *Model) updateOrderedLists() {
 				}
 				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 			})
-			
+
 		case logic.SortByBranch:
 			sort.Slice(sortedRepos, func(i, j int) bool {
 				repoI, okI := m.state.Repositories[sortedRepos[i]]
@@ -569,7 +595,7 @@ func (m *Model) updateOrderedLists() {
 				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 			})
 		}
-		
+
 		// Update the group's repo list with sorted order
 		group.Repos = sortedRepos
 	}
@@ -630,7 +656,7 @@ func (m *Model) isOnGap(index int) bool {
 			return false
 		}
 		currentIndex++
-		
+
 		// Skip group contents if expanded
 		if m.store.IsGroupExpanded(groupName) {
 			group, _ := m.store.GetGroup(groupName)
@@ -642,11 +668,11 @@ func (m *Model) isOnGap(index int) bool {
 				currentIndex++
 			}
 		}
-		
+
 		// Check if there should be a gap after this group
 		isLastGroup := i == len(m.store.GetOrderedGroups())-1
 		isHiddenGroup := groupName == HiddenGroupName
-		
+
 		// Add gap after group unless it's the hidden group at the end
 		if !isHiddenGroup || !isLastGroup {
 			if currentIndex == index {
@@ -655,12 +681,12 @@ func (m *Model) isOnGap(index int) bool {
 			}
 			currentIndex++ // Gap after group
 		}
-		
+
 		if currentIndex > index {
 			break
 		}
 	}
-	
+
 	// Check ungrouped section
 	ungroupedRepos := m.getUngroupedRepos()
 	for range ungroupedRepos {
@@ -669,7 +695,7 @@ func (m *Model) isOnGap(index int) bool {
 		}
 		currentIndex++
 	}
-	
+
 	return false
 }
 
@@ -689,11 +715,11 @@ func (m *Model) getSelectedGroup() string {
 			group, _ := m.store.GetGroup(groupName)
 			currentIndex += len(group.Repos)
 		}
-		
+
 		// Check if there should be a gap after this group
 		isLastGroup := i == len(m.store.GetOrderedGroups())-1
 		isHiddenGroup := groupName == HiddenGroupName
-		
+
 		// Add gap after group unless it's the hidden group at the end
 		if !isHiddenGroup || !isLastGroup {
 			currentIndex++ // Gap after group
@@ -730,7 +756,7 @@ func (m *Model) getGroupAtIndex(index int) string {
 				currentIndex++
 			}
 		}
-		
+
 		// Account for gap after group (except hidden group at the end)
 		isLastGroup := i == len(m.store.GetOrderedGroups())-1
 		isHiddenGroup := groupName == HiddenGroupName
@@ -751,7 +777,7 @@ func (m *Model) getGroupAtIndex(index int) string {
 	ungroupedRepos := m.getUngroupedRepos()
 	if len(ungroupedRepos) > 0 {
 		// All remaining items are ungrouped
-		if index >= currentIndex && index < currentIndex + len(ungroupedRepos) {
+		if index >= currentIndex && index < currentIndex+len(ungroupedRepos) {
 			return "Ungrouped"
 		}
 	}
@@ -782,7 +808,7 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 				currentIndex++
 			}
 		}
-		
+
 		// Account for gap after group (except hidden group at the end)
 		if groupName != HiddenGroupName || currentIndex < index {
 			if currentIndex == index {
@@ -871,10 +897,10 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 
 		for i := len(repo.CommandLogs) - 1; i >= start; i-- {
 			log := repo.CommandLogs[i]
-			
+
 			// Format timestamp and command on same line
 			info.WriteString(fmt.Sprintf("\n[%s] ", log.Timestamp))
-			
+
 			// Command name with appropriate styling
 			if !log.Success {
 				cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
@@ -882,10 +908,10 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 			} else {
 				info.WriteString(log.Command)
 			}
-			
+
 			// Duration
 			info.WriteString(fmt.Sprintf(" (%dms)\n", log.Duration))
-			
+
 			// Output/Error
 			if !log.Success {
 				if log.Output != "" {
@@ -1119,7 +1145,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					break
 				}
 			}
-			
+
 			// Toggle selection for all repos in group
 			for _, repoPath := range group.Repos {
 				if allSelected {
@@ -1130,7 +1156,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					m.state.SelectedRepos[repoPath] = true
 				}
 			}
-			
+
 			// Update status message
 			if allSelected {
 				m.state.StatusMessage = fmt.Sprintf("Deselected all repos in '%s'", a.GroupName)
@@ -1140,12 +1166,12 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		}
 
 	case inputtypes.SearchNavigateAction:
-		log.Printf("SearchNavigateAction: direction=%s, query=%s, matches=%v, currentSearchIndex=%d", 
+		log.Printf("SearchNavigateAction: direction=%s, query=%s, matches=%v, currentSearchIndex=%d",
 			a.Direction, m.state.SearchQuery, m.state.SearchMatches, m.state.SearchIndex)
-		
+
 		if m.state.SearchQuery != "" && len(m.state.SearchMatches) > 0 {
 			oldIndex := m.state.SearchIndex
-			
+
 			if a.Direction == "next" {
 				// Navigate to next search result
 				m.state.SearchIndex = (m.state.SearchIndex + 1) % len(m.state.SearchMatches)
@@ -1156,12 +1182,12 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					m.state.SearchIndex = len(m.state.SearchMatches) - 1
 				}
 			}
-			
+
 			// Jump to the match
 			if m.state.SearchIndex >= 0 && m.state.SearchIndex < len(m.state.SearchMatches) {
 				m.state.SelectedIndex = m.state.SearchMatches[m.state.SearchIndex]
 				m.ensureSelectedVisible()
-				log.Printf("SearchNavigate: moved from match %d to %d, jumped to index %d", 
+				log.Printf("SearchNavigate: moved from match %d to %d, jumped to index %d",
 					oldIndex, m.state.SearchIndex, m.state.SelectedIndex)
 			}
 		} else {
@@ -1291,6 +1317,9 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 
 	case inputtypes.ToggleHelpAction:
 		m.state.ShowHelp = !m.state.ShowHelp
+		if m.state.ShowHelp {
+			m.state.HelpScrollOffset = 0
+		}
 
 	case inputtypes.ExpandAllGroupsAction:
 		// Expand all groups (except hidden)
@@ -1305,20 +1334,20 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		// First try to get the group if we're on a group header
 		groupName := m.getSelectedGroup()
 		wasOnGroupHeader := groupName != ""
-		
+
 		if groupName == "" {
 			// If not on a group header, check if we're on a repo within a group
 			groupName = m.getGroupAtIndex(m.state.SelectedIndex)
 		}
-		
+
 		if groupName != "" && groupName != "Ungrouped" {
 			// Check if we're closing the group while inside it
 			isClosing := m.state.ExpandedGroups[groupName]
 			wasInsideGroup := !wasOnGroupHeader && isClosing
-			
+
 			// Toggle the group expansion state
 			m.state.ExpandedGroups[groupName] = !m.state.ExpandedGroups[groupName]
-			
+
 			// If we just collapsed a group and we were inside it, move selection to the group header
 			if wasInsideGroup {
 				// Find the group header position
@@ -1432,29 +1461,29 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				m.state.StatusMessage = fmt.Sprintf("Group '%s' already exists", a.NewName)
 				return nil
 			}
-			
+
 			// Get the old group
 			oldGroup, exists := m.state.Groups[a.OldName]
 			if !exists {
 				m.state.StatusMessage = fmt.Sprintf("Group '%s' not found", a.OldName)
 				return nil
 			}
-			
+
 			// Create new group with same repos
 			m.state.Groups[a.NewName] = &domain.Group{
 				Name:  a.NewName,
 				Repos: oldGroup.Repos,
 			}
-			
+
 			// Copy expansion state
 			if expanded, ok := m.state.ExpandedGroups[a.OldName]; ok {
 				m.state.ExpandedGroups[a.NewName] = expanded
 			}
-			
+
 			// Delete old group
 			delete(m.state.Groups, a.OldName)
 			delete(m.state.ExpandedGroups, a.OldName)
-			
+
 			// Update ordered groups
 			for i, groupName := range m.state.OrderedGroups {
 				if groupName == a.OldName {
@@ -1462,7 +1491,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					break
 				}
 			}
-			
+
 			// Update GroupCreationOrder
 			for i, groupName := range m.state.GroupCreationOrder {
 				if groupName == a.OldName {
@@ -1470,9 +1499,9 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					break
 				}
 			}
-			
+
 			m.state.StatusMessage = fmt.Sprintf("Renamed group '%s' to '%s'", a.OldName, a.NewName)
-			
+
 			// Save config
 			if m.bus != nil {
 				m.bus.Publish(eventbus.ConfigChangedEvent{
@@ -1537,7 +1566,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		case inputtypes.ModeSort:
 			m.handleSortInput(a.Text)
 		case inputtypes.ModeNewGroup:
-			log.Printf(a.Text)
+			log.Printf("New group input: %s", a.Text)
 			groupName := strings.TrimSpace(a.Text)
 			if groupName != "" {
 				// Create the new group
@@ -1612,11 +1641,11 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				m.bus.Publish(eventbus.GroupAddedEvent{Name: HiddenGroupName})
 			}
 		}
-		
+
 		// Move repos to hidden group
 		var repoPaths []string
 		fromGroups := make(map[string]string)
-		
+
 		if m.store.GetSelectionCount() > 0 {
 			// Hide selected repos
 			for path := range m.store.GetSelectedRepositories() {
@@ -1647,7 +1676,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				}
 			}
 		}
-		
+
 		// Move repos to hidden group
 		if len(repoPaths) > 0 {
 			return m.cmdExecutor.ExecuteMoveToGroup(repoPaths, fromGroups, HiddenGroupName)
@@ -1665,26 +1694,26 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					break
 				}
 			}
-			
+
 			// Move up if possible
 			if currentIdx > 0 {
 				// Swap with previous group
-				m.state.OrderedGroups[currentIdx], m.state.OrderedGroups[currentIdx-1] = 
+				m.state.OrderedGroups[currentIdx], m.state.OrderedGroups[currentIdx-1] =
 					m.state.OrderedGroups[currentIdx-1], m.state.OrderedGroups[currentIdx]
-				
+
 				// Update GroupCreationOrder to match
 				m.updateGroupCreationOrder()
-				
+
 				// Update display
 				m.updateOrderedLists()
-				
+
 				// Move cursor to follow the group
 				newIdx := m.getCurrentIndexForGroup(groupName)
 				if newIdx >= 0 {
 					m.state.SelectedIndex = newIdx
 					m.ensureSelectedVisible()
 				}
-				
+
 				// Save config
 				if m.bus != nil {
 					m.bus.Publish(eventbus.ConfigChangedEvent{
@@ -1706,31 +1735,31 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					break
 				}
 			}
-			
+
 			// Move down if possible (not counting hidden group at the end)
 			maxIdx := len(m.state.OrderedGroups) - 1
 			if _, hasHidden := m.state.Groups[HiddenGroupName]; hasHidden {
 				maxIdx-- // Don't count hidden group
 			}
-			
+
 			if currentIdx >= 0 && currentIdx < maxIdx {
 				// Swap with next group
-				m.state.OrderedGroups[currentIdx], m.state.OrderedGroups[currentIdx+1] = 
+				m.state.OrderedGroups[currentIdx], m.state.OrderedGroups[currentIdx+1] =
 					m.state.OrderedGroups[currentIdx+1], m.state.OrderedGroups[currentIdx]
-				
+
 				// Update GroupCreationOrder to match
 				m.updateGroupCreationOrder()
-				
+
 				// Update display
 				m.updateOrderedLists()
-				
+
 				// Move cursor to follow the group
 				newIdx := m.getCurrentIndexForGroup(groupName)
 				if newIdx >= 0 {
 					m.state.SelectedIndex = newIdx
 					m.ensureSelectedVisible()
 				}
-				
+
 				// Save config
 				if m.bus != nil {
 					m.bus.Publish(eventbus.ConfigChangedEvent{
@@ -1895,18 +1924,17 @@ func (m *Model) getGroupOrder() []string {
 func (m *Model) updateGroupCreationOrder() {
 	// Create new creation order based on current ordered groups
 	newOrder := make([]string, 0, len(m.state.OrderedGroups))
-	
+
 	// Add all non-hidden groups in their current order
 	for _, groupName := range m.state.OrderedGroups {
 		if groupName != HiddenGroupName {
 			newOrder = append(newOrder, groupName)
 		}
 	}
-	
+
 	// Update the creation order
 	m.state.GroupCreationOrder = newOrder
 }
-
 
 // updateDuplicateRepoNames updates DisplayName for repos with duplicate names
 func (m *Model) updateDuplicateRepoNames() {
@@ -1915,14 +1943,14 @@ func (m *Model) updateDuplicateRepoNames() {
 	for _, repo := range m.state.Repositories {
 		nameCount[repo.Name]++
 	}
-	
+
 	// For repos with duplicate names, update their DisplayName
 	for path, repo := range m.state.Repositories {
 		if nameCount[repo.Name] > 1 {
 			// Calculate relative path from base directory
 			relativePath := strings.TrimPrefix(path, m.config.BaseDir)
 			relativePath = strings.TrimPrefix(relativePath, "/")
-			
+
 			// Use the relative path as the display name
 			repo.DisplayName = relativePath
 		} else {
@@ -1937,33 +1965,33 @@ func (m *Model) performSearch() {
 	// Save the old matches to see if they changed
 	oldMatches := m.state.SearchMatches
 	m.state.SearchMatches = nil
-	
+
 	if m.state.SearchQuery == "" {
 		m.state.SearchIndex = 0
 		return
 	}
-	
+
 	query := strings.ToLower(m.state.SearchQuery)
 	currentIdx := 0
-	
+
 	// Search through ALL repositories in the display order
 	// This should match exactly what the UI renders
-	
+
 	// First, check all groups
 	for _, groupName := range m.state.OrderedGroups {
 		group := m.state.Groups[groupName]
 		if group == nil {
 			continue
 		}
-		
+
 		// Check if group name matches
 		if strings.Contains(strings.ToLower(groupName), query) {
 			m.state.SearchMatches = append(m.state.SearchMatches, currentIdx)
 			log.Printf("Search match found at index %d: Group %s", currentIdx, groupName)
 		}
-		
+
 		currentIdx++ // Move past group header
-		
+
 		// Only process repos if group is expanded
 		if m.state.ExpandedGroups[groupName] {
 			for _, repoPath := range group.Repos {
@@ -1977,13 +2005,13 @@ func (m *Model) performSearch() {
 				currentIdx++
 			}
 		}
-		
+
 		// Account for gap after group (except hidden at the end)
 		if groupName != HiddenGroupName {
 			currentIdx++ // Gap after group
 		}
 	}
-	
+
 	// Now handle ungrouped repos - get them the same way the UI does
 	ungroupedRepos := m.getUngroupedRepos()
 	if len(ungroupedRepos) > 0 {
@@ -1995,7 +2023,7 @@ func (m *Model) performSearch() {
 				break
 			}
 		}
-		
+
 		if hasUngroupedHeader {
 			// Check ungrouped header
 			if strings.Contains(strings.ToLower("Ungrouped"), query) {
@@ -2016,7 +2044,7 @@ func (m *Model) performSearch() {
 			}
 		}
 	}
-	
+
 	// Only reset search index if the matches changed
 	matchesChanged := len(oldMatches) != len(m.state.SearchMatches)
 	if !matchesChanged && len(oldMatches) > 0 {
@@ -2027,7 +2055,7 @@ func (m *Model) performSearch() {
 			}
 		}
 	}
-	
+
 	if matchesChanged {
 		m.state.SearchIndex = 0
 	} else {
@@ -2036,15 +2064,15 @@ func (m *Model) performSearch() {
 			m.state.SearchIndex = 0
 		}
 	}
-	
+
 	log.Printf("Search completed for '%s': found %d matches, searchIndex=%d", query, len(m.state.SearchMatches), m.state.SearchIndex)
-	
+
 	// Debug: Log all repositories in state
 	log.Printf("Total repositories in state: %d", len(m.state.Repositories))
 	for path, repo := range m.state.Repositories {
 		log.Printf("  Repo: %s (name: %s)", path, repo.Name)
 	}
-	
+
 	// Debug: Log what's in groups
 	totalInGroups := 0
 	for name, group := range m.state.Groups {
@@ -2052,7 +2080,7 @@ func (m *Model) performSearch() {
 		log.Printf("  Group %s has %d repos", name, len(group.Repos))
 	}
 	log.Printf("Total repos in groups: %d", totalInGroups)
-	
+
 	// Debug: Log ungrouped
 	log.Printf("Ungrouped repos: %d", len(ungroupedRepos))
 	for _, path := range ungroupedRepos {

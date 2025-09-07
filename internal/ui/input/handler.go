@@ -1,10 +1,10 @@
 package input
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/textinput"
 	"gitagrip/internal/ui/input/modes"
 	"gitagrip/internal/ui/input/types"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type Handler struct {
@@ -15,13 +15,13 @@ type Handler struct {
 
 func New() *Handler {
 	ti := textinput.New()
-	
+
 	h := &Handler{
 		currentMode: types.ModeNormal,
 		textInput:   &ti,
 		modes:       make(map[types.Mode]types.ModeHandler),
 	}
-	
+
 	// Register all mode handlers
 	h.modes[types.ModeNormal] = modes.NewNormalMode()
 	h.modes[types.ModeSearch] = modes.NewSearchMode(h.textInput)
@@ -31,7 +31,7 @@ func New() *Handler {
 	h.modes[types.ModeDeleteConfirm] = modes.NewConfirmMode()
 	h.modes[types.ModeSort] = modes.NewSortSelectMode()
 	h.modes[types.ModeRenameGroup] = modes.NewRenameGroupMode(h.textInput)
-	
+
 	return h
 }
 
@@ -40,17 +40,17 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 	if handler == nil {
 		return nil, nil
 	}
-	
+
 	actions, consumed := handler.HandleKey(msg, ctx)
-	
+
 	var cmd tea.Cmd
 	var allActions []types.Action
-	
+
 	// If not consumed and we're in text mode, we'll handle it below
 	if !consumed && !h.isTextMode(h.currentMode) {
 		return nil, nil
 	}
-	
+
 	// Handle mode changes
 	for _, action := range actions {
 		if changeMode, ok := action.(types.ChangeModeAction); ok {
@@ -59,17 +59,17 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 				exitActions := h.modes[h.currentMode].Exit(ctx)
 				allActions = append(allActions, exitActions...)
 			}
-			
+
 			// Change mode
 			oldMode := h.currentMode
 			h.currentMode = changeMode.Mode
-			
+
 			// Enter new mode
 			if h.modes[h.currentMode] != nil {
 				enterActions := h.modes[h.currentMode].Enter(ctx)
 				allActions = append(allActions, enterActions...)
 			}
-			
+
 			// Handle text input focus
 			if h.isTextMode(h.currentMode) {
 				h.textInput.Reset()
@@ -82,7 +82,7 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 			allActions = append(allActions, action)
 		}
 	}
-	
+
 	// If we're in a text mode and didn't handle the key, pass it to text input
 	if h.isTextMode(h.currentMode) && (!consumed || len(actions) == 0) {
 		var textCmd tea.Cmd
@@ -91,7 +91,7 @@ func (h *Handler) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, 
 		// Always append an update action when in text mode to keep view in sync
 		allActions = append(allActions, types.UpdateTextAction{Text: h.textInput.Value()})
 	}
-	
+
 	return allActions, cmd
 }
 

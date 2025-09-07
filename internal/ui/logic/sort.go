@@ -110,4 +110,3 @@ func GetStatusPriority(repo *domain.Repository) int {
 	}
 	return 0 // Lowest priority - clean
 }
-

@@ -39,13 +39,13 @@ type Context interface {
 type ModeHandler interface {
 	// HandleKey processes a key message and returns actions and whether to consume the event
 	HandleKey(msg tea.KeyMsg, ctx Context) ([]Action, bool)
-	
+
 	// Enter is called when entering this mode
 	Enter(ctx Context) []Action
-	
+
 	// Exit is called when leaving this mode
 	Exit(ctx Context) []Action
-	
+
 	// Name returns the mode name for display
 	Name() string
 }

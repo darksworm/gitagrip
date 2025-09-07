@@ -28,6 +28,7 @@ type ViewState struct {
 	Scanning        bool
 	StatusMessage   string
 	ShowHelp        bool
+	HelpScrollOffset int
 	ShowLog         bool
 	LogContent      string
 	ShowInfo        bool
@@ -71,34 +72,34 @@ func (r *Renderer) Render(state ViewState) string {
 
 	// Title with loading indicator
 	logo := r.styles.Title.Render("gitagrip")
-	
+
 	// Build loading indicators
 	loadingIndicators := []string{}
-	
+
 	if state.Scanning {
 		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		frame := int(time.Now().UnixMilli()/80) % len(spinner)
 		loadingIndicators = append(loadingIndicators, fmt.Sprintf("%s Scanning", spinner[frame]))
 	}
-	
+
 	if len(state.RefreshingRepos) > 0 {
 		loadingIndicators = append(loadingIndicators, fmt.Sprintf("↻ Refreshing %d", len(state.RefreshingRepos)))
 	}
-	
+
 	if len(state.FetchingRepos) > 0 {
 		loadingIndicators = append(loadingIndicators, fmt.Sprintf("↓ Fetching %d", len(state.FetchingRepos)))
 	}
-	
+
 	if len(state.PullingRepos) > 0 {
 		loadingIndicators = append(loadingIndicators, fmt.Sprintf("↓ Pulling %d", len(state.PullingRepos)))
 	}
-	
+
 	// Build the title line with right-aligned indicators
 	var titleLine string
 	if len(loadingIndicators) > 0 || state.FilterQuery != "" {
 		// Calculate widths
 		logoWidth := lipgloss.Width(logo)
-		
+
 		// Build right side content
 		rightContent := ""
 		if len(loadingIndicators) > 0 {
@@ -112,7 +113,7 @@ func (r *Renderer) Render(state ViewState) string {
 				rightContent = filterText
 			}
 		}
-		
+
 		// Calculate padding needed
 		rightWidth := lipgloss.Width(rightContent)
 		// Use a default width if state.Width is not set
@@ -122,7 +123,7 @@ func (r *Renderer) Render(state ViewState) string {
 		}
 		availableWidth := termWidth - 4 // Account for main container padding
 		paddingWidth := availableWidth - logoWidth - rightWidth
-		
+
 		if paddingWidth > 0 {
 			padding := strings.Repeat(" ", paddingWidth)
 			titleLine = fmt.Sprintf("%s%s%s", logo, padding, rightContent)
@@ -133,7 +134,7 @@ func (r *Renderer) Render(state ViewState) string {
 	} else {
 		titleLine = logo
 	}
-	
+
 	content.WriteString(titleLine)
 	content.WriteString("\n")
 
@@ -164,41 +165,39 @@ func (r *Renderer) Render(state ViewState) string {
 
 	// Add main content
 	content.WriteString(mainContent)
-	
-	// Calculate help content
-	helpContent := ""
-	if state.ShowHelp && !state.ShowLog && !state.ShowInfo {
-		helpContent = state.HelpModel.View(nil)
-	} else if !state.ShowLog && !state.ShowInfo {
-		helpContent = r.styles.Help.Render("Press ? for help")
+
+	// Calculate help text (shown at bottom when no popups are visible)
+	helpText := ""
+	if !state.ShowHelp && !state.ShowLog && !state.ShowInfo {
+		helpText = r.styles.Help.Render("Press ? for help")
 	}
-	
-	// If we have help content, add padding to push it to the bottom
-	if helpContent != "" {
+
+	// If we have help text, add padding to push it to the bottom
+	if helpText != "" {
 		// Count current lines
 		currentContent := content.String()
 		currentLines := strings.Count(currentContent, "\n") + 1
-		
+
 		// Account for container padding (1 top, 1 bottom from Padding(1, 2))
 		availableLines := state.Height - 2
 		if availableLines <= 0 {
 			availableLines = 22 // Default terminal height minus padding
 		}
-		
+
 		// Help takes 1 line
-		helpLines := strings.Count(helpContent, "\n") + 1
-		
+		helpLines := 1
+
 		// Calculate padding needed
 		paddingNeeded := availableLines - currentLines - helpLines
-		
+
 		// Add padding
 		if paddingNeeded > 0 {
 			content.WriteString(strings.Repeat("\n", paddingNeeded))
 		}
-		
+
 		// Add help
 		content.WriteString("\n")
-		content.WriteString(helpContent)
+		content.WriteString(helpText)
 	}
 
 	// Apply main container style
@@ -209,9 +208,14 @@ func (r *Renderer) Render(state ViewState) string {
 	if state.ShowLog && state.LogContent != "" {
 		return r.renderPopupOverlay(finalContent, state.LogContent, state.Height, state.Width, r.styles.LogBox)
 	}
-	
+
 	if state.ShowInfo && state.InfoContent != "" {
 		return r.renderPopupOverlay(finalContent, state.InfoContent, state.Height, state.Width, r.styles.InfoBox)
+	}
+
+	if state.ShowHelp {
+		helpContent := r.renderHelpContent(state.Height, state.HelpScrollOffset)
+		return r.renderPopupOverlay(finalContent, helpContent, state.Height, state.Width, r.styles.InfoBox)
 	}
 
 	return finalContent
@@ -277,7 +281,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 				currentIndex++
 			}
 		}
-		
+
 		// Add gap after group (except for hidden group at the end)
 		if groupName != "_Hidden" || currentIndex < state.SelectedIndex {
 			if currentIndex >= state.ViewportOffset && len(visibleLines) > 0 {
@@ -348,7 +352,6 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 	return strings.Join(lines, "\n")
 }
 
-
 // renderLogPopup renders the git log popup
 func (r *Renderer) renderLogPopup(content *strings.Builder, logContent string) {
 	content.WriteString("\n\n")
@@ -373,7 +376,7 @@ func (r *Renderer) renderPopupOverlay(mainContent, popupContent string, height, 
 			contentWidth = lipgloss.Width(line)
 		}
 	}
-	
+
 	// Ensure minimum sizes
 	if contentWidth < 60 {
 		contentWidth = 60
@@ -381,41 +384,41 @@ func (r *Renderer) renderPopupOverlay(mainContent, popupContent string, height, 
 	if contentHeight < 10 {
 		contentHeight = 10
 	}
-	
+
 	// Add padding for the border and internal padding
-	popupWidth := contentWidth + 4
-	popupHeight := contentHeight + 4
-	
+	popupWidth := contentWidth + 4  // 2 for border, 2 for horizontal padding
+	popupHeight := contentHeight + 2 // 2 for border only
+
 	// Ensure popup fits on screen
 	if popupWidth > width-4 {
 		popupWidth = width - 4
 	}
-	if popupHeight > height-4 {
-		popupHeight = height - 4
+	if popupHeight > height-2 {
+		popupHeight = height - 2
 	}
-	
+
 	// Apply the style with the calculated dimensions
 	styledPopup := popupStyle.
 		Width(popupWidth).
 		Height(popupHeight).
 		MaxWidth(width - 4).
-		MaxHeight(height - 4).
+		MaxHeight(height - 2).
 		Render(popupContent)
-	
+
 	// Center the popup
 	centeredPopup := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styledPopup)
-	
+
 	// Create a semi-transparent overlay effect by dimming the background
 	mainLines := strings.Split(mainContent, "\n")
 	overlayLines := strings.Split(centeredPopup, "\n")
-	
+
 	// Ensure we have enough lines
 	for len(overlayLines) < len(mainLines) {
 		overlayLines = append(overlayLines, "")
 	}
-	
+
 	result := overlayLines
-	
+
 	return strings.Join(result, "\n")
 }
 
@@ -475,35 +478,154 @@ func (r *Renderer) renderSortOptions(state ViewState) string {
 	return ""
 }
 
+// renderHelpContent renders the help information
+func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("99")).
+		MarginBottom(1)
+
+	sectionStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("39")).
+		MarginTop(1)
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("220"))
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
+	var help strings.Builder
+
+	// Title
+	help.WriteString(titleStyle.Render("GitaGrip Help"))
+	help.WriteString("\n")
+
+	// Navigation section
+	help.WriteString(sectionStyle.Render("Navigation"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s  %s\n", keyStyle.Render("↑/↓, j/k"), descStyle.Render("Navigate up/down")))
+	help.WriteString(fmt.Sprintf("  %s  %s\n", keyStyle.Render("←/→, h/l"), descStyle.Render("Collapse/expand groups")))
+	help.WriteString(fmt.Sprintf("  %s    %s\n", keyStyle.Render("PgUp/PgDn"), descStyle.Render("Page up/down")))
+	help.WriteString(fmt.Sprintf("  %s       %s\n", keyStyle.Render("gg/G"), descStyle.Render("Go to top/bottom")))
+
+	// Selection section
+	help.WriteString(sectionStyle.Render("Selection"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s        %s\n", keyStyle.Render("Space"), descStyle.Render("Toggle selection")))
+	help.WriteString(fmt.Sprintf("  %s          %s\n", keyStyle.Render("a/A"), descStyle.Render("Select/deselect all")))
+	help.WriteString(fmt.Sprintf("  %s          %s\n", keyStyle.Render("Esc"), descStyle.Render("Clear selection")))
+
+	// Repository actions section
+	help.WriteString(sectionStyle.Render("Repository Actions"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("r"), descStyle.Render("Refresh repository status")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("f"), descStyle.Render("Fetch from remote")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("p"), descStyle.Render("Pull from remote")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("l"), descStyle.Render("View git log")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info & logs")))
+
+	// Group management section
+	help.WriteString(sectionStyle.Render("Group Management"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("z"), descStyle.Render("Toggle group")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("N"), descStyle.Render("Create new group (with selection)")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("m"), descStyle.Render("Move to group")))
+	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+R"), descStyle.Render("Rename group")))
+	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+J/K"), descStyle.Render("Move group up/down")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("d"), descStyle.Render("Delete group (on group header)")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("Hide selected repositories")))
+
+	// Search & filter section
+	help.WriteString(sectionStyle.Render("Search & Filter"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("/"), descStyle.Render("Search repositories")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("n"), descStyle.Render("Next search result")))
+	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+N"), descStyle.Render("Previous search result")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("F"), descStyle.Render("Filter repositories")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("s"), descStyle.Render("Sort options")))
+
+	// Filter examples
+	help.WriteString(lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("241")).Render("  Filter examples: status:dirty, status:clean, status:ahead"))
+	help.WriteString("\n")
+
+	// Other section
+	help.WriteString(sectionStyle.Render("Other"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("?"), descStyle.Render("Toggle this help")))
+	help.WriteString(fmt.Sprintf("  %s            %s", keyStyle.Render("q"), descStyle.Render("Quit")))
+
+	// Split into lines for scrolling
+	content := help.String()
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
+	
+	// Calculate visible window (account for popup border and padding)
+	visibleHeight := height - 4
+	if visibleHeight < 5 {
+		visibleHeight = 5
+	}
+	
+	// Apply scrolling
+	if totalLines > visibleHeight {
+		// Ensure scroll offset is valid
+		maxOffset := totalLines - visibleHeight
+		if scrollOffset > maxOffset {
+			scrollOffset = maxOffset
+		}
+		if scrollOffset < 0 {
+			scrollOffset = 0
+		}
+		
+		// Extract visible lines
+		endLine := scrollOffset + visibleHeight
+		if endLine > totalLines {
+			endLine = totalLines
+		}
+		lines = lines[scrollOffset:endLine]
+		
+		// Add scroll indicators
+		if scrollOffset > 0 {
+			lines[0] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↑ (more above)")
+		}
+		if endLine < totalLines {
+			lines[len(lines)-1] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↓ (more below)")
+		}
+	}
+	
+	return strings.Join(lines, "\n")
+}
+
 // renderLoadingScreen renders the loading screen
 func (r *Renderer) renderLoadingScreen(state ViewState) string {
 	lines := []string{}
-	
+
 	// Use full window height for centering
 	fullHeight := state.Height
 	if fullHeight < 10 {
 		fullHeight = 10 // Minimum height
 	}
-	
+
 	// Center the content vertically
 	topPadding := (fullHeight - 6) / 2 // 6 lines for content (title + spacing + loading + spacing + hint)
 	if topPadding < 0 {
 		topPadding = 0
 	}
-	
+
 	for i := 0; i < topPadding; i++ {
 		lines = append(lines, "")
 	}
-	
+
 	// Spinner
 	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	frame := int(time.Now().UnixMilli()/80) % len(spinner)
-	
+
 	// Loading title (centered)
 	titleStyle := r.styles.Title.Copy().MarginBottom(0).AlignHorizontal(lipgloss.Center).Width(state.Width)
 	lines = append(lines, titleStyle.Render("gitagrip"))
 	lines = append(lines, "")
-	
+
 	// Loading state
 	loadingLine := fmt.Sprintf("%s %s", spinner[frame], state.LoadingState)
 	if state.LoadingCount > 0 {
@@ -511,11 +633,11 @@ func (r *Renderer) renderLoadingScreen(state ViewState) string {
 	}
 	loadingStyle := r.styles.Scan.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
 	lines = append(lines, loadingStyle.Render(loadingLine))
-	
+
 	// Hint
 	lines = append(lines, "")
 	hintStyle := r.styles.Dim.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
-	
+
 	if state.LoadingState == "Loading repositories..." {
 		lines = append(lines, hintStyle.Render("Preparing your repository view"))
 	} else if state.LoadingState == "Scanning for repositories..." {
@@ -527,12 +649,12 @@ func (r *Renderer) renderLoadingScreen(state ViewState) string {
 	} else if state.LoadingState == "Initializing..." {
 		lines = append(lines, hintStyle.Render("Setting up gitagrip"))
 	}
-	
+
 	// Fill the rest with empty lines to ensure full height
 	currentLines := len(lines)
 	for i := currentLines; i < fullHeight; i++ {
 		lines = append(lines, "")
 	}
-	
+
 	return strings.Join(lines, "\n")
 }

@@ -35,23 +35,23 @@ func NewStyles() *Styles {
 			Bold(true).
 			Foreground(lipgloss.Color("99")).
 			MarginBottom(1),
-		Confirm:          lipgloss.NewStyle().Bold(true),
-		Scan:             lipgloss.NewStyle().Foreground(lipgloss.Color("33")),
-		Dim:              lipgloss.NewStyle().Faint(true),
-		Status:           lipgloss.NewStyle().
+		Confirm: lipgloss.NewStyle().Bold(true),
+		Scan:    lipgloss.NewStyle().Foreground(lipgloss.Color("33")),
+		Dim:     lipgloss.NewStyle().Faint(true),
+		Status: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			MarginTop(1).
 			MarginBottom(1),
-		Filter:           lipgloss.NewStyle().Foreground(lipgloss.Color("214")), // yellow
+		Filter: lipgloss.NewStyle().Foreground(lipgloss.Color("214")), // yellow
 		LogBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			Padding(1).
+			Padding(0, 1).
 			BorderForeground(lipgloss.Color("244")),
 		InfoBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			Padding(1).
+			Padding(0, 1).
 			BorderForeground(lipgloss.Color("244")),
-		Help:             lipgloss.NewStyle().Faint(true),
+		Help: lipgloss.NewStyle().Faint(true),
 		Main: lipgloss.NewStyle().
 			Padding(1, 2).
 			MaxHeight(100), // Will be dynamically adjusted
@@ -130,19 +130,19 @@ func computeBranchColor(branchName string) string {
 		"228", // pale yellow
 		"229", // wheat
 	}
-	
+
 	// Simple hash: sum of character codes
 	hash := 0
 	for _, ch := range branchName {
 		hash += int(ch)
 		hash = hash * 17 // multiply by prime for better distribution
 	}
-	
+
 	// Use modulo to pick a color
 	colorIndex := hash % len(colors)
 	if colorIndex < 0 {
 		colorIndex = -colorIndex
 	}
-	
+
 	return colors[colorIndex]
 }

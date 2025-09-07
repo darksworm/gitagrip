@@ -1,8 +1,8 @@
 package modes
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
 	"gitagrip/internal/ui/input/types"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // SortOptions available for sorting
@@ -37,7 +37,7 @@ func (m *SortSelectMode) Enter(ctx types.Context) []types.Action {
 	currentSort := ctx.GetCurrentSort()
 	m.sortIndex = 0
 	m.originalIndex = 0
-	
+
 	// Find the index of the current sort
 	for i, option := range SortOptions {
 		if option.Key == string(currentSort) {
@@ -46,7 +46,7 @@ func (m *SortSelectMode) Enter(ctx types.Context) []types.Action {
 			break
 		}
 	}
-	
+
 	return []types.Action{types.UpdateSortIndexAction{Index: m.sortIndex}}
 }
 
@@ -63,13 +63,13 @@ func (m *SortSelectMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.A
 			types.SortByAction{Criteria: SortOptions[m.originalIndex].Key},
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	case tea.KeyEnter:
 		// Accept current sort and return to normal mode
 		return []types.Action{
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	case tea.KeyUp, tea.KeyDown:
 		// Navigate through sort options and apply immediately
 		if msg.Type == tea.KeyUp {
@@ -89,7 +89,7 @@ func (m *SortSelectMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.A
 			types.SortByAction{Criteria: SortOptions[m.sortIndex].Key},
 		}, true
 	}
-	
+
 	// Handle string keys
 	switch msg.String() {
 	case "j":
@@ -102,7 +102,7 @@ func (m *SortSelectMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.A
 			types.UpdateSortIndexAction{Index: m.sortIndex},
 			types.SortByAction{Criteria: SortOptions[m.sortIndex].Key},
 		}, true
-		
+
 	case "k":
 		// Up
 		m.sortIndex--
@@ -113,7 +113,7 @@ func (m *SortSelectMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.A
 			types.UpdateSortIndexAction{Index: m.sortIndex},
 			types.SortByAction{Criteria: SortOptions[m.sortIndex].Key},
 		}, true
-		
+
 	case "q":
 		// Cancel and restore original sort
 		return []types.Action{
@@ -121,7 +121,7 @@ func (m *SortSelectMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.A
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
 	}
-	
+
 	return nil, false
 }
 

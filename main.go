@@ -12,13 +12,13 @@ import (
 	"strings"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"gitagrip/internal/config"
 	"gitagrip/internal/discovery"
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/git"
 	"gitagrip/internal/groups"
 	"gitagrip/internal/ui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
@@ -27,12 +27,12 @@ func main() {
 	flag.StringVar(&targetDir, "dir", "", "Directory to scan for repositories")
 	flag.StringVar(&targetDir, "d", "", "Directory to scan for repositories (shorthand)")
 	flag.Parse()
-	
+
 	// If no directory specified, check for remaining args
 	if targetDir == "" && flag.NArg() > 0 {
 		targetDir = flag.Arg(0)
 	}
-	
+
 	// If still no directory, use current directory
 	if targetDir == "" {
 		var err error
@@ -42,14 +42,14 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	
+
 	// Resolve to absolute path
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		fmt.Printf("Error resolving path: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Set up logging
 	logFile, err := os.OpenFile("gitagrip.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
@@ -78,7 +78,7 @@ func main() {
 	configPath := filepath.Join(absDir, ".gitagrip.toml")
 	configSvc := config.NewConfigServiceWithBus(bus)
 	cfg := loadOrCreateConfig(configSvc, absDir)
-	
+
 	// Subscribe to config changes to save automatically
 	bus.Subscribe(eventbus.EventConfigChanged, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.ConfigChangedEvent); ok {
@@ -96,7 +96,7 @@ func main() {
 
 	// Initialize services
 	discoverySvc := discovery.NewDiscoveryService(bus)
-	_ = git.NewGitService(bus) // Git service subscribes to events automatically
+	_ = git.NewGitService(bus)                  // Git service subscribes to events automatically
 	_ = groups.NewGroupManager(bus, cfg.Groups) // Group manager subscribes to events automatically
 
 	// Create UI model
@@ -225,7 +225,7 @@ func main() {
 func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *config.Config {
 	// Try to load config from the target directory
 	configPath := filepath.Join(targetDir, ".gitagrip.toml")
-	
+
 	// Check if config exists
 	if _, err := os.Stat(configPath); err == nil {
 		// Config exists, try to load it
@@ -234,7 +234,7 @@ func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *confi
 			return cfg
 		}
 	}
-	
+
 	// No config or failed to load - create new one
 	log.Printf("Creating new config for %s", targetDir)
 	cfg := &config.Config{
@@ -246,12 +246,12 @@ func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *confi
 		},
 		Groups: generateGroupsFromDirectory(targetDir),
 	}
-	
+
 	// Save the config
 	if err := configSvc.SaveToPath(cfg, configPath); err != nil {
 		log.Printf("Failed to save config: %v", err)
 	}
-	
+
 	return cfg
 }
 
@@ -259,63 +259,63 @@ func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *confi
 // For now, return empty groups and let the discovery service populate them
 func generateGroupsFromDirectory(baseDir string) map[string][]string {
 	groups := make(map[string][]string)
-	
+
 	// Do a quick scan to find git repos and group them by immediate parent directory
 	// We'll limit depth to avoid hanging on large directories
 	maxDepth := 3
 	reposByParent := make(map[string][]string)
-	
+
 	filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Continue walking
 		}
-		
+
 		// Check depth
 		relPath, _ := filepath.Rel(baseDir, path)
 		depth := strings.Count(relPath, string(filepath.Separator))
 		if depth > maxDepth {
 			return filepath.SkipDir
 		}
-		
+
 		// Skip common non-repo directories
 		if d.IsDir() {
 			name := d.Name()
-			if name == "node_modules" || name == ".npm" || name == "__pycache__" || 
-			   name == ".pytest_cache" || name == "venv" || name == ".venv" ||
-			   name == "target" || name == "build" || name == "dist" {
+			if name == "node_modules" || name == ".npm" || name == "__pycache__" ||
+				name == ".pytest_cache" || name == "venv" || name == ".venv" ||
+				name == "target" || name == "build" || name == "dist" {
 				return filepath.SkipDir
 			}
 		}
-		
+
 		// Check if this is a .git directory
 		if d.IsDir() && d.Name() == ".git" {
 			repoPath := filepath.Dir(path)
-			
+
 			// Get the parent directory relative to base
 			relRepo, _ := filepath.Rel(baseDir, repoPath)
 			parentDir := filepath.Dir(relRepo)
-			
+
 			// If repo is directly in base dir, don't create a group
 			if parentDir == "." {
 				return filepath.SkipDir
 			}
-			
+
 			// Use the immediate parent directory as the group name
 			groupName := filepath.Base(parentDir)
 			reposByParent[groupName] = append(reposByParent[groupName], repoPath)
-			
+
 			return filepath.SkipDir
 		}
-		
+
 		return nil
 	})
-	
+
 	// Only create groups that have 2 or more repos
 	for groupName, repos := range reposByParent {
 		if len(repos) >= 2 {
 			groups[groupName] = repos
 		}
 	}
-	
+
 	return groups
 }

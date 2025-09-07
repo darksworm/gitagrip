@@ -5,25 +5,25 @@ type EventType string
 
 // Event types
 const (
-	EventRepoDiscovered EventType = "RepoDiscovered"
-	EventStatusUpdated  EventType = "StatusUpdated"
-	EventError          EventType = "Error"
-	EventGroupAdded     EventType = "GroupAdded"
-	EventGroupRemoved   EventType = "GroupRemoved"
-	EventRepoMoved      EventType = "RepoMoved"
-	EventScanStarted    EventType = "ScanStarted"
-	EventScanCompleted  EventType = "ScanCompleted"
-	EventScanRequested  EventType = "ScanRequested"
+	EventRepoDiscovered         EventType = "RepoDiscovered"
+	EventStatusUpdated          EventType = "StatusUpdated"
+	EventError                  EventType = "Error"
+	EventGroupAdded             EventType = "GroupAdded"
+	EventGroupRemoved           EventType = "GroupRemoved"
+	EventRepoMoved              EventType = "RepoMoved"
+	EventScanStarted            EventType = "ScanStarted"
+	EventScanCompleted          EventType = "ScanCompleted"
+	EventScanRequested          EventType = "ScanRequested"
 	EventStatusRefreshRequested EventType = "StatusRefreshRequested"
-	EventFetchRequested EventType = "FetchRequested"
-	EventPullRequested  EventType = "PullRequested"
-	EventFetchCompleted EventType = "FetchCompleted"
-	EventPullCompleted  EventType = "PullCompleted"
-	EventConfigLoaded   EventType = "ConfigLoaded"
-	EventConfigSaved    EventType = "ConfigSaved"
-	EventConfigChanged  EventType = "ConfigChanged"
-	EventAppReady       EventType = "AppReady"
-	EventCommandExecuted EventType = "CommandExecuted"
+	EventFetchRequested         EventType = "FetchRequested"
+	EventPullRequested          EventType = "PullRequested"
+	EventFetchCompleted         EventType = "FetchCompleted"
+	EventPullCompleted          EventType = "PullCompleted"
+	EventConfigLoaded           EventType = "ConfigLoaded"
+	EventConfigSaved            EventType = "ConfigSaved"
+	EventConfigChanged          EventType = "ConfigChanged"
+	EventAppReady               EventType = "AppReady"
+	EventCommandExecuted        EventType = "CommandExecuted"
 )
 
 // DomainEvent is the interface for all domain events
@@ -70,7 +70,7 @@ func (e GroupRemovedEvent) Type() EventType { return EventGroupRemoved }
 
 // RepoMovedEvent is emitted when a repository is moved to a different group
 type RepoMovedEvent struct {
-	RepoPath string
+	RepoPath  string
 	FromGroup string
 	ToGroup   string
 }

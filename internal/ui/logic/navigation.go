@@ -63,7 +63,7 @@ func (n *Navigator) GetMaxIndex(ungroupedReposCount int) int {
 			count += len(group.Repos)
 		}
 	}
-	
+
 	// Add gaps after each group (except hidden at the end)
 	nonHiddenGroups := 0
 	for _, groupName := range n.orderedGroups {
@@ -72,7 +72,7 @@ func (n *Navigator) GetMaxIndex(ungroupedReposCount int) int {
 		}
 	}
 	count += nonHiddenGroups // One gap per non-hidden group
-	
+
 	return count - 1
 }
 
@@ -80,16 +80,16 @@ func (n *Navigator) GetMaxIndex(ungroupedReposCount int) int {
 func (n *Navigator) ensureSelectedVisible() {
 	// Calculate total items
 	totalItems := n.calculateTotalItems()
-	
+
 	// If selected item is above viewport, scroll up
 	if n.selectedIndex < n.viewportOffset {
 		n.viewportOffset = n.selectedIndex
 	}
-	
+
 	// Determine if we'll have scroll indicators
 	needsTopIndicator := n.viewportOffset > 0
-	needsBottomIndicator := n.viewportOffset + n.viewportHeight < totalItems
-	
+	needsBottomIndicator := n.viewportOffset+n.viewportHeight < totalItems
+
 	// Special case: if we're showing items but can't fit them all even without bottom indicator,
 	// we still need the bottom indicator
 	if !needsBottomIndicator && needsTopIndicator {
@@ -99,7 +99,7 @@ func (n *Navigator) ensureSelectedVisible() {
 			needsBottomIndicator = true
 		}
 	}
-	
+
 	// Calculate effective visible area
 	effectiveHeight := n.viewportHeight
 	if needsTopIndicator {
@@ -108,38 +108,38 @@ func (n *Navigator) ensureSelectedVisible() {
 	if needsBottomIndicator {
 		effectiveHeight--
 	}
-	
+
 	// Ensure we have at least 1 line for content
 	if effectiveHeight < 1 {
 		effectiveHeight = 1
 	}
-	
+
 	// If selected item is below effective viewport, scroll down
-	if n.selectedIndex >= n.viewportOffset + effectiveHeight {
+	if n.selectedIndex >= n.viewportOffset+effectiveHeight {
 		// Calculate where to position the viewport
 		// We need to make sure the selected item is visible
 		newOffset := n.selectedIndex - effectiveHeight + 1
-		
+
 		// For the last few items, allow scrolling to show them without context
 		// This ensures we can see all items at the bottom
 		maxPossibleOffset := totalItems - effectiveHeight
 		if maxPossibleOffset < 0 {
 			maxPossibleOffset = 0
 		}
-		
+
 		// If we're near the bottom, adjust to show all remaining items
 		if newOffset > maxPossibleOffset {
 			newOffset = maxPossibleOffset
 		}
-		
+
 		// Don't scroll past the beginning
 		if newOffset < 0 {
 			newOffset = 0
 		}
-		
+
 		n.viewportOffset = newOffset
 	}
-	
+
 	// Final validation: ensure viewport doesn't exceed bounds
 	// The maximum offset should ensure we can still fill the viewport
 	maxOffset := totalItems - effectiveHeight
@@ -183,10 +183,10 @@ func (n *Navigator) CalculateTotalItemsWithUngrouped(ungroupedReposCount int) in
 // JumpToGroupBoundary jumps to the beginning or end of the current group
 func (n *Navigator) JumpToGroupBoundary(toBeginning bool, ungroupedRepoPaths []string) (needsCrossGroupJump bool, fromGroup string) {
 	currentIndex := 0
-	
+
 	for _, groupName := range n.orderedGroups {
 		groupHeaderIndex := currentIndex
-		
+
 		// Check if we're on the group header
 		if currentIndex == n.selectedIndex {
 			// On header - jump to first or last repo in group
@@ -205,13 +205,13 @@ func (n *Navigator) JumpToGroupBoundary(toBeginning bool, ungroupedRepoPaths []s
 			return false, "" // Group is collapsed or empty
 		}
 		currentIndex++
-		
+
 		// Check repos in group if expanded
 		if n.expandedGroups[groupName] {
 			group := n.groups[groupName]
 			groupFirstRepoIndex := currentIndex
 			groupLastRepoIndex := currentIndex + len(group.Repos) - 1
-			
+
 			// Check if we're inside this group
 			for i := 0; i < len(group.Repos); i++ {
 				if currentIndex == n.selectedIndex {
@@ -240,18 +240,18 @@ func (n *Navigator) JumpToGroupBoundary(toBeginning bool, ungroupedRepoPaths []s
 				currentIndex++
 			}
 		}
-		
+
 		// Account for gap after group (except hidden at the end)
 		if groupName != "_Hidden" {
 			currentIndex++ // Gap after group
 		}
 	}
-	
+
 	// Check ungrouped repos
 	if len(ungroupedRepoPaths) > 0 {
 		ungroupedStartIndex := currentIndex
 		ungroupedEndIndex := currentIndex + len(ungroupedRepoPaths) - 1
-		
+
 		// Check if we're in ungrouped section
 		for i := 0; i < len(ungroupedRepoPaths); i++ {
 			if currentIndex == n.selectedIndex {
@@ -266,42 +266,42 @@ func (n *Navigator) JumpToGroupBoundary(toBeginning bool, ungroupedRepoPaths []s
 			currentIndex++
 		}
 	}
-	
+
 	return false, ""
 }
 
 // GetCurrentIndexForGroup finds the current display index for a group
 func (n *Navigator) GetCurrentIndexForGroup(targetGroupName string) int {
 	currentIndex := 0
-	
+
 	for _, name := range n.orderedGroups {
 		if name == targetGroupName {
 			return currentIndex
 		}
 		currentIndex++
-		
+
 		if n.expandedGroups[name] {
 			group := n.groups[name]
 			currentIndex += len(group.Repos)
 		}
-		
+
 		// Account for gap after group (except hidden at the end)
 		if name != "_Hidden" {
 			currentIndex++ // Gap after group
 		}
 	}
-	
+
 	return -1
 }
 
 // GetCurrentIndexForRepo finds the current display index for a repo
 func (n *Navigator) GetCurrentIndexForRepo(repoPath string, ungroupedRepoPaths []string) int {
 	currentIndex := 0
-	
+
 	// Check groups first
 	for _, groupName := range n.orderedGroups {
 		currentIndex++ // Group header
-		
+
 		if n.expandedGroups[groupName] {
 			group := n.groups[groupName]
 			for _, path := range group.Repos {
@@ -311,13 +311,13 @@ func (n *Navigator) GetCurrentIndexForRepo(repoPath string, ungroupedRepoPaths [
 				currentIndex++
 			}
 		}
-		
+
 		// Account for gap after group (except hidden at the end)
 		if groupName != "_Hidden" {
 			currentIndex++ // Gap after group
 		}
 	}
-	
+
 	// Check ungrouped repos
 	for _, path := range ungroupedRepoPaths {
 		if path == repoPath {
@@ -325,7 +325,7 @@ func (n *Navigator) GetCurrentIndexForRepo(repoPath string, ungroupedRepoPaths [
 		}
 		currentIndex++
 	}
-	
+
 	return -1
 }
 
@@ -339,7 +339,7 @@ func (n *Navigator) JumpToNextGroupEnd(currentGroupName string, ungroupedRepoPat
 			break
 		}
 	}
-	
+
 	// If we found the current group and there's a next group
 	if currentGroupIndex != -1 && currentGroupIndex < len(n.orderedGroups)-1 {
 		// Find the next expanded group with repos
@@ -374,7 +374,7 @@ func (n *Navigator) JumpToNextGroupEnd(currentGroupName string, ungroupedRepoPat
 			}
 		}
 	}
-	
+
 	// If no next group found, check ungrouped repos
 	if len(ungroupedRepoPaths) > 0 {
 		// Jump to last ungrouped repo
@@ -397,7 +397,7 @@ func (n *Navigator) JumpToNextGroupEnd(currentGroupName string, ungroupedRepoPat
 		n.ensureSelectedVisible()
 		return true
 	}
-	
+
 	return false
 }
 
@@ -411,7 +411,7 @@ func (n *Navigator) JumpToPreviousGroupStart(currentGroupName string) bool {
 			break
 		}
 	}
-	
+
 	// If we found the current group and there's a previous group
 	if currentGroupIndex > 0 {
 		// Find the previous expanded group with repos
@@ -445,7 +445,7 @@ func (n *Navigator) JumpToPreviousGroupStart(currentGroupName string) bool {
 			}
 		}
 	}
-	
+
 	// If no previous group found, stay where we are
 	return false
 }

@@ -42,7 +42,7 @@ func (it *InputTransformer) GetInputText() string {
 	if it.mode == InputModeNormal {
 		return ""
 	}
-	
+
 	switch it.mode {
 	case InputModeDeleteConfirm:
 		return "Disband group? (y/n): "

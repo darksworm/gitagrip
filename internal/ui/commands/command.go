@@ -2,9 +2,9 @@ package commands
 
 import (
 	"fmt"
-	
+
 	tea "github.com/charmbracelet/bubbletea"
-	
+
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/state"
 )
@@ -151,8 +151,8 @@ func (c *ToggleSelectionCommand) Execute() tea.Cmd {
 
 // SelectAllCommand toggles select all repositories
 type SelectAllCommand struct {
-	ctx         *CommandContext
-	totalRepos  int
+	ctx        *CommandContext
+	totalRepos int
 }
 
 // NewSelectAllCommand creates a new select all command
@@ -197,7 +197,7 @@ func (c *MoveToGroupCommand) Execute() tea.Cmd {
 	for _, repoPath := range c.repoPaths {
 		fromGroup := c.fromGroups[repoPath]
 		c.ctx.State.MoveRepoToGroup(repoPath, fromGroup, c.toGroup)
-		
+
 		if c.ctx.Bus != nil {
 			c.ctx.Bus.Publish(eventbus.RepoMovedEvent{
 				RepoPath:  repoPath,
@@ -207,17 +207,17 @@ func (c *MoveToGroupCommand) Execute() tea.Cmd {
 			movedCount++
 		}
 	}
-	
+
 	if movedCount > 0 {
 		c.ctx.State.StatusMessage = fmt.Sprintf("Moved %d repos to '%s'", movedCount, c.toGroup)
 		c.ctx.State.ClearSelection()
-		
+
 		if c.ctx.Bus != nil {
 			c.ctx.Bus.Publish(eventbus.ConfigChangedEvent{
 				Groups: c.ctx.State.GetGroupsMap(),
 			})
 		}
 	}
-	
+
 	return nil
 }

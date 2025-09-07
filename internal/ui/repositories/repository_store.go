@@ -11,18 +11,18 @@ type RepositoryStore interface {
 	GetRepository(path string) (*domain.Repository, bool)
 	GetAllRepositories() map[string]*domain.Repository
 	GetOrderedRepositories() []string
-	
+
 	// Group operations
 	GetGroup(name string) (*domain.Group, bool)
 	GetAllGroups() map[string]*domain.Group
 	GetOrderedGroups() []string
 	GetGroupCreationOrder() []string
-	
+
 	// Selection operations
 	IsRepositorySelected(path string) bool
 	GetSelectedRepositories() map[string]bool
 	GetSelectionCount() int
-	
+
 	// Operation state queries
 	IsRepositoryRefreshing(path string) bool
 	IsRepositoryFetching(path string) bool
@@ -30,12 +30,12 @@ type RepositoryStore interface {
 	GetRefreshingCount() int
 	GetFetchingCount() int
 	GetPullingCount() int
-	
+
 	// UI state queries
 	IsScanning() bool
 	GetStatusMessage() string
 	IsGroupExpanded(name string) bool
-	
+
 	// Search and filter state
 	GetSearchQuery() string
 	GetFilterQuery() string

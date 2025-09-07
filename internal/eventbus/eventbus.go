@@ -12,24 +12,24 @@ type EventType = domain.EventType
 
 // Event type constants
 const (
-	EventRepoDiscovered = domain.EventRepoDiscovered
-	EventStatusUpdated  = domain.EventStatusUpdated
-	EventError          = domain.EventError
-	EventGroupAdded     = domain.EventGroupAdded
-	EventGroupRemoved   = domain.EventGroupRemoved
-	EventRepoMoved      = domain.EventRepoMoved
-	EventScanStarted    = domain.EventScanStarted
-	EventScanCompleted  = domain.EventScanCompleted
-	EventScanRequested  = domain.EventScanRequested
+	EventRepoDiscovered         = domain.EventRepoDiscovered
+	EventStatusUpdated          = domain.EventStatusUpdated
+	EventError                  = domain.EventError
+	EventGroupAdded             = domain.EventGroupAdded
+	EventGroupRemoved           = domain.EventGroupRemoved
+	EventRepoMoved              = domain.EventRepoMoved
+	EventScanStarted            = domain.EventScanStarted
+	EventScanCompleted          = domain.EventScanCompleted
+	EventScanRequested          = domain.EventScanRequested
 	EventStatusRefreshRequested = domain.EventStatusRefreshRequested
-	EventFetchRequested = domain.EventFetchRequested
-	EventPullRequested  = domain.EventPullRequested
-	EventFetchCompleted = domain.EventFetchCompleted
-	EventPullCompleted  = domain.EventPullCompleted
-	EventConfigLoaded   = domain.EventConfigLoaded
-	EventConfigSaved    = domain.EventConfigSaved
-	EventConfigChanged  = domain.EventConfigChanged
-	EventCommandExecuted = domain.EventCommandExecuted
+	EventFetchRequested         = domain.EventFetchRequested
+	EventPullRequested          = domain.EventPullRequested
+	EventFetchCompleted         = domain.EventFetchCompleted
+	EventPullCompleted          = domain.EventPullCompleted
+	EventConfigLoaded           = domain.EventConfigLoaded
+	EventConfigSaved            = domain.EventConfigSaved
+	EventConfigChanged          = domain.EventConfigChanged
+	EventCommandExecuted        = domain.EventCommandExecuted
 )
 
 // Re-export domain event types
@@ -77,11 +77,11 @@ func New() EventBus {
 		eventChan: make(chan DomainEvent, 100),
 		quit:      make(chan struct{}),
 	}
-	
+
 	// Start the event dispatcher
 	b.wg.Add(1)
 	go b.dispatch()
-	
+
 	return b
 }
 
@@ -101,10 +101,10 @@ func (b *bus) Publish(event DomainEvent) {
 func (b *bus) Subscribe(eventType EventType, handler EventHandler) func() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	// Add handler to the list
 	b.handlers[eventType] = append(b.handlers[eventType], handler)
-	
+
 	// Return unsubscribe function
 	return func() {
 		b.unsubscribe(eventType, handler)
@@ -115,7 +115,7 @@ func (b *bus) Subscribe(eventType EventType, handler EventHandler) func() {
 func (b *bus) unsubscribe(eventType EventType, handler EventHandler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	handlers := b.handlers[eventType]
 	for i, h := range handlers {
 		// Compare function pointers
@@ -130,7 +130,7 @@ func (b *bus) unsubscribe(eventType EventType, handler EventHandler) {
 // dispatch runs in a goroutine and dispatches events to handlers
 func (b *bus) dispatch() {
 	defer b.wg.Done()
-	
+
 	for {
 		select {
 		case event := <-b.eventChan:
@@ -149,7 +149,7 @@ func (b *bus) dispatchEvent(event DomainEvent) {
 	handlersCopy := make([]EventHandler, len(handlers))
 	copy(handlersCopy, handlers)
 	b.mu.RUnlock()
-	
+
 	// Execute handlers
 	for _, handler := range handlersCopy {
 		// Run each handler in a goroutine to avoid blocking

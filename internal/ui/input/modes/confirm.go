@@ -1,8 +1,8 @@
 package modes
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
 	"gitagrip/internal/ui/input/types"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type ConfirmMode struct {
@@ -33,12 +33,12 @@ func (m *ConfirmMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Acti
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return []types.Action{types.QuitAction{Force: true}}, true
-		
+
 	case tea.KeyEsc:
 		// Cancel and return to normal mode
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeNormal}}, true
 	}
-	
+
 	switch msg.String() {
 	case "y", "Y":
 		// Confirm deletion
@@ -46,11 +46,11 @@ func (m *ConfirmMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Acti
 			types.DeleteGroupAction{GroupName: m.groupName},
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	case "n", "N":
 		// Cancel deletion
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeNormal}}, true
 	}
-	
+
 	return nil, false
 }

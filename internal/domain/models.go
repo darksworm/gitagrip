@@ -7,8 +7,8 @@ type Repository struct {
 	DisplayName string // Name shown in UI, may include path for duplicates
 	Group       string // group name it belongs to ("" if ungrouped)
 	Status      RepoStatus
-	LastError   string // Last command error
-	HasError    bool   // Whether there's an active error
+	LastError   string       // Last command error
+	HasError    bool         // Whether there's an active error
 	CommandLogs []CommandLog // Recent command logs
 }
 
@@ -32,17 +32,17 @@ type Group struct {
 
 // ScanProgress represents the current scanning state
 type ScanProgress struct {
-	IsScanning   bool
-	ReposFound   int
-	CurrentPath  string
+	IsScanning  bool
+	ReposFound  int
+	CurrentPath string
 }
 
 // CommandLog represents a log entry for a command executed on a repository
 type CommandLog struct {
-	Timestamp   string
-	Command     string // e.g., "fetch", "pull", "status"
-	Success     bool
-	Output      string
-	Error       string
-	Duration    int64 // milliseconds
+	Timestamp string
+	Command   string // e.g., "fetch", "pull", "status"
+	Success   bool
+	Output    string
+	Error     string
+	Duration  int64 // milliseconds
 }

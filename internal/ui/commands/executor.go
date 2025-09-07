@@ -2,7 +2,7 @@ package commands
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	
+
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/state"
 )

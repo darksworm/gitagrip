@@ -5,15 +5,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pelletier/go-toml/v2"
 	"gitagrip/internal/eventbus"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // Config represents the application configuration
 type Config struct {
 	Version    int                 `toml:"version"`
 	BaseDir    string              `toml:"base_dir"`
-	Groups     map[string][]string `toml:"groups"`    // group name -> repo paths
+	Groups     map[string][]string `toml:"groups"`      // group name -> repo paths
 	GroupOrder []string            `toml:"group_order"` // ordered list of group names
 	UISettings UISettings          `toml:"ui"`
 }
@@ -49,11 +49,11 @@ func NewConfigService() ConfigService {
 		}
 		configDir = filepath.Join(configDir, ".config")
 	}
-	
+
 	// Create gitagrip config directory
 	gitagripDir := filepath.Join(configDir, "gitagrip")
 	os.MkdirAll(gitagripDir, 0755)
-	
+
 	return &configService{
 		filePath: filepath.Join(gitagripDir, ".gitagrip.toml"),
 	}
@@ -72,7 +72,7 @@ func (cs *configService) Load() (*Config, error) {
 	if _, err := os.Stat(cs.filePath); os.IsNotExist(err) {
 		// Return default config if file doesn't exist
 		cfg := DefaultConfig()
-		
+
 		// Publish ConfigLoaded event if bus is available
 		if cs.bus != nil {
 			cs.bus.Publish(eventbus.ConfigLoadedEvent{
@@ -80,27 +80,27 @@ func (cs *configService) Load() (*Config, error) {
 				Groups:  cfg.Groups,
 			})
 		}
-		
+
 		return cfg, nil
 	}
-	
+
 	// Read config file
 	data, err := os.ReadFile(cs.filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	
+
 	// Parse config
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-	
+
 	// Initialize maps if nil
 	if cfg.Groups == nil {
 		cfg.Groups = make(map[string][]string)
 	}
-	
+
 	// Publish ConfigLoaded event if bus is available
 	if cs.bus != nil {
 		cs.bus.Publish(eventbus.ConfigLoadedEvent{
@@ -108,7 +108,7 @@ func (cs *configService) Load() (*Config, error) {
 			Groups:  cfg.Groups,
 		})
 	}
-	
+
 	return &cfg, nil
 }
 
@@ -119,23 +119,23 @@ func (cs *configService) Save(config *Config) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
-	
+
 	// Marshal config to TOML
 	data, err := toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	
+
 	// Write to file
 	if err := os.WriteFile(cs.filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	// Publish ConfigSaved event if bus is available
 	if cs.bus != nil {
 		cs.bus.Publish(eventbus.ConfigSavedEvent{})
 	}
-	
+
 	return nil
 }
 
@@ -145,24 +145,24 @@ func (cs *configService) LoadFromPath(path string) (*Config, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file not found: %s", path)
 	}
-	
+
 	// Read config file
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	
+
 	// Parse config
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-	
+
 	// Initialize maps if nil
 	if cfg.Groups == nil {
 		cfg.Groups = make(map[string][]string)
 	}
-	
+
 	return &cfg, nil
 }
 
@@ -173,18 +173,18 @@ func (cs *configService) SaveToPath(config *Config, path string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
-	
+
 	// Marshal config to TOML
 	data, err := toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	
+
 	// Write to file
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -195,7 +195,7 @@ func DefaultConfig() *Config {
 	if err != nil {
 		homeDir = "."
 	}
-	
+
 	return &Config{
 		Version: 1,
 		BaseDir: homeDir,

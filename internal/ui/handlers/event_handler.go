@@ -18,16 +18,16 @@ type TickMsg time.Time
 
 // EventHandler handles domain events and updates state
 type EventHandler struct {
-	state         *state.AppState
-	searchFilter  *logic.SearchFilter
+	state              *state.AppState
+	searchFilter       *logic.SearchFilter
 	updateOrderedLists func()
 }
 
 // NewEventHandler creates a new event handler
 func NewEventHandler(appState *state.AppState, updateOrderedLists func()) *EventHandler {
 	return &EventHandler{
-		state:         appState,
-		searchFilter:  logic.NewSearchFilter(appState.Repositories),
+		state:              appState,
+		searchFilter:       logic.NewSearchFilter(appState.Repositories),
 		updateOrderedLists: updateOrderedLists,
 	}
 }
@@ -87,7 +87,7 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.FetchCompletedEvent:
 		// Clear fetching state for this repo
 		h.state.SetFetching([]string{e.RepoPath}, false)
-		
+
 		// Update status message
 		if e.Success {
 			h.state.StatusMessage = fmt.Sprintf("Fetch completed for %s", e.RepoPath)
@@ -98,14 +98,14 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.PullCompletedEvent:
 		// Clear pulling state for this repo
 		h.state.SetPulling([]string{e.RepoPath}, false)
-		
+
 		// Update status message
 		if e.Success {
 			h.state.StatusMessage = fmt.Sprintf("Pull completed for %s", e.RepoPath)
 		} else {
 			h.state.StatusMessage = fmt.Sprintf("Pull failed for %s: %v", e.RepoPath, e.Error)
 		}
-		
+
 	case eventbus.CommandExecutedEvent:
 		// Store command log in the repository
 		if repo, ok := h.state.Repositories[e.RepoPath]; ok {
@@ -119,12 +119,12 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 				Duration:  e.Duration,
 			}
 			repo.CommandLogs = append(repo.CommandLogs, log)
-			
+
 			// Keep only last 50 logs
 			if len(repo.CommandLogs) > 50 {
 				repo.CommandLogs = repo.CommandLogs[len(repo.CommandLogs)-50:]
 			}
-			
+
 			// Update error state
 			if !e.Success {
 				repo.HasError = true

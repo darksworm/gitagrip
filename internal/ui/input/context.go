@@ -1,17 +1,17 @@
 package input
 
 import (
+	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/repositories"
 	"gitagrip/internal/ui/state"
-	"gitagrip/internal/ui/logic"
 )
 
 // ModelContext implements the Context interface for the input handler
 type ModelContext struct {
-	State         *state.AppState
-	Store         repositories.RepositoryStore
-	Navigator     *logic.Navigator
-	CurrentSort   logic.SortMode
+	State       *state.AppState
+	Store       repositories.RepositoryStore
+	Navigator   *logic.Navigator
+	CurrentSort logic.SortMode
 }
 
 // CurrentIndex returns the current selected index
@@ -57,7 +57,7 @@ func (c *ModelContext) CurrentRepositoryPath() string {
 // GetRepoPathAtIndex returns the repo path at the given index
 func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 	currentIdx := 0
-	
+
 	// Check grouped repos
 	for i, groupName := range c.State.OrderedGroups {
 		if currentIdx == index {
@@ -65,7 +65,7 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 			return ""
 		}
 		currentIdx++
-		
+
 		if c.State.ExpandedGroups[groupName] {
 			group := c.State.Groups[groupName]
 			if group != nil {
@@ -77,7 +77,7 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 				}
 			}
 		}
-		
+
 		// Add gap after group unless it's the hidden group at the end
 		isLastGroup := i == len(c.State.OrderedGroups)-1
 		isHiddenGroup := groupName == "_Hidden"
@@ -89,7 +89,7 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 			currentIdx++ // Gap after group
 		}
 	}
-	
+
 	// Check ungrouped repos
 	ungrouped := c.State.Groups["Ungrouped"]
 	if ungrouped != nil && len(ungrouped.Repos) > 0 && c.State.ExpandedGroups["Ungrouped"] {
@@ -98,7 +98,7 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 			return ""
 		}
 		currentIdx++
-		
+
 		for _, repoPath := range ungrouped.Repos {
 			if currentIdx == index {
 				return repoPath
@@ -106,7 +106,7 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 			currentIdx++
 		}
 	}
-	
+
 	return ""
 }
 
@@ -114,21 +114,21 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 func (c *ModelContext) IsOnGroup() bool {
 	currentIdx := 0
 	targetIdx := c.CurrentIndex()
-	
+
 	// Check grouped repos
 	for i, groupName := range c.State.OrderedGroups {
 		if currentIdx == targetIdx {
 			return true // On a group header
 		}
 		currentIdx++
-		
+
 		if c.State.ExpandedGroups[groupName] {
 			group := c.State.Groups[groupName]
 			if group != nil {
 				currentIdx += len(group.Repos)
 			}
 		}
-		
+
 		// Add gap after group unless it's the hidden group at the end
 		isLastGroup := i == len(c.State.OrderedGroups)-1
 		isHiddenGroup := groupName == "_Hidden"
@@ -136,7 +136,7 @@ func (c *ModelContext) IsOnGroup() bool {
 			currentIdx++ // Gap after group
 		}
 	}
-	
+
 	// Check ungrouped header
 	ungrouped := c.State.Groups["Ungrouped"]
 	if ungrouped != nil && len(ungrouped.Repos) > 0 && c.State.ExpandedGroups["Ungrouped"] {
@@ -144,7 +144,7 @@ func (c *ModelContext) IsOnGroup() bool {
 			return true // On ungrouped header
 		}
 	}
-	
+
 	return false
 }
 
@@ -152,21 +152,21 @@ func (c *ModelContext) IsOnGroup() bool {
 func (c *ModelContext) CurrentGroupName() string {
 	currentIdx := 0
 	targetIdx := c.CurrentIndex()
-	
+
 	// Check grouped repos
 	for i, groupName := range c.State.OrderedGroups {
 		if currentIdx == targetIdx {
 			return groupName // On a group header
 		}
 		currentIdx++
-		
+
 		if c.State.ExpandedGroups[groupName] {
 			group := c.State.Groups[groupName]
 			if group != nil {
 				currentIdx += len(group.Repos)
 			}
 		}
-		
+
 		// Add gap after group unless it's the hidden group at the end
 		isLastGroup := i == len(c.State.OrderedGroups)-1
 		isHiddenGroup := groupName == "_Hidden"
@@ -174,7 +174,7 @@ func (c *ModelContext) CurrentGroupName() string {
 			currentIdx++ // Gap after group
 		}
 	}
-	
+
 	// Check ungrouped header
 	ungrouped := c.State.Groups["Ungrouped"]
 	if ungrouped != nil && len(ungrouped.Repos) > 0 && c.State.ExpandedGroups["Ungrouped"] {
@@ -182,7 +182,7 @@ func (c *ModelContext) CurrentGroupName() string {
 			return "Ungrouped"
 		}
 	}
-	
+
 	return ""
 }
 

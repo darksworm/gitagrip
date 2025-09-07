@@ -1,8 +1,8 @@
 package modes
 
 import (
-	"github.com/charmbracelet/bubbles/textinput"
 	"gitagrip/internal/ui/input/types"
+	"github.com/charmbracelet/bubbles/textinput"
 )
 
 type SearchMode struct {
@@ -19,7 +19,7 @@ func NewSearchMode(ti *textinput.Model) *SearchMode {
 func (m *SearchMode) Enter(ctx types.Context) []types.Action {
 	// First call the base Enter to handle text input setup
 	actions := m.TextInputMode.Enter(ctx)
-	
+
 	// Then expand all groups
 	return append(actions, types.ExpandAllGroupsAction{})
 }

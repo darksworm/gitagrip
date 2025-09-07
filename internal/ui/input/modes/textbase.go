@@ -1,9 +1,9 @@
 package modes
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/textinput"
 	"gitagrip/internal/ui/input/types"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // TextInputMode is a base for modes that accept text input
@@ -48,14 +48,14 @@ func (m TextInputMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Act
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return []types.Action{types.QuitAction{Force: true}}, true
-		
+
 	case tea.KeyEsc:
 		// Cancel and return to normal mode
 		return []types.Action{
 			types.CancelTextAction{},
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	case tea.KeyEnter:
 		// Submit the text
 		text := ""
@@ -66,7 +66,7 @@ func (m TextInputMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Act
 			types.SubmitTextAction{Text: text, Mode: m.mode},
 			types.ChangeModeAction{Mode: types.ModeNormal},
 		}, true
-		
+
 	default:
 		// Let the main handler update the text input
 		// Returning false here means the input handler will process it

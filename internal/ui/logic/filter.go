@@ -23,15 +23,15 @@ func (sf *SearchFilter) MatchesFilter(repo *domain.Repository, groupName string,
 	if filterQuery == "" {
 		return true
 	}
-	
+
 	query := strings.ToLower(filterQuery)
-	
+
 	// Check if it's a status filter
 	if strings.HasPrefix(query, "status:") {
 		statusFilter := strings.TrimPrefix(query, "status:")
 		return sf.MatchesStatusFilter(repo, statusFilter)
 	}
-	
+
 	// Regular filter - check name, path, branch, group
 	return strings.Contains(strings.ToLower(repo.Name), query) ||
 		strings.Contains(strings.ToLower(repo.Path), query) ||
@@ -44,12 +44,12 @@ func (sf *SearchFilter) MatchesGroupFilter(groupName string, filterQuery string)
 	if filterQuery == "" {
 		return true
 	}
-	
+
 	// Status filters don't match group names
 	if strings.HasPrefix(filterQuery, "status:") {
 		return false
 	}
-	
+
 	query := strings.ToLower(filterQuery)
 	return strings.Contains(strings.ToLower(groupName), query)
 }
@@ -96,7 +96,7 @@ func (sf *SearchFilter) PerformSearch(query string, orderedGroups []string, grou
 	var results []SearchResult
 	lowerQuery := strings.ToLower(query)
 	currentIndex := 0
-	
+
 	// Check if it's a status filter
 	isStatusFilter := false
 	statusFilter := ""
@@ -104,7 +104,7 @@ func (sf *SearchFilter) PerformSearch(query string, orderedGroups []string, grou
 		isStatusFilter = true
 		statusFilter = strings.TrimPrefix(lowerQuery, "status:")
 	}
-	
+
 	// Search in groups first
 	for _, groupName := range orderedGroups {
 		// Check group name (only for non-status searches)
@@ -112,7 +112,7 @@ func (sf *SearchFilter) PerformSearch(query string, orderedGroups []string, grou
 			results = append(results, SearchResult{Index: currentIndex, Type: ResultTypeGroup})
 		}
 		currentIndex++
-		
+
 		// Check repos in group if expanded
 		if expandedGroups[groupName] {
 			group := groups[groupName]
@@ -136,7 +136,7 @@ func (sf *SearchFilter) PerformSearch(query string, orderedGroups []string, grou
 			}
 		}
 	}
-	
+
 	// Search in ungrouped repos
 	for _, repoPath := range ungroupedRepoPaths {
 		if repo, ok := sf.repositories[repoPath]; ok {
@@ -156,6 +156,6 @@ func (sf *SearchFilter) PerformSearch(query string, orderedGroups []string, grou
 		}
 		currentIndex++
 	}
-	
+
 	return results
 }

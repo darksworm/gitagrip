@@ -1,8 +1,8 @@
 package modes
 
 import (
-	"github.com/charmbracelet/bubbles/textinput"
 	"gitagrip/internal/ui/input/types"
+	"github.com/charmbracelet/bubbles/textinput"
 )
 
 type MoveToGroupMode struct {
