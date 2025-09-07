@@ -40,6 +40,7 @@ type AppState struct {
 	SearchQuery     string                      // current search query
 	SearchMatches   []int                       // indices of matching items
 	SearchIndex     int                         // current match index
+	SortOptionIndex int                         // current selected sort option in sort mode
 	FilterQuery     string                      // current filter query
 	IsFiltered      bool                        // whether filter is active
 	

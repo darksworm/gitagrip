@@ -31,6 +31,7 @@ type Context interface {
 	IsOnGroup() bool
 	CurrentGroupName() string
 	SearchQuery() string
+	GetCurrentSort() string
 }
 
 // ModeHandler handles input for a specific mode

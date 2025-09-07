@@ -29,7 +29,7 @@ func New() *Handler {
 	h.modes[types.ModeNewGroup] = modes.NewNewGroupMode(h.textInput)
 	h.modes[types.ModeMoveToGroup] = modes.NewMoveToGroupMode(h.textInput)
 	h.modes[types.ModeDeleteConfirm] = modes.NewConfirmMode()
-	h.modes[types.ModeSort] = modes.NewSortMode(h.textInput)
+	h.modes[types.ModeSort] = modes.NewSortSelectMode()
 	
 	return h
 }

@@ -165,3 +165,19 @@ func (c *ModelContext) CurrentGroupName() string {
 func (c *ModelContext) SearchQuery() string {
 	return c.State.SearchQuery
 }
+
+// GetCurrentSort returns the current sort mode
+func (c *ModelContext) GetCurrentSort() string {
+	switch c.CurrentSort {
+	case logic.SortByName:
+		return "name"
+	case logic.SortByStatus:
+		return "status"
+	case logic.SortByBranch:
+		return "branch"
+	case logic.SortByGroup:
+		return "group"
+	default:
+		return "name"
+	}
+}

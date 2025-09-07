@@ -45,6 +45,11 @@ func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, 
 		return g.styles.HighlightBg.Render(line)
 	}
 	
+	// Apply dim style for hidden group
+	if group.Name == "_Hidden" {
+		return g.styles.Dim.Render(line)
+	}
+	
 	return line
 }
 

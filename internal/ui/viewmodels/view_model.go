@@ -93,5 +93,6 @@ func (vm *ViewModel) BuildViewState() views.ViewState {
 		TextInput:        vm.inputTransformer.GetInputText(),
 		InputMode:        vm.inputTransformer.GetInputModeString(),
 		UngroupedRepos:   vm.ungroupedRepos,
+		SortOptionIndex:  vm.state.SortOptionIndex,
 	}
 }

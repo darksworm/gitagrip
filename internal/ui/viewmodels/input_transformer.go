@@ -54,7 +54,8 @@ func (it *InputTransformer) GetInputText() string {
 	case InputModeFilter:
 		return "Filter: " + it.textInput.View()
 	case InputModeSort:
-		return "Sort by: " + it.textInput.View()
+		// Sort mode now uses interactive selection, not text input
+		return ""
 	default:
 		return it.textInput.View()
 	}

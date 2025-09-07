@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 
 	"gitagrip/internal/domain"
+	"gitagrip/internal/ui/input/modes"
 )
 
 // ViewState contains all the state needed for rendering
@@ -41,6 +42,7 @@ type ViewState struct {
 	TextInput       string
 	InputMode       string
 	UngroupedRepos  []string
+	SortOptionIndex int
 }
 
 // Renderer handles all view rendering
@@ -73,7 +75,11 @@ func (r *Renderer) Render(state ViewState) string {
 		content.WriteString(r.styles.Confirm.Render(fmt.Sprintf("Delete group '%s'? (y/n): ", state.DeleteTarget)))
 		content.WriteString("\n")
 	} else if state.InputMode != "" {
-		content.WriteString(state.TextInput)
+		if state.InputMode == "sort" {
+			content.WriteString(r.renderSortOptions(state))
+		} else {
+			content.WriteString(state.TextInput)
+		}
 		content.WriteString("\n")
 		content.WriteString("\n")
 	}
@@ -336,4 +342,16 @@ func (r *Renderer) matchesStatusFilter(repo *domain.Repository, filter string) b
 		// Check if it's a branch name
 		return strings.Contains(strings.ToLower(repo.Status.Branch), filter)
 	}
+}
+
+// renderSortOptions renders the sort mode selection interface
+func (r *Renderer) renderSortOptions(state ViewState) string {
+	// Show only the current sort option
+	if state.SortOptionIndex >= 0 && state.SortOptionIndex < len(modes.SortOptions) {
+		option := modes.SortOptions[state.SortOptionIndex]
+		sortLine := fmt.Sprintf("Sort by: %s - %s", option.Name, option.Description)
+		helpLine := r.styles.Dim.Render("↑/↓ or j/k to change • Enter to accept • Esc to cancel")
+		return sortLine + "\n" + helpLine
+	}
+	return ""
 }

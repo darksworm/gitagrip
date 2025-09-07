@@ -80,8 +80,18 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 	case "l":
 		return []types.Action{types.NavigateAction{Direction: "right"}}, true
 		
+	case "z":
+		// z toggles group expansion
+		if ctx.IsOnGroup() {
+			return []types.Action{types.ToggleGroupAction{}}, true
+		}
+		return nil, false
+		
 	case " ":
-		// Space toggles selection
+		// Space toggles selection on repo or selects/deselects all in group
+		if ctx.IsOnGroup() {
+			return []types.Action{types.SelectGroupAction{GroupName: ctx.CurrentGroupName()}}, true
+		}
 		return []types.Action{types.SelectAction{Index: -1}}, true
 		
 	case "a", "A":
@@ -143,6 +153,13 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		// Move to group (only if selection or on repo)
 		if ctx.HasSelection() || (ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup()) {
 			return []types.Action{types.ChangeModeAction{Mode: types.ModeMoveToGroup}}, true
+		}
+		return nil, false
+		
+	case "H":
+		// Hide selected repos or current repo
+		if ctx.HasSelection() || ctx.CurrentRepositoryPath() != "" {
+			return []types.Action{types.HideAction{}}, true
 		}
 		return nil, false
 		

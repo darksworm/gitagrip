@@ -6,13 +6,14 @@ import (
 
 // Navigator handles navigation and viewport management
 type Navigator struct {
-	selectedIndex   int
-	viewportOffset  int
-	viewportHeight  int
-	expandedGroups  map[string]bool
-	orderedGroups   []string
-	groups          map[string]*domain.Group
-	repositories    map[string]*domain.Repository
+	selectedIndex      int
+	viewportOffset     int
+	viewportHeight     int
+	expandedGroups     map[string]bool
+	orderedGroups      []string
+	groups             map[string]*domain.Group
+	repositories       map[string]*domain.Repository
+	ungroupedRepoCount int
 }
 
 // NewNavigator creates a new navigator
@@ -25,7 +26,8 @@ func NewNavigator() *Navigator {
 // UpdateState updates the navigator's state
 func (n *Navigator) UpdateState(selectedIndex, viewportOffset, viewportHeight int,
 	expandedGroups map[string]bool, orderedGroups []string,
-	groups map[string]*domain.Group, repositories map[string]*domain.Repository) {
+	groups map[string]*domain.Group, repositories map[string]*domain.Repository,
+	ungroupedRepoCount int) {
 	n.selectedIndex = selectedIndex
 	n.viewportOffset = viewportOffset
 	n.viewportHeight = viewportHeight
@@ -33,6 +35,7 @@ func (n *Navigator) UpdateState(selectedIndex, viewportOffset, viewportHeight in
 	n.orderedGroups = orderedGroups
 	n.groups = groups
 	n.repositories = repositories
+	n.ungroupedRepoCount = ungroupedRepoCount
 }
 
 // GetSelectedIndex returns the current selected index
@@ -128,7 +131,11 @@ func (n *Navigator) ensureSelectedVisible() {
 	}
 	
 	// Final validation: ensure viewport doesn't exceed bounds
-	maxOffset := totalItems - 1
+	// The maximum offset should ensure we can still fill the viewport
+	maxOffset := totalItems - effectiveHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
 	if n.viewportOffset > maxOffset {
 		n.viewportOffset = maxOffset
 	}
@@ -148,14 +155,15 @@ func (n *Navigator) calculateTotalItems() int {
 			totalItems += len(group.Repos)
 		}
 	}
-	// Then ungrouped repos (count provided externally)
-	// This is handled by the caller since we don't have direct access to ungrouped repos
+	// Add ungrouped repos
+	totalItems += n.ungroupedRepoCount
 	return totalItems
 }
 
 // CalculateTotalItemsWithUngrouped calculates total items including ungrouped repos
 func (n *Navigator) CalculateTotalItemsWithUngrouped(ungroupedReposCount int) int {
-	return n.calculateTotalItems() + ungroupedReposCount
+	// This is now redundant since calculateTotalItems includes ungrouped count
+	return n.calculateTotalItems()
 }
 
 // JumpToGroupBoundary jumps to the beginning or end of the current group

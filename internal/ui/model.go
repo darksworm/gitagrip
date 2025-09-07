@@ -28,6 +28,9 @@ import (
 	"gitagrip/internal/ui/views"
 )
 
+// Special group name for hidden repositories
+const HiddenGroupName = "_Hidden"
+
 // Key bindings
 var (
 	keyUp = key.NewBinding(
@@ -204,6 +207,7 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 
 // syncNavigatorState updates the navigator with current model state
 func (m *Model) syncNavigatorState() {
+	ungroupedCount := len(m.getUngroupedRepos())
 	m.navigator.UpdateState(
 		m.state.SelectedIndex,
 		m.state.ViewportOffset,
@@ -212,6 +216,7 @@ func (m *Model) syncNavigatorState() {
 		m.store.GetOrderedGroups(),
 		m.state.Groups,
 		m.state.Repositories,
+		ungroupedCount,
 	)
 }
 
@@ -424,7 +429,9 @@ func (m *Model) updateOrderedLists() {
 		// Sort groups alphabetically
 		m.state.OrderedGroups = make([]string, 0, len(m.state.Groups))
 		for name := range m.state.Groups {
-			m.state.OrderedGroups = append(m.state.OrderedGroups, name)
+			if name != HiddenGroupName {
+				m.state.OrderedGroups = append(m.state.OrderedGroups, name)
+			}
 		}
 		sort.Strings(m.state.OrderedGroups)
 	} else {
@@ -433,9 +440,16 @@ func (m *Model) updateOrderedLists() {
 		// Only include groups that still exist
 		for _, name := range m.state.GroupCreationOrder {
 			if _, exists := m.state.Groups[name]; exists {
-				m.state.OrderedGroups = append(m.state.OrderedGroups, name)
+				if name != HiddenGroupName {
+					m.state.OrderedGroups = append(m.state.OrderedGroups, name)
+				}
 			}
 		}
+	}
+	
+	// Always put hidden group at the end if it exists
+	if _, exists := m.state.Groups[HiddenGroupName]; exists {
+		m.state.OrderedGroups = append(m.state.OrderedGroups, HiddenGroupName)
 	}
 
 	// Update ungrouped repos cache
@@ -481,6 +495,65 @@ func (m *Model) updateOrderedLists() {
 				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 			})
 		}
+	}
+
+	// Sort repositories within each group
+	for _, group := range m.state.Groups {
+		// Create a copy of the repo paths to sort
+		sortedRepos := make([]string, len(group.Repos))
+		copy(sortedRepos, group.Repos)
+		
+		switch m.currentSort {
+		case logic.SortByName:
+			sort.Slice(sortedRepos, func(i, j int) bool {
+				repoI, okI := m.state.Repositories[sortedRepos[i]]
+				repoJ, okJ := m.state.Repositories[sortedRepos[j]]
+				if !okI || !okJ {
+					return !okI
+				}
+				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+			})
+			
+		case logic.SortByStatus:
+			sort.Slice(sortedRepos, func(i, j int) bool {
+				repoI, okI := m.state.Repositories[sortedRepos[i]]
+				repoJ, okJ := m.state.Repositories[sortedRepos[j]]
+				if !okI || !okJ {
+					return !okI
+				}
+				statusI := logic.GetStatusPriority(repoI)
+				statusJ := logic.GetStatusPriority(repoJ)
+				if statusI != statusJ {
+					return statusI > statusJ // Higher priority first
+				}
+				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+			})
+			
+		case logic.SortByBranch:
+			sort.Slice(sortedRepos, func(i, j int) bool {
+				repoI, okI := m.state.Repositories[sortedRepos[i]]
+				repoJ, okJ := m.state.Repositories[sortedRepos[j]]
+				if !okI || !okJ {
+					return !okI
+				}
+				branchI := strings.ToLower(repoI.Status.Branch)
+				branchJ := strings.ToLower(repoJ.Status.Branch)
+				if branchI != branchJ {
+					// Put main/master first
+					if branchI == "main" || branchI == "master" {
+						return true
+					}
+					if branchJ == "main" || branchJ == "master" {
+						return false
+					}
+					return branchI < branchJ
+				}
+				return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
+			})
+		}
+		
+		// Update the group's repo list with sorted order
+		group.Repos = sortedRepos
 	}
 }
 
@@ -836,6 +909,37 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			}
 		}
 
+	case inputtypes.SelectGroupAction:
+		// Toggle selection for all repos in the group
+		if group, ok := m.store.GetGroup(a.GroupName); ok {
+			// Check if all repos in group are already selected
+			allSelected := true
+			for _, repoPath := range group.Repos {
+				if !m.state.SelectedRepos[repoPath] {
+					allSelected = false
+					break
+				}
+			}
+			
+			// Toggle selection for all repos in group
+			for _, repoPath := range group.Repos {
+				if allSelected {
+					// Deselect all
+					delete(m.state.SelectedRepos, repoPath)
+				} else {
+					// Select all
+					m.state.SelectedRepos[repoPath] = true
+				}
+			}
+			
+			// Update status message
+			if allSelected {
+				m.state.StatusMessage = fmt.Sprintf("Deselected all repos in '%s'", a.GroupName)
+			} else {
+				m.state.StatusMessage = fmt.Sprintf("Selected all repos in '%s'", a.GroupName)
+			}
+		}
+
 	case inputtypes.SearchNavigateAction:
 		log.Printf("SearchNavigateAction: direction=%s, query=%s, matches=%v, currentSearchIndex=%d", 
 			a.Direction, m.state.SearchQuery, m.state.SearchMatches, m.state.SearchIndex)
@@ -1181,6 +1285,63 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 
 	case inputtypes.SortByAction:
 		m.handleSortInput(a.Criteria)
+
+	case inputtypes.UpdateSortIndexAction:
+		m.state.SortOptionIndex = a.Index
+
+	case inputtypes.HideAction:
+		// Ensure hidden group exists
+		if _, exists := m.state.Groups[HiddenGroupName]; !exists {
+			m.state.AddGroup(HiddenGroupName, []string{})
+			// Keep hidden group collapsed by default
+			m.state.ExpandedGroups[HiddenGroupName] = false
+			// Add to end of ordered groups
+			m.state.OrderedGroups = append(m.state.OrderedGroups, HiddenGroupName)
+			// Publish group added event
+			if m.bus != nil {
+				m.bus.Publish(eventbus.GroupAddedEvent{Name: HiddenGroupName})
+			}
+		}
+		
+		// Move repos to hidden group
+		var repoPaths []string
+		fromGroups := make(map[string]string)
+		
+		if m.store.GetSelectionCount() > 0 {
+			// Hide selected repos
+			for path := range m.store.GetSelectedRepositories() {
+				repoPaths = append(repoPaths, path)
+				// Find current group
+				for gName, group := range m.state.Groups {
+					for _, p := range group.Repos {
+						if p == path {
+							fromGroups[path] = gName
+							break
+						}
+					}
+				}
+			}
+			m.state.ClearSelection()
+		} else {
+			// Hide current repo
+			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+				repoPaths = []string{repoPath}
+				// Find current group
+				for gName, group := range m.state.Groups {
+					for _, p := range group.Repos {
+						if p == repoPath {
+							fromGroups[repoPath] = gName
+							break
+						}
+					}
+				}
+			}
+		}
+		
+		// Move repos to hidden group
+		if len(repoPaths) > 0 {
+			return m.cmdExecutor.ExecuteMoveToGroup(repoPaths, fromGroups, HiddenGroupName)
+		}
 
 	case inputtypes.QuitAction:
 		if !a.Force && m.config.UISettings.AutosaveOnExit && m.bus != nil {

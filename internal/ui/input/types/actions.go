@@ -22,6 +22,12 @@ type DeselectAllAction struct{}
 
 func (a DeselectAllAction) Type() string { return "deselect_all" }
 
+type SelectGroupAction struct {
+	GroupName string
+}
+
+func (a SelectGroupAction) Type() string { return "select_group" }
+
 // Mode transition actions
 type ChangeModeAction struct {
 	Mode Mode
@@ -109,9 +115,19 @@ type QuitAction struct {
 
 func (a QuitAction) Type() string { return "quit" }
 
+type HideAction struct{}
+
+func (a HideAction) Type() string { return "hide" }
+
 // Sort actions
 type SortByAction struct {
 	Criteria string
 }
 
 func (a SortByAction) Type() string { return "sort_by" }
+
+type UpdateSortIndexAction struct {
+	Index int
+}
+
+func (a UpdateSortIndexAction) Type() string { return "update_sort_index" }
