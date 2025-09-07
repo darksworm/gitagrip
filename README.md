@@ -101,8 +101,8 @@ gitagrip
 # Scan specific directory
 gitagrip --base-dir /path/to/repos
 
-# Use custom config file
-gitagrip --config ~/.config/gitagrip/custom.json
+# Specify a custom config file
+gitagrip --config /path/to/custom.toml
 ```
 
 ## ⌨️ Keyboard Shortcuts
@@ -152,31 +152,29 @@ gitagrip --config ~/.config/gitagrip/custom.json
 
 ## 📁 Configuration
 
-GitaGrip stores its configuration at:
-- **Linux**: `~/.config/gitagrip/config.json`
-- **macOS**: `~/Library/Application Support/gitagrip/config.json`
-- **Windows**: `%APPDATA%\gitagrip\config.json`
+GitaGrip stores its configuration in a `.gitagrip.toml` file in the directory being scanned. This allows different repository collections to have their own configurations.
 
 ### Example Configuration
 
-```json
-{
-  "version": 1,
-  "base_dir": "/home/user/code",
-  "ui": {
-    "show_ahead_behind": true,
-    "autosave_on_exit": true
-  },
-  "groups": {
-    "Work": [
-      "/home/user/code/project1",
-      "/home/user/code/project2"
-    ],
-    "Personal": [
-      "/home/user/code/dotfiles"
-    ]
-  }
-}
+```toml
+version = 1
+base_dir = "/home/user/code"
+
+[ui]
+show_ahead_behind = true
+autosave_on_exit = true
+
+[groups]
+Work = [
+  "/home/user/code/project1",
+  "/home/user/code/project2"
+]
+Personal = [
+  "/home/user/code/dotfiles"
+]
+
+# Group display order
+group_order = ["Work", "Personal"]
 ```
 
 ## 🖥️ Interface
@@ -253,7 +251,6 @@ internal/
 - **Event-Driven**: Services communicate via a central event bus
 - **Non-Blocking**: All I/O operations run on background goroutines
 - **Clean Architecture**: Separation of concerns with clear boundaries
-- **Comprehensive Testing**: Both unit and integration tests
 
 ### Contributing
 
@@ -280,7 +277,7 @@ Please follow conventional commits for your commit messages.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 

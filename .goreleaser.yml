@@ -99,7 +99,7 @@ brews:
   - name: gitagrip
     description: "A fast TUI application for discovering, grouping, and inspecting multiple Git repositories"
     homepage: "https://github.com/darksworm/gitagrip"
-    license: "MIT"
+    license: "GPL-3.0"
     repository:
       owner: darksworm
       name: homebrew-tap
@@ -169,7 +169,7 @@ aurs:
   - name: gitagrip-bin
     description: "A fast TUI application for discovering, grouping, and inspecting multiple Git repositories"
     homepage: "https://github.com/darksworm/gitagrip"
-    license: "MIT"
+    license: "GPL-3.0"
     private_key: "{{ .Env.AUR_SSH_PRIVATE_KEY }}"
     git_url: "ssh://aur@aur.archlinux.org/gitagrip-bin.git"
     provides:
@@ -254,7 +254,7 @@ nfpms:
     maintainer: "darksworm <bot@goreleaser.com>"
     homepage: "https://github.com/darksworm/gitagrip"
     description: "A fast TUI application for discovering, grouping, and inspecting multiple Git repositories"
-    license: MIT
+    license: GPL-3.0
     section: utils
     priority: optional
     provides:
