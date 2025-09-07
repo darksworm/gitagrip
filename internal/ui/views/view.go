@@ -67,6 +67,14 @@ func NewRenderer(showAheadBehind bool) *Renderer {
 
 // Render produces the complete view
 func (r *Renderer) Render(state ViewState) string {
+	// If loading, show only the loading screen
+	if state.LoadingState != "" {
+		loadingStyle := lipgloss.NewStyle().
+			Width(state.Width).
+			Height(state.Height)
+		return loadingStyle.Render(r.renderLoadingScreen(state))
+	}
+
 	content := &strings.Builder{}
 
 	// Title
@@ -88,9 +96,7 @@ func (r *Renderer) Render(state ViewState) string {
 	}
 
 	// Main content
-	if state.LoadingState != "" {
-		content.WriteString(r.renderLoadingScreen(state))
-	} else if state.Scanning && len(state.Repositories) == 0 {
+	if state.Scanning && len(state.Repositories) == 0 {
 		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		frame := int(time.Now().UnixMilli()/80) % len(spinner)
 		content.WriteString(r.styles.Scan.Render(fmt.Sprintf("%s Scanning for repositories...", spinner[frame])))
@@ -375,14 +381,18 @@ func (r *Renderer) renderSortOptions(state ViewState) string {
 func (r *Renderer) renderLoadingScreen(state ViewState) string {
 	lines := []string{}
 	
-	// Calculate effective viewport height (account for title and status bar)
-	effectiveHeight := state.ViewportHeight
-	if effectiveHeight < 10 {
-		effectiveHeight = 10 // Minimum height
+	// Use full window height for centering
+	fullHeight := state.Height
+	if fullHeight < 10 {
+		fullHeight = 10 // Minimum height
 	}
 	
 	// Center the content vertically
-	topPadding := effectiveHeight / 3
+	topPadding := (fullHeight - 6) / 2 // 6 lines for content (title + spacing + loading + spacing + hint)
+	if topPadding < 0 {
+		topPadding = 0
+	}
+	
 	for i := 0; i < topPadding; i++ {
 		lines = append(lines, "")
 	}
@@ -415,9 +425,9 @@ func (r *Renderer) renderLoadingScreen(state ViewState) string {
 		lines = append(lines, hintStyle.Render("This may take a moment for large directories"))
 	}
 	
-	// Fill the rest with empty lines
+	// Fill the rest with empty lines to ensure full height
 	currentLines := len(lines)
-	for i := currentLines; i < effectiveHeight; i++ {
+	for i := currentLines; i < fullHeight; i++ {
 		lines = append(lines, "")
 	}
 	
