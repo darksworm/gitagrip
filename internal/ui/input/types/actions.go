@@ -103,6 +103,10 @@ type ToggleGroupAction struct{}
 
 func (a ToggleGroupAction) Type() string { return "toggle_group" }
 
+type ExpandAllGroupsAction struct{}
+
+func (a ExpandAllGroupsAction) Type() string { return "expand_all_groups" }
+
 type MoveGroupUpAction struct{}
 
 func (a MoveGroupUpAction) Type() string { return "move_group_up" }

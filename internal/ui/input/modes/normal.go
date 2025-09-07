@@ -220,6 +220,13 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		}
 		return nil, false
 		
+	case "esc":
+		// Clear selection if any, otherwise do nothing
+		if ctx.HasSelection() {
+			return []types.Action{types.DeselectAllAction{}}, true
+		}
+		return nil, true // Consume the key even if no action
+		
 	case "q":
 		// Quit
 		return []types.Action{types.QuitAction{Force: false}}, true

@@ -1247,6 +1247,15 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.ToggleHelpAction:
 		m.state.ShowHelp = !m.state.ShowHelp
 
+	case inputtypes.ExpandAllGroupsAction:
+		// Expand all groups (except hidden)
+		for groupName := range m.state.Groups {
+			if groupName != HiddenGroupName {
+				m.state.ExpandedGroups[groupName] = true
+			}
+		}
+		m.ensureSelectedVisible()
+
 	case inputtypes.ToggleGroupAction:
 		// First try to get the group if we're on a group header
 		groupName := m.getSelectedGroup()

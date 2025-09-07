@@ -14,3 +14,12 @@ func NewSearchMode(ti *textinput.Model) *SearchMode {
 		TextInputMode: NewTextInputMode(types.ModeSearch, "search", "Search: ", ti),
 	}
 }
+
+// Enter overrides the base Enter to expand all groups for better search visibility
+func (m *SearchMode) Enter(ctx types.Context) []types.Action {
+	// First call the base Enter to handle text input setup
+	actions := m.TextInputMode.Enter(ctx)
+	
+	// Then expand all groups
+	return append(actions, types.ExpandAllGroupsAction{})
+}
