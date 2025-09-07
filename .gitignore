@@ -35,3 +35,7 @@ gitagrip.log
 # Temporary files
 tmp/
 temp/
+
+# GoReleaser
+dist/
+.goreleaser.yml.bak

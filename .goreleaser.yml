@@ -1,0 +1,269 @@
+version: 2
+
+project_name: gitagrip
+
+# Global hooks
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+# Go builds for multiple platforms
+builds:
+  - id: linux-amd64
+    binary: gitagrip
+    main: ./main.go
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+        
+  - id: linux-arm64
+    binary: gitagrip
+    main: ./main.go
+    goos:
+      - linux
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+        
+  - id: darwin-amd64
+    binary: gitagrip
+    main: ./main.go
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+        
+  - id: darwin-arm64
+    binary: gitagrip
+    main: ./main.go
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+        
+  - id: windows-amd64
+    binary: gitagrip
+    main: ./main.go
+    goos:
+      - windows
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+        
+  - id: windows-arm64
+    binary: gitagrip
+    main: ./main.go
+    goos:
+      - windows
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+# Package artifacts
+archives:
+  - id: standard
+    name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+
+# Homebrew
+brews:
+  - name: gitagrip
+    description: "A fast TUI application for discovering, grouping, and inspecting multiple Git repositories"
+    homepage: "https://github.com/darksworm/gitagrip"
+    license: "MIT"
+    repository:
+      owner: darksworm
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    folder: Formula
+    install: |
+      bin.install "gitagrip"
+    test: |
+      system "#{bin}/gitagrip", "--version"
+
+# Release config
+release:
+  draft: false
+  prerelease: auto
+  name_template: "{{ .Tag }}"
+  footer: |
+    ## Installation
+
+    ### macOS/Linux via Homebrew
+    ```bash
+    brew tap darksworm/homebrew-tap
+    brew install gitagrip
+    ```
+
+    ### Download binary
+    Download the appropriate binary for your platform from the assets below.
+
+    ### Build from source
+    ```bash
+    go install github.com/darksworm/gitagrip@latest
+    ```
+
+# Changelog
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore"
+      - "merge conflict"
+      - "Merge pull request"
+      - "Merge remote-tracking branch"
+      - "Merge branch"
+  groups:
+    - title: "New Features"
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: "Bug Fixes"
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: "Performance Improvements"
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: "Documentation"
+      regexp: "^.*docs[(\\w)]*:+.*$"
+      order: 3
+    - title: "Other Changes"
+      order: 999
+
+checksum:
+  name_template: "checksums.txt"
+
+# AUR support
+aurs:
+  - name: gitagrip-bin
+    description: "A fast TUI application for discovering, grouping, and inspecting multiple Git repositories"
+    homepage: "https://github.com/darksworm/gitagrip"
+    license: "MIT"
+    private_key: "{{ .Env.AUR_SSH_PRIVATE_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/gitagrip-bin.git"
+    provides:
+      - gitagrip
+    conflicts:
+      - gitagrip
+    skip_upload: false
+    commit_msg_template: "upgpkg: {{ .ProjectName }} {{ .Version }}"
+    package: |
+      _binname="gitagrip"
+      install -Dm755 "./${_binname}" "${pkgdir}/usr/bin/${_binname}"
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/${_binname}/LICENSE"
+      install -Dm644 "./README.md" "${pkgdir}/usr/share/doc/${_binname}/README.md"
+      if [ -f "./CHANGELOG.md" ]; then
+        install -Dm644 "./CHANGELOG.md" "${pkgdir}/usr/share/doc/${_binname}/CHANGELOG.md"
+      fi
+    commit_author:
+      name: goreleaser
+      email: bot@goreleaser.com
+
+# Nix support
+nix:
+  - name: gitagrip
+    ids: [ standard ]
+    goamd64: v1
+    repository:
+      owner: darksworm
+      name: nur-packages
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+
+# Docker images
+dockers:
+  - id: docker-amd64
+    dockerfile: Dockerfile
+    ids: [linux-amd64]
+    image_templates:
+      - "ghcr.io/darksworm/gitagrip:{{ .Version }}-amd64"
+      - "ghcr.io/darksworm/gitagrip:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/darksworm/gitagrip"
+      
+  - id: docker-arm64
+    dockerfile: Dockerfile
+    ids: [linux-arm64]
+    image_templates:
+      - "ghcr.io/darksworm/gitagrip:{{ .Version }}-arm64"
+      - "ghcr.io/darksworm/gitagrip:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/darksworm/gitagrip"
+
+# Docker manifest for multi-arch
+docker_manifests:
+  - name_template: "ghcr.io/darksworm/gitagrip:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/darksworm/gitagrip:{{ .Version }}-amd64"
+      - "ghcr.io/darksworm/gitagrip:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/darksworm/gitagrip:latest"
+    image_templates:
+      - "ghcr.io/darksworm/gitagrip:latest-amd64"
+      - "ghcr.io/darksworm/gitagrip:latest-arm64"
+
+# Linux packages
+nfpms:
+  - id: linux-packages
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    maintainer: "darksworm <bot@goreleaser.com>"
+    homepage: "https://github.com/darksworm/gitagrip"
+    description: "A fast TUI application for discovering, grouping, and inspecting multiple Git repositories"
+    license: MIT
+    section: utils
+    priority: optional
+    provides:
+      - gitagrip
+
+# Snapshot releases
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+# Announce to users (optional)
+announce:
+  skip: true
