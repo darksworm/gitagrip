@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/darksworm/gitagrip/compare/v1.0.0...v1.0.1) (2025-09-07)
+
+
+### Bug Fixes
+
+* trigger release process ([c92b2e2](https://github.com/darksworm/gitagrip/commit/c92b2e2d3eef03b3b4ca2b85344f698c48f7271b))
+
 ## 1.0.0 (2025-09-07)
 
 
