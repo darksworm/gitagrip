@@ -226,13 +226,8 @@ func (m *Model) Init() tea.Cmd {
 	m.state.ViewportHeight = 20 // Will be updated on first WindowSizeMsg
 	
 	// If no repositories exist, show loading state
-	if len(m.state.Repositories) == 0 {
-		// Check if we have groups defined, which would mean auto-grouping is happening
-		if len(m.config.Groups) > 0 {
-			m.state.LoadingState = "Setting up repository groups..."
-		} else {
-			m.state.LoadingState = "Initializing..."
-		}
+	if len(m.state.Repositories) == 0 && !m.state.Scanning {
+		m.state.LoadingState = "Initializing..."
 	}
 	
 	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
@@ -1404,6 +1399,11 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tickMsg:
+		// Clear loading state if we have repositories and scan is not running
+		if m.state.LoadingState != "" && len(m.state.Repositories) > 0 && !m.state.Scanning {
+			m.state.LoadingState = ""
+			m.state.LoadingCount = 0
+		}
 		return m, tick()
 
 	case gitLogMsg:

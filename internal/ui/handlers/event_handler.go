@@ -40,15 +40,8 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 		// Update searchFilter with new repositories
 		h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
 		// Update loading count if we're in loading state
-		if h.state.LoadingState != "" && h.state.LoadingState != "Setting up repository groups..." {
+		if h.state.LoadingState != "" {
 			h.state.LoadingCount = len(h.state.Repositories)
-		}
-		// Clear the initial loading state once we have some repositories
-		if h.state.LoadingState == "Setting up repository groups..." || h.state.LoadingState == "Initializing..." {
-			if len(h.state.Repositories) > 0 {
-				h.state.LoadingState = ""
-				h.state.LoadingCount = 0
-			}
 		}
 
 	case eventbus.StatusUpdatedEvent:
@@ -99,11 +92,9 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.ScanCompletedEvent:
 		h.state.Scanning = false
 		h.state.StatusMessage = fmt.Sprintf("Scan complete. Found %d repositories.", e.ReposFound)
-		// Clear loading state once we have repos
-		if e.ReposFound > 0 {
-			h.state.LoadingState = ""
-			h.state.LoadingCount = 0
-		}
+		// Clear loading state when scan completes
+		h.state.LoadingState = ""
+		h.state.LoadingCount = 0
 
 	case eventbus.FetchCompletedEvent:
 		// Clear fetching state for this repo

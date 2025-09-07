@@ -415,14 +415,18 @@ func (r *Renderer) renderLoadingScreen(state ViewState) string {
 	lines = append(lines, loadingStyle.Render(loadingLine))
 	
 	// Hint
-	if state.LoadingState == "Setting up repository groups..." {
+	if state.LoadingState == "Initializing..." {
 		lines = append(lines, "")
 		hintStyle := r.styles.Dim.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
-		lines = append(lines, hintStyle.Render("Analyzing directory structure for automatic grouping"))
+		lines = append(lines, hintStyle.Render("Setting up GitaGrip"))
 	} else if state.LoadingState == "Scanning for repositories..." {
 		lines = append(lines, "")
 		hintStyle := r.styles.Dim.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
-		lines = append(lines, hintStyle.Render("This may take a moment for large directories"))
+		if state.LoadingCount > 0 {
+			lines = append(lines, hintStyle.Render("Analyzing directory structure and grouping repositories"))
+		} else {
+			lines = append(lines, hintStyle.Render("Looking for Git repositories..."))
+		}
 	}
 	
 	// Fill the rest with empty lines to ensure full height
