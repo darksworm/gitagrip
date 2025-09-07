@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/darksworm/gitagrip/compare/v1.0.5...v1.0.6) (2025-09-07)
+
+
+### Bug Fixes
+
+* correct CLI usage documentation and simplify Docker usage ([08691e1](https://github.com/darksworm/gitagrip/commit/08691e147ee43d3aa968b4f183e7860e4dbbfbc4))
+
 ## [1.0.5](https://github.com/darksworm/gitagrip/compare/v1.0.4...v1.0.5) (2025-09-07)
 
 
