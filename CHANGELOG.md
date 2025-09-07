@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.4](https://github.com/darksworm/gitagrip/compare/v1.0.3...v1.0.4) (2025-09-07)
+
+
+### Bug Fixes
+
+* add platform argument to Dockerfile for multi-arch builds ([fdb7c18](https://github.com/darksworm/gitagrip/commit/fdb7c1871c13c43a0d2b6b85a4f7e2101c8dcd57))
+* update govulncheck to latest version ([a4eb4ba](https://github.com/darksworm/gitagrip/commit/a4eb4bad57b76917f9b72e98016ba4cedc24d78d))
+* update staticcheck to 2025.1 ([ca48545](https://github.com/darksworm/gitagrip/commit/ca48545e9e68181908472962a360b2b3d3dbcdf0))
+
 ## [1.0.3](https://github.com/darksworm/gitagrip/compare/v1.0.2...v1.0.3) (2025-09-07)
 
 
