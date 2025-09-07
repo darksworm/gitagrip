@@ -81,8 +81,8 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.NavigateAction{Direction: "right"}}, true
 		
 	case "z":
-		// z toggles group expansion
-		if ctx.IsOnGroup() {
+		// z toggles group expansion (works on group header or repo in group)
+		if ctx.IsOnGroup() || ctx.GetRepoPathAtIndex(ctx.CurrentIndex()) != "" {
 			return []types.Action{types.ToggleGroupAction{}}, true
 		}
 		return nil, false

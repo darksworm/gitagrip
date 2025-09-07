@@ -1105,18 +1105,27 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				for path := range m.store.GetSelectedRepositories() {
 					repoPaths = append(repoPaths, path)
 				}
-			} else if groupName := m.getSelectedGroup(); groupName != "" {
-				// Refresh all repos in the selected group
-				if group, ok := m.store.GetGroup(groupName); ok {
-					for _, repoPath := range group.Repos {
-						repoPaths = append(repoPaths, repoPath)
-					}
-					m.state.StatusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
-				}
 			} else {
-				// Refresh current repository
-				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-					repoPaths = []string{repoPath}
+				// Check if we're on a group header first
+				groupName := m.getSelectedGroup()
+				if groupName == "" {
+					// If not on a group header, check if we're on a repo within a group
+					groupName = m.getGroupAtIndex(m.state.SelectedIndex)
+				}
+				
+				if groupName != "" && groupName != "Ungrouped" {
+					// Refresh all repos in the group
+					if group, ok := m.store.GetGroup(groupName); ok {
+						for _, repoPath := range group.Repos {
+							repoPaths = append(repoPaths, repoPath)
+						}
+						m.state.StatusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
+					}
+				} else {
+					// Refresh current repository
+					if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+						repoPaths = []string{repoPath}
+					}
 				}
 			}
 			return m.cmdExecutor.ExecuteRefresh(repoPaths)
@@ -1129,18 +1138,27 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			for path := range m.store.GetSelectedRepositories() {
 				repoPaths = append(repoPaths, path)
 			}
-		} else if groupName := m.getSelectedGroup(); groupName != "" {
-			// Fetch all repos in the selected group
-			if group, ok := m.store.GetGroup(groupName); ok {
-				for _, repoPath := range group.Repos {
-					repoPaths = append(repoPaths, repoPath)
-				}
-				m.state.StatusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
-			}
 		} else {
-			// Fetch current repository
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				repoPaths = []string{repoPath}
+			// Check if we're on a group header first
+			groupName := m.getSelectedGroup()
+			if groupName == "" {
+				// If not on a group header, check if we're on a repo within a group
+				groupName = m.getGroupAtIndex(m.state.SelectedIndex)
+			}
+			
+			if groupName != "" && groupName != "Ungrouped" {
+				// Fetch all repos in the group
+				if group, ok := m.store.GetGroup(groupName); ok {
+					for _, repoPath := range group.Repos {
+						repoPaths = append(repoPaths, repoPath)
+					}
+					m.state.StatusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
+				}
+			} else {
+				// Fetch current repository
+				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+					repoPaths = []string{repoPath}
+				}
 			}
 		}
 		return m.cmdExecutor.ExecuteFetch(repoPaths)
@@ -1152,18 +1170,27 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			for path := range m.store.GetSelectedRepositories() {
 				repoPaths = append(repoPaths, path)
 			}
-		} else if groupName := m.getSelectedGroup(); groupName != "" {
-			// Pull all repos in the selected group
-			if group, ok := m.store.GetGroup(groupName); ok {
-				for _, repoPath := range group.Repos {
-					repoPaths = append(repoPaths, repoPath)
-				}
-				m.state.StatusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
-			}
 		} else {
-			// Pull current repository
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-				repoPaths = []string{repoPath}
+			// Check if we're on a group header first
+			groupName := m.getSelectedGroup()
+			if groupName == "" {
+				// If not on a group header, check if we're on a repo within a group
+				groupName = m.getGroupAtIndex(m.state.SelectedIndex)
+			}
+			
+			if groupName != "" && groupName != "Ungrouped" {
+				// Pull all repos in the group
+				if group, ok := m.store.GetGroup(groupName); ok {
+					for _, repoPath := range group.Repos {
+						repoPaths = append(repoPaths, repoPath)
+					}
+					m.state.StatusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
+				}
+			} else {
+				// Pull current repository
+				if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+					repoPaths = []string{repoPath}
+				}
 			}
 		}
 		return m.cmdExecutor.ExecutePull(repoPaths)
