@@ -225,10 +225,8 @@ func (m *Model) Init() tea.Cmd {
 	// Initialize viewport with reasonable defaults
 	m.state.ViewportHeight = 20 // Will be updated on first WindowSizeMsg
 	
-	// If no repositories exist, show loading state
-	if len(m.state.Repositories) == 0 && !m.state.Scanning {
-		m.state.LoadingState = "Initializing..."
-	}
+	// Always show loading state on startup
+	m.state.LoadingState = "Loading repositories..."
 	
 	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
 		return tickMsg(t)
@@ -1399,11 +1397,7 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tickMsg:
-		// Clear loading state if we have repositories and scan is not running
-		if m.state.LoadingState != "" && len(m.state.Repositories) > 0 && !m.state.Scanning {
-			m.state.LoadingState = ""
-			m.state.LoadingCount = 0
-		}
+		// Don't clear loading state automatically - let scan completion handle it
 		return m, tick()
 
 	case gitLogMsg:

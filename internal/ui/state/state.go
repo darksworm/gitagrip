@@ -9,6 +9,7 @@ type AppState struct {
 	// Repository data
 	Repositories   map[string]*domain.Repository // path -> repo
 	OrderedRepos   []string                      // ordered repo paths for display
+	PendingRepos   map[string]*domain.Repository // repos discovered during scanning
 	
 	// Group data
 	Groups              map[string]*domain.Group      // name -> group
@@ -55,6 +56,7 @@ func NewAppState() *AppState {
 	return &AppState{
 		Repositories:     make(map[string]*domain.Repository),
 		OrderedRepos:     make([]string, 0),
+		PendingRepos:     make(map[string]*domain.Repository),
 		Groups:           make(map[string]*domain.Group),
 		OrderedGroups:    make([]string, 0),
 		GroupCreationOrder: make([]string, 0),

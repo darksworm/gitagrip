@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/state"
@@ -34,20 +35,29 @@ func NewEventHandler(appState *state.AppState, updateOrderedLists func()) *Event
 func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	switch e := event.(type) {
 	case eventbus.RepoDiscoveredEvent:
-		// Add or update repository
-		h.state.AddRepository(&e.Repo)
-		h.updateOrderedLists()
-		// Update searchFilter with new repositories
-		h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
-		// Update loading count if we're in loading state
-		if h.state.LoadingState != "" {
-			h.state.LoadingCount = len(h.state.Repositories)
+		// During scanning, add to pending repos to avoid UI jitter
+		if h.state.Scanning || h.state.LoadingState != "" {
+			h.state.PendingRepos[e.Repo.Path] = &e.Repo
+			h.state.LoadingCount = len(h.state.PendingRepos)
+		} else {
+			// Normal operation - add directly
+			h.state.AddRepository(&e.Repo)
+			h.updateOrderedLists()
+			// Update searchFilter with new repositories
+			h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
 		}
 
 	case eventbus.StatusUpdatedEvent:
-		// Update repository status
-		if repo, ok := h.state.Repositories[e.RepoPath]; ok {
-			repo.Status = e.Status
+		// During loading, update pending repos
+		if h.state.LoadingState != "" {
+			if repo, ok := h.state.PendingRepos[e.RepoPath]; ok {
+				repo.Status = e.Status
+			}
+		} else {
+			// Normal operation - update repository status
+			if repo, ok := h.state.Repositories[e.RepoPath]; ok {
+				repo.Status = e.Status
+			}
 		}
 		// Clear operation states
 		h.state.ClearOperationState(e.RepoPath)
@@ -91,8 +101,20 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 
 	case eventbus.ScanCompletedEvent:
 		h.state.Scanning = false
+		
+		// Apply all pending repositories at once
+		for _, repo := range h.state.PendingRepos {
+			h.state.AddRepository(repo)
+		}
+		// Clear pending repos
+		h.state.PendingRepos = make(map[string]*domain.Repository)
+		
+		// Update ordered lists and search filter once
+		h.updateOrderedLists()
+		h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
+		
 		h.state.StatusMessage = fmt.Sprintf("Scan complete. Found %d repositories.", e.ReposFound)
-		// Clear loading state when scan completes
+		// Always clear loading state when scan completes
 		h.state.LoadingState = ""
 		h.state.LoadingCount = 0
 
