@@ -214,13 +214,6 @@ func (gs *gitService) RefreshRepo(ctx context.Context, repoPath string) (domain.
 	status.AheadCount = ahead
 	status.BehindCount = behind
 	
-	// Get stash count
-	stashCount, err := gs.getStashCount(ctx, repoPath)
-	if err != nil {
-		log.Printf("Failed to get stash count for %s: %v", repoPath, err)
-	}
-	status.StashCount = stashCount
-	
 	// Publish status update
 	gs.publishStatus(repoPath, status)
 	
@@ -390,6 +383,8 @@ func (gs *gitService) getAheadBehind(ctx context.Context, repoPath string, branc
 
 // fetchRepo performs a git fetch operation on the repository
 func (gs *gitService) fetchRepo(ctx context.Context, repoPath string) error {
+	startTime := time.Now()
+	
 	// Acquire worker slot
 	select {
 	case gs.workerPool <- struct{}{}:
@@ -403,9 +398,29 @@ func (gs *gitService) fetchRepo(ctx context.Context, repoPath string) error {
 	cmd.Dir = repoPath
 	
 	output, err := cmd.CombinedOutput()
+	duration := time.Since(startTime).Milliseconds()
+	
+	// Emit command log event
 	if err != nil {
+		gs.bus.Publish(eventbus.CommandExecutedEvent{
+			RepoPath: repoPath,
+			Command:  "fetch",
+			Success:  false,
+			Output:   string(output),
+			Error:    err.Error(),
+			Duration: duration,
+		})
 		return fmt.Errorf("git fetch failed: %v\nOutput: %s", err, output)
 	}
+	
+	gs.bus.Publish(eventbus.CommandExecutedEvent{
+		RepoPath: repoPath,
+		Command:  "fetch",
+		Success:  true,
+		Output:   string(output),
+		Error:    "",
+		Duration: duration,
+	})
 	
 	log.Printf("Fetched %s successfully", repoPath)
 	return nil
@@ -413,6 +428,8 @@ func (gs *gitService) fetchRepo(ctx context.Context, repoPath string) error {
 
 // pullRepo performs a git pull operation on the repository
 func (gs *gitService) pullRepo(ctx context.Context, repoPath string) error {
+	startTime := time.Now()
+	
 	// Acquire worker slot
 	select {
 	case gs.workerPool <- struct{}{}:
@@ -426,38 +443,34 @@ func (gs *gitService) pullRepo(ctx context.Context, repoPath string) error {
 	cmd.Dir = repoPath
 
 	output, err := cmd.CombinedOutput()
+	duration := time.Since(startTime).Milliseconds()
+	
+	// Emit command log event
 	if err != nil {
+		gs.bus.Publish(eventbus.CommandExecutedEvent{
+			RepoPath: repoPath,
+			Command:  "pull",
+			Success:  false,
+			Output:   string(output),
+			Error:    err.Error(),
+			Duration: duration,
+		})
 		return fmt.Errorf("git pull failed: %v\nOutput: %s", err, output)
 	}
+
+	gs.bus.Publish(eventbus.CommandExecutedEvent{
+		RepoPath: repoPath,
+		Command:  "pull",
+		Success:  true,
+		Output:   string(output),
+		Error:    "",
+		Duration: duration,
+	})
 
 	log.Printf("Pulled %s successfully", repoPath)
 	return nil
 }
 
-// getStashCount gets the number of stashed changes
-func (gs *gitService) getStashCount(ctx context.Context, repoPath string) (int, error) {
-	// Use git stash list to count stashes
-	cmd := exec.CommandContext(ctx, "git", "stash", "list")
-	cmd.Dir = repoPath
-	
-	output, err := cmd.Output()
-	if err != nil {
-		// If git stash list fails, it might be because there's no stash
-		// or the repository doesn't support stashes, so return 0
-		return 0, nil
-	}
-	
-	// Count non-empty lines
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	count := 0
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			count++
-		}
-	}
-	
-	return count, nil
-}
 
 // publishStatus publishes a status update event
 func (gs *gitService) publishStatus(repoPath string, status domain.RepoStatus) {

@@ -851,15 +851,66 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 		info.WriteString(fmt.Sprintf("  Behind: %d commits\n", repo.Status.BehindCount))
 	}
 
-	// Stashes
-	if repo.Status.StashCount > 0 {
-		info.WriteString(fmt.Sprintf("  Stashes: %d\n", repo.Status.StashCount))
-	}
-
 	// Error
 	if repo.Status.Error != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 		info.WriteString(fmt.Sprintf("  Error: %s\n", errorStyle.Render(repo.Status.Error)))
+	}
+
+	// Command logs
+	if len(repo.CommandLogs) > 0 {
+		info.WriteString("\n")
+		info.WriteString(lipgloss.NewStyle().Bold(true).Render("Command History:"))
+		info.WriteString("\n")
+
+		// Show last 10 logs in reverse order (most recent first)
+		start := len(repo.CommandLogs) - 10
+		if start < 0 {
+			start = 0
+		}
+
+		for i := len(repo.CommandLogs) - 1; i >= start; i-- {
+			log := repo.CommandLogs[i]
+			
+			// Format timestamp and command on same line
+			info.WriteString(fmt.Sprintf("\n[%s] ", log.Timestamp))
+			
+			// Command name with appropriate styling
+			if !log.Success {
+				cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+				info.WriteString(cmdStyle.Render(log.Command))
+			} else {
+				info.WriteString(log.Command)
+			}
+			
+			// Duration
+			info.WriteString(fmt.Sprintf(" (%dms)\n", log.Duration))
+			
+			// Output/Error
+			if !log.Success {
+				if log.Output != "" {
+					// Show the actual git output which contains the real error message
+					errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+					output := strings.TrimSpace(log.Output)
+					// Replace any error: prefix to avoid duplication
+					output = strings.TrimPrefix(output, "error: ")
+					info.WriteString("  Output: ")
+					info.WriteString(errorStyle.Render(output))
+					info.WriteString("\n")
+				} else if log.Error != "" {
+					// Fallback to error field if no output
+					errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+					info.WriteString("  Error: ")
+					info.WriteString(errorStyle.Render(log.Error))
+					info.WriteString("\n")
+				}
+			} else if log.Output != "" && len(log.Output) < 200 {
+				// Show short outputs for successful commands
+				info.WriteString("  Output: ")
+				info.WriteString(strings.TrimSpace(log.Output))
+				info.WriteString("\n")
+			}
+		}
 	}
 
 	info.WriteString("\n")
@@ -1137,13 +1188,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 					repoPaths = append(repoPaths, path)
 				}
 			} else {
-				// Check if we're on a group header first
+				// Check if we're on a group header
 				groupName := m.getSelectedGroup()
-				if groupName == "" {
-					// If not on a group header, check if we're on a repo within a group
-					groupName = m.getGroupAtIndex(m.state.SelectedIndex)
-				}
-				
 				if groupName != "" && groupName != "Ungrouped" {
 					// Refresh all repos in the group
 					if group, ok := m.store.GetGroup(groupName); ok {
@@ -1170,13 +1216,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				repoPaths = append(repoPaths, path)
 			}
 		} else {
-			// Check if we're on a group header first
+			// Check if we're on a group header
 			groupName := m.getSelectedGroup()
-			if groupName == "" {
-				// If not on a group header, check if we're on a repo within a group
-				groupName = m.getGroupAtIndex(m.state.SelectedIndex)
-			}
-			
 			if groupName != "" && groupName != "Ungrouped" {
 				// Fetch all repos in the group
 				if group, ok := m.store.GetGroup(groupName); ok {
@@ -1202,13 +1243,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				repoPaths = append(repoPaths, path)
 			}
 		} else {
-			// Check if we're on a group header first
+			// Check if we're on a group header
 			groupName := m.getSelectedGroup()
-			if groupName == "" {
-				// If not on a group header, check if we're on a repo within a group
-				groupName = m.getGroupAtIndex(m.state.SelectedIndex)
-			}
-			
 			if groupName != "" && groupName != "Ungrouped" {
 				// Pull all repos in the group
 				if group, ok := m.store.GetGroup(groupName); ok {
@@ -1237,10 +1273,17 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		m.state.ShowInfo = !m.state.ShowInfo
 		if m.state.ShowInfo {
 			// Build info content for current repo
-			if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+			repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex)
+			log.Printf("ToggleInfoAction: ShowInfo=%v, repoPath=%s", m.state.ShowInfo, repoPath)
+			if repoPath != "" {
 				if repo, ok := m.state.Repositories[repoPath]; ok {
 					m.state.InfoContent = m.buildRepoInfo(repo)
+					log.Printf("Built info content, length=%d", len(m.state.InfoContent))
+				} else {
+					log.Printf("Repository not found for path: %s", repoPath)
 				}
+			} else {
+				log.Printf("No repo path at index %d", m.state.SelectedIndex)
 			}
 		} else {
 			m.state.InfoContent = ""

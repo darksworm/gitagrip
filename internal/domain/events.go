@@ -23,6 +23,7 @@ const (
 	EventConfigSaved    EventType = "ConfigSaved"
 	EventConfigChanged  EventType = "ConfigChanged"
 	EventAppReady       EventType = "AppReady"
+	EventCommandExecuted EventType = "CommandExecuted"
 )
 
 // DomainEvent is the interface for all domain events
@@ -163,3 +164,15 @@ type AppReadyEvent struct {
 }
 
 func (e AppReadyEvent) Type() EventType { return EventAppReady }
+
+// CommandExecutedEvent is emitted when a git command is executed on a repository
+type CommandExecutedEvent struct {
+	RepoPath string
+	Command  string
+	Success  bool
+	Output   string
+	Error    string
+	Duration int64 // milliseconds
+}
+
+func (e CommandExecutedEvent) Type() EventType { return EventCommandExecuted }

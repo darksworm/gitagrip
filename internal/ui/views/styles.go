@@ -44,19 +44,13 @@ func NewStyles() *Styles {
 			MarginBottom(1),
 		Filter:           lipgloss.NewStyle().Foreground(lipgloss.Color("214")), // yellow
 		LogBox: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
+			Border(lipgloss.RoundedBorder()).
 			Padding(1).
-			MarginBottom(1).
-			Width(80).
-			Height(20).
-			BorderForeground(lipgloss.Color("241")),
+			BorderForeground(lipgloss.Color("244")),
 		InfoBox: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
+			Border(lipgloss.RoundedBorder()).
 			Padding(1).
-			MarginBottom(1).
-			Width(60).
-			Height(10).
-			BorderForeground(lipgloss.Color("241")),
+			BorderForeground(lipgloss.Color("244")),
 		Help:             lipgloss.NewStyle().Faint(true),
 		Main: lipgloss.NewStyle().
 			Padding(1, 2).
@@ -78,13 +72,77 @@ func NewStyles() *Styles {
 func GetBranchColor(branchName string) string {
 	switch branchName {
 	case "main", "master":
-		return "78" // green
+		return "78" // green - production branches
 	case "develop", "dev":
-		return "33" // blue
+		return "33" // blue - development branches
 	default:
 		if branchName == "" || branchName == "HEAD" {
 			return "203" // red (detached HEAD or error)
 		}
-		return "214" // yellow for feature branches
+		// Compute a color based on branch name hash
+		return computeBranchColor(branchName)
 	}
+}
+
+// computeBranchColor generates a consistent color for a branch name
+func computeBranchColor(branchName string) string {
+	// List of good contrasting colors (avoiding too dark or too light)
+	colors := []string{
+		"39",  // bright blue
+		"41",  // bright green
+		"43",  // cyan
+		"45",  // light blue
+		"50",  // turquoise
+		"51",  // bright cyan
+		"75",  // steel blue
+		"84",  // spring green
+		"87",  // light cyan
+		"99",  // purple
+		"111", // sky blue
+		"117", // light blue
+		"120", // light green
+		"123", // bright cyan
+		"135", // violet
+		"141", // purple
+		"147", // light purple
+		"156", // green-cyan
+		"159", // pale blue
+		"165", // magenta
+		"171", // violet
+		"177", // pink
+		"183", // plum
+		"189", // light purple
+		"198", // hot pink
+		"201", // bright pink
+		"204", // orange red
+		"207", // pink
+		"208", // orange
+		"209", // light orange
+		"213", // pink-orange
+		"214", // yellow-orange
+		"219", // light pink
+		"220", // gold
+		"221", // light yellow
+		"222", // peach
+		"225", // light pink
+		"226", // yellow
+		"227", // light yellow
+		"228", // pale yellow
+		"229", // wheat
+	}
+	
+	// Simple hash: sum of character codes
+	hash := 0
+	for _, ch := range branchName {
+		hash += int(ch)
+		hash = hash * 17 // multiply by prime for better distribution
+	}
+	
+	// Use modulo to pick a color
+	colorIndex := hash % len(colors)
+	if colorIndex < 0 {
+		colorIndex = -colorIndex
+	}
+	
+	return colors[colorIndex]
 }

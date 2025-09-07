@@ -29,6 +29,7 @@ const (
 	EventConfigLoaded   = domain.EventConfigLoaded
 	EventConfigSaved    = domain.EventConfigSaved
 	EventConfigChanged  = domain.EventConfigChanged
+	EventCommandExecuted = domain.EventCommandExecuted
 )
 
 // Re-export domain event types
@@ -49,6 +50,7 @@ type PullCompletedEvent = domain.PullCompletedEvent
 type ConfigLoadedEvent = domain.ConfigLoadedEvent
 type ConfigSavedEvent = domain.ConfigSavedEvent
 type ConfigChangedEvent = domain.ConfigChangedEvent
+type CommandExecutedEvent = domain.CommandExecutedEvent
 
 // EventHandler is a function that handles domain events
 type EventHandler func(DomainEvent)

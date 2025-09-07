@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
 	"gitagrip/internal/ui/logic"
 	"gitagrip/internal/ui/state"
@@ -102,6 +104,41 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 			h.state.StatusMessage = fmt.Sprintf("Pull completed for %s", e.RepoPath)
 		} else {
 			h.state.StatusMessage = fmt.Sprintf("Pull failed for %s: %v", e.RepoPath, e.Error)
+		}
+		
+	case eventbus.CommandExecutedEvent:
+		// Store command log in the repository
+		if repo, ok := h.state.Repositories[e.RepoPath]; ok {
+			// Add the command log
+			log := domain.CommandLog{
+				Timestamp: time.Now().Format("2006-01-02 15:04:05"),
+				Command:   e.Command,
+				Success:   e.Success,
+				Output:    e.Output,
+				Error:     e.Error,
+				Duration:  e.Duration,
+			}
+			repo.CommandLogs = append(repo.CommandLogs, log)
+			
+			// Keep only last 50 logs
+			if len(repo.CommandLogs) > 50 {
+				repo.CommandLogs = repo.CommandLogs[len(repo.CommandLogs)-50:]
+			}
+			
+			// Update error state
+			if !e.Success {
+				repo.HasError = true
+				// Use the actual git output as the error message if available
+				if e.Output != "" {
+					repo.LastError = strings.TrimSpace(e.Output)
+				} else {
+					repo.LastError = e.Error
+				}
+			} else if e.Command == "fetch" || e.Command == "pull" {
+				// Clear error state on successful fetch/pull
+				repo.HasError = false
+				repo.LastError = ""
+			}
 		}
 	}
 

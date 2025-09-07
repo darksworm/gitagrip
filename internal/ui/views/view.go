@@ -69,8 +69,72 @@ func NewRenderer(showAheadBehind bool) *Renderer {
 func (r *Renderer) Render(state ViewState) string {
 	content := &strings.Builder{}
 
-	// Title
-	content.WriteString(r.styles.Title.Render("gitagrip"))
+	// Title with loading indicator
+	logo := r.styles.Title.Render("gitagrip")
+	
+	// Build loading indicators
+	loadingIndicators := []string{}
+	
+	if state.Scanning {
+		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		frame := int(time.Now().UnixMilli()/80) % len(spinner)
+		loadingIndicators = append(loadingIndicators, fmt.Sprintf("%s Scanning", spinner[frame]))
+	}
+	
+	if len(state.RefreshingRepos) > 0 {
+		loadingIndicators = append(loadingIndicators, fmt.Sprintf("↻ Refreshing %d", len(state.RefreshingRepos)))
+	}
+	
+	if len(state.FetchingRepos) > 0 {
+		loadingIndicators = append(loadingIndicators, fmt.Sprintf("↓ Fetching %d", len(state.FetchingRepos)))
+	}
+	
+	if len(state.PullingRepos) > 0 {
+		loadingIndicators = append(loadingIndicators, fmt.Sprintf("↓ Pulling %d", len(state.PullingRepos)))
+	}
+	
+	// Build the title line with right-aligned indicators
+	var titleLine string
+	if len(loadingIndicators) > 0 || state.FilterQuery != "" {
+		// Calculate widths
+		logoWidth := lipgloss.Width(logo)
+		
+		// Build right side content
+		rightContent := ""
+		if len(loadingIndicators) > 0 {
+			rightContent = r.styles.Dim.Render(strings.Join(loadingIndicators, " | "))
+		}
+		if state.FilterQuery != "" {
+			filterText := r.styles.Filter.Render(fmt.Sprintf("[Filter: %s]", state.FilterQuery))
+			if rightContent != "" {
+				rightContent = fmt.Sprintf("%s  %s", rightContent, filterText)
+			} else {
+				rightContent = filterText
+			}
+		}
+		
+		// Calculate padding needed
+		rightWidth := lipgloss.Width(rightContent)
+		// Use a default width if state.Width is not set
+		termWidth := state.Width
+		if termWidth <= 0 {
+			termWidth = 80 // Default terminal width
+		}
+		availableWidth := termWidth - 4 // Account for main container padding
+		paddingWidth := availableWidth - logoWidth - rightWidth
+		
+		if paddingWidth > 0 {
+			padding := strings.Repeat(" ", paddingWidth)
+			titleLine = fmt.Sprintf("%s%s%s", logo, padding, rightContent)
+		} else {
+			// If not enough space, just show with minimal spacing
+			titleLine = fmt.Sprintf("%s  %s", logo, rightContent)
+		}
+	} else {
+		titleLine = logo
+	}
+	
+	content.WriteString(titleLine)
 	content.WriteString("\n")
 
 	// Delete confirmation
@@ -88,43 +152,69 @@ func (r *Renderer) Render(state ViewState) string {
 	}
 
 	// Main content
+	mainContent := ""
 	if state.Scanning && len(state.Repositories) == 0 {
-		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		frame := int(time.Now().UnixMilli()/80) % len(spinner)
-		content.WriteString(r.styles.Scan.Render(fmt.Sprintf("%s Scanning for repositories...", spinner[frame])))
+		// Don't show duplicate scanning message - it's already in the title
+		mainContent = r.styles.Dim.Render("Looking for repositories...")
 	} else if len(state.Repositories) == 0 {
-		content.WriteString(r.styles.Dim.Render("No repositories found. Press F for full scan."))
+		mainContent = r.styles.Dim.Render("No repositories found. Press F for full scan.")
 	} else {
-		content.WriteString(r.renderRepositoryList(state))
-	}
-	content.WriteString("\n")
-
-	// Status bar
-	r.renderStatusBar(content, state)
-
-	// Log popup
-	if state.ShowLog && state.LogContent != "" {
-		r.renderLogPopup(content, state.LogContent)
+		mainContent = r.renderRepositoryList(state)
 	}
 
-	// Info popup
-	if state.ShowInfo && state.InfoContent != "" {
-		r.renderInfoPopup(content, state.InfoContent)
+	// Add main content
+	content.WriteString(mainContent)
+	
+	// Calculate help content
+	helpContent := ""
+	if state.ShowHelp && !state.ShowLog && !state.ShowInfo {
+		helpContent = state.HelpModel.View(nil)
+	} else if !state.ShowLog && !state.ShowInfo {
+		helpContent = r.styles.Help.Render("Press ? for help")
 	}
-
-	// Help
-	if state.ShowHelp {
+	
+	// If we have help content, add padding to push it to the bottom
+	if helpContent != "" {
+		// Count current lines
+		currentContent := content.String()
+		currentLines := strings.Count(currentContent, "\n") + 1
+		
+		// Account for container padding (1 top, 1 bottom from Padding(1, 2))
+		availableLines := state.Height - 2
+		if availableLines <= 0 {
+			availableLines = 22 // Default terminal height minus padding
+		}
+		
+		// Help takes 1 line
+		helpLines := strings.Count(helpContent, "\n") + 1
+		
+		// Calculate padding needed
+		paddingNeeded := availableLines - currentLines - helpLines
+		
+		// Add padding
+		if paddingNeeded > 0 {
+			content.WriteString(strings.Repeat("\n", paddingNeeded))
+		}
+		
+		// Add help
 		content.WriteString("\n")
-		content.WriteString(state.HelpModel.View(nil))
-		content.WriteString("\n")
-	} else {
-		content.WriteString("\n")
-		content.WriteString(r.styles.Help.Render("Press ? for help"))
+		content.WriteString(helpContent)
 	}
 
 	// Apply main container style
 	mainStyle := r.styles.Main.MaxHeight(state.Height)
-	return mainStyle.Render(content.String())
+	finalContent := mainStyle.Render(content.String())
+
+	// Overlay popups on top of main content
+	if state.ShowLog && state.LogContent != "" {
+		return r.renderPopupOverlay(finalContent, state.LogContent, state.Height, state.Width, r.styles.LogBox)
+	}
+	
+	if state.ShowInfo && state.InfoContent != "" {
+		return r.renderPopupOverlay(finalContent, state.InfoContent, state.Height, state.Width, r.styles.InfoBox)
+	}
+
+	return finalContent
 }
 
 // renderRepositoryList renders the list of repositories with groups
@@ -258,46 +348,6 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderStatusBar renders the status bar
-func (r *Renderer) renderStatusBar(content *strings.Builder, state ViewState) {
-	statusParts := []string{
-		fmt.Sprintf("%d repos", len(state.Repositories)),
-	}
-
-	if len(state.Groups) > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d groups", len(state.Groups)))
-	}
-
-	if len(state.RefreshingRepos) > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d refreshing", len(state.RefreshingRepos)))
-	}
-
-	if len(state.FetchingRepos) > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d fetching", len(state.FetchingRepos)))
-	}
-
-	if len(state.SelectedRepos) > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d selected", len(state.SelectedRepos)))
-	}
-
-	if state.Scanning {
-		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		frame := int(time.Now().UnixMilli()/80) % len(spinner)
-		statusParts = append(statusParts, r.styles.Scan.Render(fmt.Sprintf("%s Scanning...", spinner[frame])))
-	}
-
-	if state.FilterQuery != "" {
-		filterText := fmt.Sprintf("Filter: %s", state.FilterQuery)
-		statusParts = append(statusParts, r.styles.Filter.Render(filterText))
-	}
-
-	content.WriteString(r.styles.Status.Render(strings.Join(statusParts, " | ")))
-
-	if state.StatusMessage != "" {
-		content.WriteString("\n")
-		content.WriteString(state.StatusMessage)
-	}
-}
 
 // renderLogPopup renders the git log popup
 func (r *Renderer) renderLogPopup(content *strings.Builder, logContent string) {
@@ -309,6 +359,64 @@ func (r *Renderer) renderLogPopup(content *strings.Builder, logContent string) {
 func (r *Renderer) renderInfoPopup(content *strings.Builder, infoContent string) {
 	content.WriteString("\n\n")
 	content.WriteString(r.styles.InfoBox.Render(infoContent))
+}
+
+// renderPopupOverlay renders a popup overlay on top of the main content
+func (r *Renderer) renderPopupOverlay(mainContent, popupContent string, height, width int, popupStyle lipgloss.Style) string {
+	// Create a centered modal-style popup
+	// First, measure the popup content
+	lines := strings.Split(popupContent, "\n")
+	contentHeight := len(lines)
+	contentWidth := 0
+	for _, line := range lines {
+		if lipgloss.Width(line) > contentWidth {
+			contentWidth = lipgloss.Width(line)
+		}
+	}
+	
+	// Ensure minimum sizes
+	if contentWidth < 60 {
+		contentWidth = 60
+	}
+	if contentHeight < 10 {
+		contentHeight = 10
+	}
+	
+	// Add padding for the border and internal padding
+	popupWidth := contentWidth + 4
+	popupHeight := contentHeight + 4
+	
+	// Ensure popup fits on screen
+	if popupWidth > width-4 {
+		popupWidth = width - 4
+	}
+	if popupHeight > height-4 {
+		popupHeight = height - 4
+	}
+	
+	// Apply the style with the calculated dimensions
+	styledPopup := popupStyle.
+		Width(popupWidth).
+		Height(popupHeight).
+		MaxWidth(width - 4).
+		MaxHeight(height - 4).
+		Render(popupContent)
+	
+	// Center the popup
+	centeredPopup := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styledPopup)
+	
+	// Create a semi-transparent overlay effect by dimming the background
+	mainLines := strings.Split(mainContent, "\n")
+	overlayLines := strings.Split(centeredPopup, "\n")
+	
+	// Ensure we have enough lines
+	for len(overlayLines) < len(mainLines) {
+		overlayLines = append(overlayLines, "")
+	}
+	
+	result := overlayLines
+	
+	return strings.Join(result, "\n")
 }
 
 // matchesFilter checks if a repo matches the filter (simplified for now)
@@ -347,8 +455,6 @@ func (r *Renderer) matchesStatusFilter(repo *domain.Repository, filter string) b
 		return repo.Status.BehindCount > 0
 	case "diverged":
 		return repo.Status.AheadCount > 0 && repo.Status.BehindCount > 0
-	case "stashed", "stash":
-		return repo.Status.StashCount > 0
 	case "error":
 		return repo.Status.Error != ""
 	default:

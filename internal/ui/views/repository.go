@@ -55,9 +55,12 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 	// Branch styling
 	branchColor := GetBranchColor(repo.Status.Branch)
 	branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(branchColor))
-	if repo.Status.IsDirty || repo.Status.HasUntracked {
+	
+	// Make main/master branches bold
+	if repo.Status.Branch == "main" || repo.Status.Branch == "master" {
 		branchStyle = branchStyle.Bold(true)
 	}
+	
 	// Apply background color if selected
 	if bgColor != "" {
 		branchStyle = branchStyle.Background(lipgloss.Color(bgColor))
@@ -120,13 +123,6 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 	
 	parts = append(parts, parenStyle.Render(")"))
 	
-	// Stash count
-	if repo.Status.StashCount > 0 {
-		stashText := fmt.Sprintf(" [%d stashed]", repo.Status.StashCount)
-		stashStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color(bgColor))
-		parts = append(parts, stashStyle.Render(stashText))
-	}
-	
 	// Join the parts
 	line := strings.Join(parts, "")
 	
@@ -152,6 +148,10 @@ func (r *RepositoryRenderer) getStatusIcon(repo *domain.Repository, isFetching, 
 	if isRefreshing || isPulling {
 		return "⟳"
 	}
+	// Check for command errors (red danger sign)
+	if repo.HasError {
+		return "⚠"
+	}
 	if repo.Status.Error != "" {
 		return "✗"
 	}
@@ -168,6 +168,10 @@ func (r *RepositoryRenderer) getStatusStyle(repo *domain.Repository, isFetching,
 	}
 	if isRefreshing {
 		return r.styles.StatusRefreshing
+	}
+	// Check for command errors (red danger style)
+	if repo.HasError {
+		return r.styles.StatusError
 	}
 	if repo.Status.Error != "" {
 		return r.styles.StatusError

@@ -69,8 +69,6 @@ func (sf *SearchFilter) MatchesStatusFilter(repo *domain.Repository, filter stri
 		return repo.Status.BehindCount > 0
 	case "diverged":
 		return repo.Status.AheadCount > 0 && repo.Status.BehindCount > 0
-	case "stashed", "stash":
-		return repo.Status.StashCount > 0
 	case "error":
 		return repo.Status.Error != ""
 	default:
