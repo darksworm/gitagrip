@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/darksworm/gitagrip/compare/v1.0.2...v1.0.3) (2025-09-07)
+
+
+### Bug Fixes
+
+* simplify Dockerfile for GoReleaser builds ([65ec894](https://github.com/darksworm/gitagrip/commit/65ec89453ac1b1ae58ce7f4698812eae6ed3523e))
+
 ## [1.0.2](https://github.com/darksworm/gitagrip/compare/v1.0.1...v1.0.2) (2025-09-07)
 
 
