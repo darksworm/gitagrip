@@ -42,7 +42,9 @@ func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, 
 
 	// Apply background color based on selection state
 	var bgColor string
-	if isSelected {
+	if isSelected && groupIsFullySelected {
+		bgColor = "33" // Blue background for cursor on fully selected group
+	} else if isSelected {
 		bgColor = "238" // Darker background for cursor selection
 	} else if groupIsFullySelected {
 		bgColor = "240" // Lighter background when all repos are selected

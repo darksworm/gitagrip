@@ -33,13 +33,15 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 
 	// Background color for selection
 	bgColor := ""
-	if isSelected {
+	if isSelected && isRepoSelected && isMultiSelect {
+		// Cursor on selected item - use distinct color
+		bgColor = "33" // Blue background for cursor on selected item
+	} else if isSelected {
+		// Cursor on unselected item
 		bgColor = "238"
-	}
-
-	// Different background for multi-selected items
-	if isRepoSelected && isMultiSelect {
-		bgColor = "240" // Slightly different shade for selected repos
+	} else if isRepoSelected && isMultiSelect {
+		// Selected item without cursor
+		bgColor = "240"
 	}
 
 	// Get status components
