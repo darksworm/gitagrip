@@ -144,15 +144,15 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return nil, false
 		
 	case "f":
-		// Fetch selected repos
-		if ctx.HasSelection() || ctx.CurrentRepositoryPath() != "" {
+		// Fetch selected repos, current repo, or all repos in group
+		if ctx.HasSelection() || ctx.CurrentRepositoryPath() != "" || ctx.IsOnGroup() {
 			return []types.Action{types.FetchAction{}}, true
 		}
 		return nil, false
 		
 	case "p", "P":
-		// Pull selected repos
-		if ctx.HasSelection() || ctx.CurrentRepositoryPath() != "" {
+		// Pull selected repos, current repo, or all repos in group
+		if ctx.HasSelection() || ctx.CurrentRepositoryPath() != "" || ctx.IsOnGroup() {
 			return []types.Action{types.PullAction{}}, true
 		}
 		return nil, false
