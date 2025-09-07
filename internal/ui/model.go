@@ -622,8 +622,14 @@ func (m *Model) getSelectedGroup() string {
 			currentIndex += len(group.Repos)
 		}
 		
+		// Check if we're on the gap after this group
+		gapIndex := currentIndex
 		// Account for gap after group (except hidden group at the end)
 		if groupName != HiddenGroupName || currentIndex < m.state.SelectedIndex {
+			if gapIndex == m.state.SelectedIndex {
+				// We're on the gap, return the group before it
+				return groupName
+			}
 			currentIndex++ // Gap after group
 		}
 
