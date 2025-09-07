@@ -197,6 +197,35 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	for name, repoPaths := range cfg.Groups {
 		m.state.AddGroup(name, repoPaths)
 	}
+	
+	// If we have a saved group order, use it
+	if len(cfg.GroupOrder) > 0 {
+		// Reset GroupCreationOrder to match the saved order
+		m.state.GroupCreationOrder = make([]string, 0, len(cfg.GroupOrder))
+		for _, groupName := range cfg.GroupOrder {
+			if _, exists := m.state.Groups[groupName]; exists {
+				m.state.GroupCreationOrder = append(m.state.GroupCreationOrder, groupName)
+			}
+		}
+		// Add any new groups that aren't in the saved order
+		for groupName := range m.state.Groups {
+			found := false
+			for _, savedName := range cfg.GroupOrder {
+				if savedName == groupName {
+					found = true
+					break
+				}
+			}
+			if !found && groupName != HiddenGroupName {
+				m.state.GroupCreationOrder = append(m.state.GroupCreationOrder, groupName)
+			}
+		}
+	}
+	
+	// Ensure hidden group is collapsed if it exists
+	if _, exists := m.state.Groups[HiddenGroupName]; exists {
+		m.state.ExpandedGroups[HiddenGroupName] = false
+	}
 	m.updateOrderedLists()
 
 	// Update searchFilter with the actual repositories map
@@ -1301,7 +1330,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		// Publish config changed event
 		if m.bus != nil {
 			m.bus.Publish(eventbus.ConfigChangedEvent{
-				Groups: m.getGroupsMap(),
+				Groups:     m.getGroupsMap(),
+				GroupOrder: m.getGroupOrder(),
 			})
 		}
 
@@ -1360,7 +1390,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			// Publish config changed event
 			if m.bus != nil {
 				m.bus.Publish(eventbus.ConfigChangedEvent{
-					Groups: m.getGroupsMap(),
+					Groups:     m.getGroupsMap(),
+					GroupOrder: m.getGroupOrder(),
 				})
 			}
 		}
@@ -1601,7 +1632,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.QuitAction:
 		if !a.Force && m.config.UISettings.AutosaveOnExit && m.bus != nil {
 			m.bus.Publish(eventbus.ConfigChangedEvent{
-				Groups: m.getGroupsMap(),
+				Groups:     m.getGroupsMap(),
+				GroupOrder: m.getGroupOrder(),
 			})
 		}
 		return tea.Quit
@@ -1634,7 +1666,8 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case quitMsg:
 		if msg.saveConfig && m.bus != nil {
 			m.bus.Publish(eventbus.ConfigChangedEvent{
-				Groups: m.getGroupsMap(),
+				Groups:     m.getGroupsMap(),
+				GroupOrder: m.getGroupOrder(),
 			})
 		}
 		return m, tea.Quit
@@ -1734,6 +1767,17 @@ func tick() tea.Cmd {
 // getGroupsMap returns a map of group names to repository paths
 func (m *Model) getGroupsMap() map[string][]string {
 	return m.state.GetGroupsMap()
+}
+
+// getGroupOrder returns the ordered list of group names (excluding hidden)
+func (m *Model) getGroupOrder() []string {
+	order := make([]string, 0, len(m.state.OrderedGroups))
+	for _, groupName := range m.state.OrderedGroups {
+		if groupName != HiddenGroupName {
+			order = append(order, groupName)
+		}
+	}
+	return order
 }
 
 // updateGroupCreationOrder updates the GroupCreationOrder to match OrderedGroups

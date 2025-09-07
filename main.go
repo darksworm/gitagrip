@@ -82,8 +82,9 @@ func main() {
 	// Subscribe to config changes to save automatically
 	bus.Subscribe(eventbus.EventConfigChanged, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.ConfigChangedEvent); ok {
-			// Update config with new groups
+			// Update config with new groups and order
 			cfg.Groups = event.Groups
+			cfg.GroupOrder = event.GroupOrder
 			// Save config
 			if err := configSvc.SaveToPath(cfg, configPath); err != nil {
 				log.Printf("Failed to save config: %v", err)

@@ -102,7 +102,12 @@ func (s *AppState) AddGroup(name string, repos []string) {
 		Name:  name,
 		Repos: repos,
 	}
-	s.ExpandedGroups[name] = true
+	// Hidden group should be collapsed by default
+	if name == "_Hidden" {
+		s.ExpandedGroups[name] = false
+	} else {
+		s.ExpandedGroups[name] = true
+	}
 	// Add to beginning of creation order
 	s.GroupCreationOrder = append([]string{name}, s.GroupCreationOrder...)
 }

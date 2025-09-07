@@ -112,7 +112,8 @@ func (e ConfigSavedEvent) Type() EventType { return EventConfigSaved }
 
 // ConfigChangedEvent is emitted when configuration needs to be saved
 type ConfigChangedEvent struct {
-	Groups map[string][]string // Current group configuration
+	Groups     map[string][]string // Current group configuration
+	GroupOrder []string            // Ordered list of group names
 }
 
 func (e ConfigChangedEvent) Type() EventType { return EventConfigChanged }

@@ -11,10 +11,11 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Version   int                 `toml:"version"`
-	BaseDir   string              `toml:"base_dir"`
-	Groups    map[string][]string `toml:"groups"`    // group name -> repo paths
-	UISettings UISettings         `toml:"ui"`
+	Version    int                 `toml:"version"`
+	BaseDir    string              `toml:"base_dir"`
+	Groups     map[string][]string `toml:"groups"`    // group name -> repo paths
+	GroupOrder []string            `toml:"group_order"` // ordered list of group names
+	UISettings UISettings          `toml:"ui"`
 }
 
 // UISettings represents UI-related configuration

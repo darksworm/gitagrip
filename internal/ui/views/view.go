@@ -70,7 +70,7 @@ func (r *Renderer) Render(state ViewState) string {
 	content := &strings.Builder{}
 
 	// Title
-	content.WriteString(r.styles.Title.Render("GitaGrip"))
+	content.WriteString(r.styles.Title.Render("gitagrip"))
 	content.WriteString("\n")
 
 	// Delete confirmation
@@ -395,7 +395,7 @@ func (r *Renderer) renderLoadingScreen(state ViewState) string {
 	
 	// Loading title (centered)
 	titleStyle := r.styles.Title.Copy().MarginBottom(0).AlignHorizontal(lipgloss.Center).Width(state.Width)
-	lines = append(lines, titleStyle.Render("GitaGrip"))
+	lines = append(lines, titleStyle.Render("gitagrip"))
 	lines = append(lines, "")
 	
 	// Loading state
@@ -419,7 +419,7 @@ func (r *Renderer) renderLoadingScreen(state ViewState) string {
 			lines = append(lines, hintStyle.Render("Looking for Git repositories..."))
 		}
 	} else if state.LoadingState == "Initializing..." {
-		lines = append(lines, hintStyle.Render("Setting up GitaGrip"))
+		lines = append(lines, hintStyle.Render("Setting up gitagrip"))
 	}
 	
 	// Fill the rest with empty lines to ensure full height
