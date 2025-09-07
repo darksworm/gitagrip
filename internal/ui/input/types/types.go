@@ -13,6 +13,7 @@ const (
 	ModeMoveToGroup
 	ModeDeleteConfirm
 	ModeSort
+	ModeRenameGroup
 )
 
 // Action represents a command the model should execute

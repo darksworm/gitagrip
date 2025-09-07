@@ -15,6 +15,7 @@ const (
 	InputModeSearch
 	InputModeFilter
 	InputModeSort
+	InputModeRenameGroup
 )
 
 // InputTransformer handles input mode transformations
@@ -56,6 +57,8 @@ func (it *InputTransformer) GetInputText() string {
 	case InputModeSort:
 		// Sort mode now uses interactive selection, not text input
 		return ""
+	case InputModeRenameGroup:
+		return "Rename group to: " + it.textInput.View()
 	default:
 		return it.textInput.View()
 	}
@@ -78,6 +81,8 @@ func (it *InputTransformer) GetInputModeString() string {
 		return "filter"
 	case InputModeSort:
 		return "sort"
+	case InputModeRenameGroup:
+		return "rename-group"
 	default:
 		return ""
 	}

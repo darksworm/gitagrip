@@ -134,8 +134,14 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.RefreshAction{All: false}}, true
 		
 	case "R":
-		// Full refresh (rescan)
-		return []types.Action{types.RefreshAction{All: true}}, true
+		// Rename group (only if on a group)
+		if ctx.IsOnGroup() {
+			return []types.Action{types.ChangeModeAction{
+				Mode: types.ModeRenameGroup,
+				Data: ctx.CurrentGroupName(),
+			}}, true
+		}
+		return nil, false
 		
 	case "f":
 		// Fetch selected repos

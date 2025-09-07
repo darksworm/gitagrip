@@ -370,6 +370,8 @@ func (m *Model) View() string {
 			viewModelMode = viewmodels.InputModeDeleteConfirm
 		case inputtypes.ModeSort:
 			viewModelMode = viewmodels.InputModeSort
+		case inputtypes.ModeRenameGroup:
+			viewModelMode = viewmodels.InputModeRenameGroup
 		}
 		m.viewModel.SetInputMode(viewModelMode)
 
@@ -1379,6 +1381,63 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		}
 
 		return m.cmdExecutor.ExecuteMoveToGroup(repoPaths, fromGroups, a.GroupName)
+
+	case inputtypes.RenameGroupAction:
+		if a.OldName != "" && a.NewName != "" && a.OldName != a.NewName {
+			// Check if new name already exists
+			if _, exists := m.state.Groups[a.NewName]; exists {
+				m.state.StatusMessage = fmt.Sprintf("Group '%s' already exists", a.NewName)
+				return nil
+			}
+			
+			// Get the old group
+			oldGroup, exists := m.state.Groups[a.OldName]
+			if !exists {
+				m.state.StatusMessage = fmt.Sprintf("Group '%s' not found", a.OldName)
+				return nil
+			}
+			
+			// Create new group with same repos
+			m.state.Groups[a.NewName] = &domain.Group{
+				Name:  a.NewName,
+				Repos: oldGroup.Repos,
+			}
+			
+			// Copy expansion state
+			if expanded, ok := m.state.ExpandedGroups[a.OldName]; ok {
+				m.state.ExpandedGroups[a.NewName] = expanded
+			}
+			
+			// Delete old group
+			delete(m.state.Groups, a.OldName)
+			delete(m.state.ExpandedGroups, a.OldName)
+			
+			// Update ordered groups
+			for i, groupName := range m.state.OrderedGroups {
+				if groupName == a.OldName {
+					m.state.OrderedGroups[i] = a.NewName
+					break
+				}
+			}
+			
+			// Update GroupCreationOrder
+			for i, groupName := range m.state.GroupCreationOrder {
+				if groupName == a.OldName {
+					m.state.GroupCreationOrder[i] = a.NewName
+					break
+				}
+			}
+			
+			m.state.StatusMessage = fmt.Sprintf("Renamed group '%s' to '%s'", a.OldName, a.NewName)
+			
+			// Save config
+			if m.bus != nil {
+				m.bus.Publish(eventbus.ConfigChangedEvent{
+					Groups:     m.getGroupsMap(),
+					GroupOrder: m.getGroupOrder(),
+				})
+			}
+		}
 
 	case inputtypes.DeleteGroupAction:
 		if a.GroupName != "" && a.GroupName != "Ungrouped" {

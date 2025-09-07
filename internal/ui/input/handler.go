@@ -30,6 +30,7 @@ func New() *Handler {
 	h.modes[types.ModeMoveToGroup] = modes.NewMoveToGroupMode(h.textInput)
 	h.modes[types.ModeDeleteConfirm] = modes.NewConfirmMode()
 	h.modes[types.ModeSort] = modes.NewSortSelectMode()
+	h.modes[types.ModeRenameGroup] = modes.NewRenameGroupMode(h.textInput)
 	
 	return h
 }
@@ -111,7 +112,7 @@ func (h *Handler) RegisterMode(mode types.Mode, handler types.ModeHandler) {
 
 func (h *Handler) isTextMode(mode types.Mode) bool {
 	switch mode {
-	case types.ModeSearch, types.ModeFilter, types.ModeNewGroup, types.ModeMoveToGroup, types.ModeSort:
+	case types.ModeSearch, types.ModeFilter, types.ModeNewGroup, types.ModeMoveToGroup, types.ModeSort, types.ModeRenameGroup:
 		return true
 	default:
 		return false

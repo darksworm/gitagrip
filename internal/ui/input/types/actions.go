@@ -99,6 +99,13 @@ type DeleteGroupAction struct {
 
 func (a DeleteGroupAction) Type() string { return "delete_group" }
 
+type RenameGroupAction struct {
+	OldName string
+	NewName string
+}
+
+func (a RenameGroupAction) Type() string { return "rename_group" }
+
 type ToggleGroupAction struct{}
 
 func (a ToggleGroupAction) Type() string { return "toggle_group" }
