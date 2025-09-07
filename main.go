@@ -21,6 +21,11 @@ import (
 	"gitagrip/internal/ui"
 )
 
+// eventReceivedMsg wraps an event for the UI
+type eventReceivedMsg struct {
+	event interface{}
+}
+
 func main() {
 	// Parse command line arguments
 	var targetDir string
@@ -96,7 +101,7 @@ func main() {
 	// Initialize services
 	discoverySvc := discovery.NewDiscoveryService(bus)
 	_ = git.NewGitService(bus) // Git service subscribes to events automatically
-	groupMgr := groups.NewGroupManager(bus, cfg.Groups) // Group manager subscribes to events automatically
+	_ = groups.NewGroupManager(bus, cfg.Groups) // Group manager subscribes to events automatically
 
 	// Create stores for the new architecture
 	repoStore := logic.NewMemoryRepositoryStore()
@@ -123,17 +128,21 @@ func main() {
 	}
 
 	// Create UI model using the new architecture
-	uiModel := ui.NewModel(cfg, repoStore, groupStore, bus, eventChan)
+	log.Printf("Creating UI model...")
+	uiModel := ui.NewModel(cfg, configSvc, repoStore, groupStore, bus, eventChan)
+	log.Printf("UI model created successfully")
 
 	// Create Bubble Tea program
+	log.Printf("Creating Bubble Tea program...")
 	p := tea.NewProgram(uiModel, tea.WithAltScreen())
+	log.Printf("Bubble Tea program created")
 
 	// Subscribe to events and forward to stores and UI
 	bus.Subscribe(eventbus.EventRepoDiscovered, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.RepoDiscoveredEvent); ok {
 			repo := &domain.Repository{
-				Path:   event.Path,
-				Name:   filepath.Base(event.Path),
+				Path:   event.Repo.Path,
+				Name:   event.Repo.Name,
 				Status: domain.RepoStatus{},
 			}
 			repoStore.AddRepository(repo)
@@ -143,7 +152,7 @@ func main() {
 	
 	bus.Subscribe(eventbus.EventStatusUpdated, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.StatusUpdatedEvent); ok {
-			repo := repoStore.GetRepository(event.Path)
+			repo := repoStore.GetRepository(event.RepoPath)
 			if repo != nil {
 				repo.Status = event.Status
 				repoStore.UpdateRepository(repo)
@@ -155,12 +164,12 @@ func main() {
 	bus.Subscribe(eventbus.EventGroupAdded, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.GroupAddedEvent); ok {
 			group := &domain.Group{
-				Name:  event.GroupName,
-				Repos: []string{event.RepoPath},
+				Name:  event.Name,
+				Repos: []string{},
 			}
-			existing := groupStore.GetGroup(event.GroupName)
+			existing := groupStore.GetGroup(event.Name)
 			if existing != nil {
-				existing.Repos = append(existing.Repos, event.RepoPath)
+				// Group already exists
 				groupStore.UpdateGroup(existing)
 			} else {
 				groupStore.AddGroup(group)
@@ -171,7 +180,7 @@ func main() {
 	
 	bus.Subscribe(eventbus.EventGroupRemoved, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.GroupRemovedEvent); ok {
-			groupStore.DeleteGroup(event.GroupName)
+			groupStore.DeleteGroup(event.Name)
 			forwardEvent(e)
 		}
 	})
@@ -200,7 +209,8 @@ func main() {
 	// Start forwarding events to UI in background
 	go func() {
 		for event := range eventChan {
-			p.Send(ui.EventMsg{Event: event})
+			// Convert to EventMsg type expected by UI
+			p.Send(eventReceivedMsg{event: event})
 		}
 	}()
 
@@ -215,10 +225,13 @@ func main() {
 	}
 
 	// Run the UI
+	log.Printf("Starting UI...")
 	if _, err := p.Run(); err != nil {
+		log.Printf("Error running program: %v", err)
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
 	}
+	log.Printf("UI exited normally")
 
 	// Cleanup
 	close(eventChan)

@@ -1,18 +1,18 @@
 package navigation
 
 import (
-	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/services/events"
 )
 
 // Service handles all navigation logic
 type Service struct {
 	state    *State
-	bus      eventbus.EventBus
+	bus      events.EventBus
 	queryFn  func() int // Function to get max index from query service
 }
 
 // NewService creates a new navigation service
-func NewService(bus eventbus.EventBus) *Service {
+func NewService(bus events.EventBus) *Service {
 	return &Service{
 		state: &State{
 			Cursor:         0,

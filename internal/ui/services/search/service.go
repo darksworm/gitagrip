@@ -5,13 +5,13 @@ import (
 	"strings"
 	
 	"gitagrip/internal/domain"
-	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/services/events"
 )
 
 // Service handles search functionality
 type Service struct {
 	state       *State
-	bus         eventbus.EventBus
+	bus         events.EventBus
 	matcherFn   func(string) []MatchResult // Function to find matches
 	navigateFn  func(int)                   // Function to navigate to index
 }
@@ -26,7 +26,7 @@ type MatchResult struct {
 }
 
 // NewService creates a new search service
-func NewService(bus eventbus.EventBus) *Service {
+func NewService(bus events.EventBus) *Service {
 	return &Service{
 		state: &State{
 			Query:        "",

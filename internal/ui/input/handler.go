@@ -133,3 +133,54 @@ func (h *Handler) Update(msg tea.Msg) tea.Cmd {
 	}
 	return nil
 }
+
+// Init returns the initial command for the handler
+func (h *Handler) Init() tea.Cmd {
+	return nil
+}
+
+// ChangeMode changes the current input mode
+func (h *Handler) ChangeMode(mode types.Mode, data string) {
+	h.currentMode = mode
+	if h.isTextMode(mode) {
+		h.textInput.Reset()
+		h.textInput.SetValue(data)
+		h.textInput.Focus()
+	} else {
+		h.textInput.Blur()
+	}
+}
+
+// GetMode returns the current input mode
+func (h *Handler) GetMode() types.Mode {
+	if h == nil {
+		return types.ModeNormal
+	}
+	return h.currentMode
+}
+
+// GetModeData returns any data associated with the current mode
+func (h *Handler) GetModeData() string {
+	if h == nil {
+		return ""
+	}
+	// For now, return empty - mode data handling could be added later
+	return ""
+}
+
+// GetTextInput returns the text input model
+func (h *Handler) GetTextInput() *textinput.Model {
+	if h == nil {
+		return nil
+	}
+	return h.textInput
+}
+
+// GetFilterQuery returns the current filter query
+func (h *Handler) GetFilterQuery() string {
+	if h == nil {
+		return ""
+	}
+	// For now return empty - filter query tracking could be added later
+	return ""
+}

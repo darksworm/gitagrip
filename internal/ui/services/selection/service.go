@@ -1,19 +1,18 @@
 package selection
 
 import (
-	"gitagrip/internal/eventbus"
-	"gitagrip/internal/ui/services/query"
+	"gitagrip/internal/ui/services/events"
 )
 
 // Service handles selection logic
 type Service struct {
 	state   *State
-	bus     eventbus.EventBus
+	bus     events.EventBus
 	queryFn func(int) string // Function to get repo path at index
 }
 
 // NewService creates a new selection service
-func NewService(bus eventbus.EventBus) *Service {
+func NewService(bus events.EventBus) *Service {
 	return &Service{
 		state: &State{
 			SelectedRepos: make(map[string]bool),

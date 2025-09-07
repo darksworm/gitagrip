@@ -5,19 +5,19 @@ import (
 	"strings"
 	
 	"gitagrip/internal/domain"
-	"gitagrip/internal/eventbus"
 	"gitagrip/internal/logic"
+	"gitagrip/internal/ui/services/events"
 )
 
 // Service handles sorting logic
 type Service struct {
 	state  *State
-	bus    eventbus.EventBus
+	bus    events.EventBus
 	repoFn func(string) *domain.Repository // Function to get repository
 }
 
 // NewService creates a new sorting service
-func NewService(bus eventbus.EventBus) *Service {
+func NewService(bus events.EventBus) *Service {
 	return &Service{
 		state: &State{
 			CurrentMode: logic.SortByName, // Default

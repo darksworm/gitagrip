@@ -2,8 +2,8 @@ package coordinator
 
 import (
 	"gitagrip/internal/domain"
-	"gitagrip/internal/eventbus"
 	"gitagrip/internal/logic"
+	"gitagrip/internal/ui/services/events"
 	"gitagrip/internal/ui/services/groups"
 	"gitagrip/internal/ui/services/navigation"
 	"gitagrip/internal/ui/services/query"
@@ -23,13 +23,13 @@ type Coordinator struct {
 	Sorting    *sorting.Service
 	
 	// Dependencies
-	bus        eventbus.EventBus
+	bus        events.EventBus
 	repoStore  logic.RepositoryStore
 	groupStore logic.GroupStore
 }
 
 // NewCoordinator creates a new coordinator with all services
-func NewCoordinator(bus eventbus.EventBus, repoStore logic.RepositoryStore, groupStore logic.GroupStore) *Coordinator {
+func NewCoordinator(bus events.EventBus, repoStore logic.RepositoryStore, groupStore logic.GroupStore) *Coordinator {
 	c := &Coordinator{
 		Navigation: navigation.NewService(bus),
 		Query:      query.NewService(repoStore, groupStore),
@@ -64,12 +64,12 @@ func (c *Coordinator) wireServices() {
 	})
 	
 	// Search needs to find matches and navigate
-	c.Search.SetMatcherFunction(func(query string) []search.MatchResult {
-		matches := c.Query.GetRepositoriesMatching(query)
+	c.Search.SetMatcherFunction(func(searchQuery string) []search.MatchResult {
+		matches := c.Query.GetRepositoriesMatching(searchQuery)
 		
 		// Convert to search results
 		var results []search.MatchResult
-		for i, info := range matches {
+		for _, info := range matches {
 			result := search.MatchResult{
 				Index:      c.Query.GetIndexForRepository(info.Path),
 				Path:       info.Path,
@@ -101,33 +101,31 @@ func (c *Coordinator) wireServices() {
 // subscribeToEvents sets up event handlers
 func (c *Coordinator) subscribeToEvents() {
 	// When groups change, update query service
-	c.bus.Subscribe(groups.GroupCreatedEvent{}, func(e interface{}) {
-		c.updateOrderedLists()
+	c.bus.Subscribe("groups.GroupCreatedEvent", func(e interface{}) {
+		c.UpdateOrderedLists()
 	})
 	
-	c.bus.Subscribe(groups.GroupDeletedEvent{}, func(e interface{}) {
-		c.updateOrderedLists()
+	c.bus.Subscribe("groups.GroupDeletedEvent", func(e interface{}) {
+		c.UpdateOrderedLists()
 	})
 	
-	c.bus.Subscribe(groups.GroupExpandedEvent{}, func(e interface{}) {
-		event := e.(groups.GroupExpandedEvent)
+	c.bus.Subscribe("groups.GroupExpandedEvent", func(e interface{}) {
 		expanded := c.Groups.GetExpandedGroups()
 		c.Query.SetExpandedGroups(expanded)
 	})
 	
-	c.bus.Subscribe(groups.GroupCollapsedEvent{}, func(e interface{}) {
-		event := e.(groups.GroupCollapsedEvent)
+	c.bus.Subscribe("groups.GroupCollapsedEvent", func(e interface{}) {
 		expanded := c.Groups.GetExpandedGroups()
 		c.Query.SetExpandedGroups(expanded)
 	})
 	
 	// When sort mode changes, re-sort
-	c.bus.Subscribe(sorting.SortModeChangedEvent{}, func(e interface{}) {
-		c.updateOrderedLists()
+	c.bus.Subscribe("sorting.SortModeChangedEvent", func(e interface{}) {
+		c.UpdateOrderedLists()
 	})
 	
 	// When navigation changes and there's an active search, check if we're still on a match
-	c.bus.Subscribe(navigation.CursorMovedEvent{}, func(e interface{}) {
+	c.bus.Subscribe("navigation.CursorMovedEvent", func(e interface{}) {
 		// Could implement search match tracking here if needed
 	})
 }
@@ -139,11 +137,11 @@ func (c *Coordinator) UpdateStores(repoStore logic.RepositoryStore, groupStore l
 	
 	// Update services that need the stores
 	c.Query = query.NewService(repoStore, groupStore)
-	c.updateOrderedLists()
+	c.UpdateOrderedLists()
 }
 
 // UpdateOrderedLists updates the ordered lists in query service
-func (c *Coordinator) updateOrderedLists() {
+func (c *Coordinator) UpdateOrderedLists() {
 	// Get all repos and sort them
 	repos := make([]string, 0, len(c.repoStore.GetAllRepositories()))
 	for path := range c.repoStore.GetAllRepositories() {

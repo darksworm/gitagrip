@@ -2,20 +2,20 @@ package groups
 
 import (
 	"gitagrip/internal/domain"
-	"gitagrip/internal/eventbus"
 	"gitagrip/internal/logic"
+	"gitagrip/internal/ui/services/events"
 )
 
 // Service handles group management
 type Service struct {
 	state      *State
-	bus        eventbus.EventBus
+	bus        events.EventBus
 	groupStore logic.GroupStore
 	saveFn     func() // Function to save config
 }
 
 // NewService creates a new groups service
-func NewService(bus eventbus.EventBus, groupStore logic.GroupStore) *Service {
+func NewService(bus events.EventBus, groupStore logic.GroupStore) *Service {
 	return &Service{
 		state: &State{
 			ExpandedGroups: make(map[string]bool),

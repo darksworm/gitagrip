@@ -7,18 +7,16 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"gitagrip/internal/config"
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"
-	"gitagrip/internal/git"
 	"gitagrip/internal/logic"
 	"gitagrip/internal/ui/coordinator"
 	"gitagrip/internal/ui/input"
 	inputtypes "gitagrip/internal/ui/input/types"
+	"gitagrip/internal/ui/services/events"
 	"gitagrip/internal/ui/services/navigation"
-	"gitagrip/internal/ui/viewmodels"
 	"gitagrip/internal/ui/views"
 )
 
@@ -26,6 +24,7 @@ import (
 type Model struct {
 	// Core dependencies
 	config      *config.Config
+	configService config.ConfigService
 	store       logic.RepositoryStore
 	groupStore  logic.GroupStore
 	eventBus    eventbus.EventBus
@@ -34,7 +33,6 @@ type Model struct {
 	// UI components
 	inputHandler *input.Handler
 	renderer     *views.Renderer
-	transformer  *viewmodels.ViewModelTransformer
 	
 	// UI state (minimal - most state is in services)
 	state UIState
@@ -60,13 +58,21 @@ type UIState struct {
 // NewModel creates a new refactored model
 func NewModel(
 	cfg *config.Config,
+	configService config.ConfigService,
 	store logic.RepositoryStore,
 	groupStore logic.GroupStore,
 	eventBus eventbus.EventBus,
 	eventChan <-chan interface{},
 ) *Model {
+	log.Printf("NewModel: Starting creation")
+	
+	// Create UI event bus for internal service communication
+	log.Printf("NewModel: Creating UI event bus")
+	uiEventBus := events.NewBus()
+	
 	// Create coordinator with all services
-	coord := coordinator.NewCoordinator(eventBus, store, groupStore)
+	log.Printf("NewModel: Creating coordinator")
+	coord := coordinator.NewCoordinator(uiEventBus, store, groupStore)
 	
 	// Set up groups save function
 	coord.Groups.SetSaveFunction(func() {
@@ -77,7 +83,7 @@ func NewModel(
 		}
 		cfg.Groups = groupsConfig
 		
-		if err := config.SaveConfig(cfg); err != nil {
+		if err := configService.Save(cfg); err != nil {
 			log.Printf("Error saving config: %v", err)
 		}
 	})
@@ -88,18 +94,19 @@ func NewModel(
 	}
 	
 	// Create UI components
-	renderer := views.NewRenderer(cfg.UI.ShowAheadBehind)
-	transformer := viewmodels.NewViewModelTransformer(cfg.UI.ShowAheadBehind)
+	log.Printf("NewModel: Creating renderer")
+	renderer := views.NewRenderer(cfg.UISettings.ShowAheadBehind)
 	
+	log.Printf("NewModel: Creating model struct")
 	m := &Model{
 		config:       cfg,
+		configService: configService,
 		store:        store,
 		groupStore:   groupStore,
 		eventBus:     eventBus,
 		coordinator:  coord,
-		inputHandler: input.NewHandler(),
+		inputHandler: input.New(),
 		renderer:     renderer,
-		transformer:  transformer,
 		state: UIState{
 			ShowHelp:     false,
 			Repositories: make(map[string]*domain.Repository),
@@ -139,7 +146,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Let input handler process the key
-		actions, cmd := m.inputHandler.HandleKey(msg)
+		ctx := &contextAdapter{model: m}
+		actions, cmd := m.inputHandler.HandleKey(msg, ctx)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -156,11 +164,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleDomainEvent(msg.event)
 		cmds = append(cmds, m.waitForEvent())
 
-	case inputtypes.InputCompleteMsg:
-		// Handle input completion
-		if cmd := m.handleInputComplete(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+	case EventMsg:
+		// Handle domain events from external sources
+		m.handleDomainEvent(msg.Event)
+
 	}
 
 	// Always tick for animations
@@ -171,6 +178,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the UI
 func (m *Model) View() string {
+	// Prevent nil pointer panics
+	if m == nil {
+		return "Model is nil"
+	}
+	if m.renderer == nil {
+		return "Renderer is nil"
+	}
+	
 	// Build view state from services
 	viewState := m.buildViewState()
 	
@@ -218,15 +233,23 @@ func (m *Model) handleAction(action inputtypes.Action) tea.Cmd {
 		m.handleSearchNavigate(a)
 		
 	case inputtypes.ChangeModeAction:
-		m.inputHandler.ChangeMode(a.Mode, a.Data)
+		// Type assert data to string if needed
+		data := ""
+		if s, ok := a.Data.(string); ok {
+			data = s
+		}
+		m.inputHandler.ChangeMode(a.Mode, data)
 		
 	case inputtypes.QuitAction:
 		if a.Force || !m.coordinator.Selection.HasSelection() {
 			return tea.Quit
 		}
 		
-	case inputtypes.SubmitAction:
-		// Input completion will be handled via InputCompleteMsg
+	case inputtypes.SubmitTextAction:
+		// Handle input submission
+		if cmd := m.handleInputSubmit(a); cmd != nil {
+			return cmd
+		}
 	}
 	
 	return nil
@@ -291,7 +314,8 @@ func (m *Model) handleRefresh(a inputtypes.RefreshAction) tea.Cmd {
 	if a.All {
 		// Full rescan
 		return func() tea.Msg {
-			m.eventBus.Publish(logic.RescanRequestedEvent{})
+			// Use domain event bus event type
+			m.eventBus.Publish(eventbus.ScanRequestedEvent{})
 			return nil
 		}
 	}
@@ -305,7 +329,7 @@ func (m *Model) handleRefresh(a inputtypes.RefreshAction) tea.Cmd {
 	}
 	
 	for _, path := range reposToRefresh {
-		m.eventBus.Publish(logic.RefreshRequestedEvent{Path: path})
+		m.eventBus.Publish(eventbus.StatusRefreshRequestedEvent{RepoPaths: []string{path}})
 	}
 	
 	return nil
@@ -322,7 +346,7 @@ func (m *Model) handleFetch() tea.Cmd {
 	}
 	
 	for _, path := range reposToFetch {
-		m.eventBus.Publish(git.FetchRequestedEvent{Path: path})
+		m.eventBus.Publish(eventbus.FetchRequestedEvent{RepoPaths: []string{path}})
 	}
 	
 	return nil
@@ -339,7 +363,7 @@ func (m *Model) handlePull() tea.Cmd {
 	}
 	
 	for _, path := range reposToPull {
-		m.eventBus.Publish(git.PullRequestedEvent{Path: path})
+		m.eventBus.Publish(eventbus.PullRequestedEvent{RepoPaths: []string{path}})
 	}
 	
 	return nil
@@ -373,24 +397,25 @@ func (m *Model) handleSearchNavigate(a inputtypes.SearchNavigateAction) {
 	}
 }
 
-// handleInputComplete processes completed input
-func (m *Model) handleInputComplete(msg inputtypes.InputCompleteMsg) tea.Cmd {
+// handleInputSubmit processes input submission
+func (m *Model) handleInputSubmit(a inputtypes.SubmitTextAction) tea.Cmd {
+	text := a.Text
 	switch m.inputHandler.GetMode() {
 	case inputtypes.ModeSearch:
-		m.coordinator.Search.StartSearch(msg.Text)
+		m.coordinator.Search.StartSearch(text)
 		
 	case inputtypes.ModeFilter:
 		// Filter is handled by view state building
 		
 	case inputtypes.ModeNewGroup:
-		if msg.Text != "" && m.coordinator.Selection.HasSelection() {
+		if text != "" && m.coordinator.Selection.HasSelection() {
 			selected := m.coordinator.Selection.GetSelected()
-			m.coordinator.Groups.CreateGroup(msg.Text, selected)
+			m.coordinator.Groups.CreateGroup(text, selected)
 			m.coordinator.Selection.DeselectAll()
 		}
 		
 	case inputtypes.ModeMoveToGroup:
-		if msg.Text != "" {
+		if text != "" {
 			var repos []string
 			if m.coordinator.Selection.HasSelection() {
 				repos = m.coordinator.Selection.GetSelected()
@@ -399,20 +424,20 @@ func (m *Model) handleInputComplete(msg inputtypes.InputCompleteMsg) tea.Cmd {
 			}
 			
 			if len(repos) > 0 {
-				m.coordinator.Groups.MoveReposToGroup(repos, msg.Text)
+				m.coordinator.Groups.MoveReposToGroup(repos, text)
 				m.coordinator.Selection.DeselectAll()
 			}
 		}
 		
 	case inputtypes.ModeDeleteConfirm:
 		groupName := m.inputHandler.GetModeData()
-		if msg.Text == "y" && groupName != "" {
+		if text == "y" && groupName != "" {
 			m.coordinator.Groups.DeleteGroup(groupName)
 		}
 		
 	case inputtypes.ModeSort:
 		// Sort mode selection
-		switch msg.Text {
+		switch text {
 		case "n":
 			m.coordinator.Sorting.SetMode(logic.SortByName)
 		case "s":
@@ -433,36 +458,56 @@ func (m *Model) handleInputComplete(msg inputtypes.InputCompleteMsg) tea.Cmd {
 // Event handling
 func (m *Model) subscribeToEvents() {
 	// Repository updates
-	m.eventBus.Subscribe(logic.RepositoryDiscoveredEvent{}, func(e interface{}) {
-		event := e.(logic.RepositoryDiscoveredEvent)
-		m.state.Repositories[event.Repository.Path] = event.Repository
-		m.coordinator.UpdateOrderedLists()
+	m.eventBus.Subscribe("logic.RepositoryDiscoveredEvent", func(e eventbus.DomainEvent) {
+		if adapter, ok := e.(eventAdapter); ok {
+			if event, ok := adapter.event.(logic.RepositoryDiscoveredEvent); ok {
+				if event.Repository != nil && event.Repository.Path != "" {
+					m.state.Repositories[event.Repository.Path] = event.Repository
+					m.coordinator.UpdateOrderedLists()
+				}
+			}
+		}
 	})
 	
-	m.eventBus.Subscribe(logic.RepositoryUpdatedEvent{}, func(e interface{}) {
-		event := e.(logic.RepositoryUpdatedEvent)
-		m.state.Repositories[event.Repository.Path] = event.Repository
+	m.eventBus.Subscribe("logic.RepositoryUpdatedEvent", func(e eventbus.DomainEvent) {
+		if adapter, ok := e.(eventAdapter); ok {
+			if event, ok := adapter.event.(logic.RepositoryUpdatedEvent); ok {
+				if event.Repository != nil && event.Repository.Path != "" {
+					m.state.Repositories[event.Repository.Path] = event.Repository
+				}
+			}
+		}
 	})
 	
 	// Status messages
-	m.eventBus.Subscribe(logic.ScanStartedEvent{}, func(e interface{}) {
+	m.eventBus.Subscribe("logic.ScanStartedEvent", func(e eventbus.DomainEvent) {
 		m.state.StatusMessage = "Scanning for repositories..."
 	})
 	
-	m.eventBus.Subscribe(logic.ScanCompletedEvent{}, func(e interface{}) {
-		event := e.(logic.ScanCompletedEvent)
-		m.state.StatusMessage = fmt.Sprintf("Scan completed: %d repositories found", event.Count)
+	m.eventBus.Subscribe("logic.ScanCompletedEvent", func(e eventbus.DomainEvent) {
+		if adapter, ok := e.(eventAdapter); ok {
+			if event, ok := adapter.event.(logic.ScanCompletedEvent); ok {
+				m.state.StatusMessage = fmt.Sprintf("Scan completed: %d repositories found", event.Count)
+			}
+		}
 	})
 }
 
 // handleDomainEvent processes domain events
 func (m *Model) handleDomainEvent(event interface{}) {
-	// The event bus subscriptions handle most events
-	// This is for any additional UI-specific handling
+	// Wrap the event in an adapter and publish to event bus
+	adapter := eventAdapter{event: event}
+	m.eventBus.Publish(adapter)
 }
 
 // buildViewState creates view state from services
 func (m *Model) buildViewState() views.ViewState {
+	// Default values to prevent panics
+	if m.coordinator == nil {
+		log.Printf("ERROR: coordinator is nil in buildViewState")
+		return views.ViewState{}
+	}
+	
 	// Get current states from services
 	cursor := m.coordinator.Navigation.GetCursor()
 	viewport := m.coordinator.Navigation.GetViewportOffset()
@@ -514,10 +559,15 @@ func (m *Model) buildViewState() views.ViewState {
 		SearchQuery:     m.coordinator.Search.GetQuery(),
 		FilterQuery:     m.inputHandler.GetFilterQuery(),
 		IsFiltered:      m.inputHandler.GetFilterQuery() != "",
-		ShowAheadBehind: m.config.UI.ShowAheadBehind,
+		ShowAheadBehind: m.config.UISettings.ShowAheadBehind,
 		HelpModel:       m.state.HelpModel,
 		DeleteTarget:    m.inputHandler.GetModeData(),
-		TextInput:       m.inputHandler.GetTextInput(),
+		TextInput:       func() string {
+			if ti := m.inputHandler.GetTextInput(); ti != nil {
+				return ti.Value()
+			}
+			return ""
+		}(),
 		InputMode:       string(m.inputHandler.GetMode()),
 		UngroupedRepos:  m.coordinator.Query.GetUngroupedRepos(),
 	}
@@ -525,19 +575,86 @@ func (m *Model) buildViewState() views.ViewState {
 
 // Helper methods
 func (m *Model) showGitLog(repo *domain.Repository) {
-	log, err := git.GetGitLog(repo.Path, 20)
-	if err != nil {
-		m.state.LogContent = fmt.Sprintf("Error getting git log: %v", err)
-	} else {
-		m.state.LogContent = log
-	}
+	// TODO: Implement git log functionality
+	m.state.LogContent = "Git log not yet implemented"
 	m.state.ShowLog = true
 }
 
 func (m *Model) showRepositoryInfo(repo *domain.Repository) {
-	info := m.transformer.FormatRepositoryInfo(repo)
+	// Format repository info
+	info := fmt.Sprintf(
+		"Repository: %s\n"+
+			"Path: %s\n"+
+			"Branch: %s\n"+
+			"Status: %s\n"+
+			"Ahead: %d, Behind: %d\n"+
+			"Stashes: %d",
+		repo.Name,
+		repo.Path,
+		repo.Status.Branch,
+		getStatusText(repo.Status),
+		repo.Status.AheadCount,
+		repo.Status.BehindCount,
+		repo.Status.StashCount,
+	)
+	
 	m.state.InfoContent = info
 	m.state.ShowInfo = true
+}
+
+// getStatusText returns a text description of the repository status
+func getStatusText(status domain.RepoStatus) string {
+	if status.Error != "" {
+		return "Error: " + status.Error
+	}
+	if status.IsDirty {
+		return "Modified"
+	}
+	if status.HasUntracked {
+		return "Untracked files"
+	}
+	return "Clean"
+}
+
+// contextAdapter implements input.Context for the input handler
+type contextAdapter struct {
+	model *Model
+}
+
+func (c *contextAdapter) CurrentIndex() int {
+	return c.model.coordinator.Navigation.GetCursor()
+}
+
+func (c *contextAdapter) TotalItems() int {
+	return c.model.coordinator.Query.GetMaxIndex() + 1
+}
+
+func (c *contextAdapter) HasSelection() bool {
+	return c.model.coordinator.Selection.HasSelection()
+}
+
+func (c *contextAdapter) SelectedCount() int {
+	return c.model.coordinator.Selection.GetCount()
+}
+
+func (c *contextAdapter) CurrentRepositoryPath() string {
+	return c.model.coordinator.GetCurrentRepositoryPath()
+}
+
+func (c *contextAdapter) GetRepoPathAtIndex(index int) string {
+	return c.model.coordinator.Query.GetRepositoryPathAtIndex(index)
+}
+
+func (c *contextAdapter) IsOnGroup() bool {
+	return c.model.coordinator.IsOnGroup()
+}
+
+func (c *contextAdapter) CurrentGroupName() string {
+	return c.model.coordinator.GetCurrentGroupName()
+}
+
+func (c *contextAdapter) SearchQuery() string {
+	return c.model.coordinator.Search.GetQuery()
 }
 
 // Event handling
@@ -557,4 +674,24 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg {
 		return nil
 	})
+}
+
+// eventAdapter wraps logic events to implement DomainEvent interface
+type eventAdapter struct {
+	event interface{}
+}
+
+func (e eventAdapter) Type() eventbus.EventType {
+	switch e.event.(type) {
+	case logic.RepositoryDiscoveredEvent:
+		return "logic.RepositoryDiscoveredEvent"
+	case logic.RepositoryUpdatedEvent:
+		return "logic.RepositoryUpdatedEvent"
+	case logic.ScanStartedEvent:
+		return "logic.ScanStartedEvent"
+	case logic.ScanCompletedEvent:
+		return "logic.ScanCompletedEvent"
+	default:
+		return "unknown"
+	}
 }
