@@ -226,9 +226,12 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 
 	// Add bottom scroll indicator
 	if needsBottomIndicator {
-		itemsBelow := currentIndex - (state.ViewportOffset + len(lines))
-		if needsTopIndicator {
-			itemsBelow++ // Adjust for top indicator
+		// Calculate how many items are below the current viewport
+		// currentIndex is the total number of items
+		// state.ViewportOffset + effectiveHeight is what we're showing
+		itemsBelow := currentIndex - (state.ViewportOffset + effectiveHeight)
+		if itemsBelow < 0 {
+			itemsBelow = 0
 		}
 		lines = append(lines, r.styles.Scroll.Render(fmt.Sprintf("↓ %d more below ↓", itemsBelow)))
 	}

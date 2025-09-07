@@ -104,18 +104,24 @@ func (n *Navigator) ensureSelectedVisible() {
 	// If selected item is below effective viewport, scroll down
 	if n.selectedIndex >= n.viewportOffset + effectiveHeight {
 		// Calculate where to position the viewport
-		// Try to show some context above the selected item
-		contextLines := 3
-		newOffset := n.selectedIndex - effectiveHeight + 1 + contextLines
+		// We need to make sure the selected item is visible
+		newOffset := n.selectedIndex - effectiveHeight + 1
+		
+		// For the last few items, allow scrolling to show them without context
+		// This ensures we can see all items at the bottom
+		maxPossibleOffset := totalItems - effectiveHeight
+		if maxPossibleOffset < 0 {
+			maxPossibleOffset = 0
+		}
+		
+		// If we're near the bottom, adjust to show all remaining items
+		if newOffset > maxPossibleOffset {
+			newOffset = maxPossibleOffset
+		}
 		
 		// Don't scroll past the beginning
 		if newOffset < 0 {
 			newOffset = 0
-		}
-		
-		// Make sure selected item is still visible with this offset
-		if n.selectedIndex < newOffset {
-			newOffset = n.selectedIndex
 		}
 		
 		n.viewportOffset = newOffset

@@ -569,59 +569,8 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 		// Check repos in group if expanded
 		if m.store.IsGroupExpanded(groupName) {
 			group, _ := m.store.GetGroup(groupName)
-			// Apply the same sorting as in renderRepositoryList
-			sortedRepos := make([]string, len(group.Repos))
-			copy(sortedRepos, group.Repos)
-
-			switch m.currentSort {
-			case logic.SortByStatus:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.store.GetRepository(sortedRepos[i])
-					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
-					if !okI || !okJ {
-						return !okI
-					}
-					statusI := logic.GetStatusPriority(repoI)
-					statusJ := logic.GetStatusPriority(repoJ)
-					if statusI != statusJ {
-						return statusI > statusJ
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-
-			case logic.SortByBranch:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.store.GetRepository(sortedRepos[i])
-					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
-					if !okI || !okJ {
-						return !okI
-					}
-					branchI := strings.ToLower(repoI.Status.Branch)
-					branchJ := strings.ToLower(repoJ.Status.Branch)
-					if branchI != branchJ {
-						if branchI == "main" || branchI == "master" {
-							return true
-						}
-						if branchJ == "main" || branchJ == "master" {
-							return false
-						}
-						return branchI < branchJ
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-
-			case logic.SortByName, logic.SortByGroup:
-				sort.Slice(sortedRepos, func(i, j int) bool {
-					repoI, okI := m.store.GetRepository(sortedRepos[i])
-					repoJ, okJ := m.store.GetRepository(sortedRepos[j])
-					if !okI || !okJ {
-						return !okI
-					}
-					return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
-				})
-			}
-
-			for _, repoPath := range sortedRepos {
+			// Use the repos in the same order as displayed (no sorting)
+			for _, repoPath := range group.Repos {
 				if currentIndex == index {
 					return repoPath
 				}

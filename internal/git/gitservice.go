@@ -104,11 +104,23 @@ func NewGitService(bus eventbus.EventBus) GitService {
 				
 				// Fetch each repository
 				for _, repoPath := range repos {
-					if err := gs.fetchRepo(ctx, repoPath); err != nil {
+					err := gs.fetchRepo(ctx, repoPath)
+					if err != nil {
 						log.Printf("Failed to fetch %s: %v", repoPath, err)
+						gs.bus.Publish(eventbus.FetchCompletedEvent{
+							RepoPath: repoPath,
+							Success:  false,
+							Error:    err,
+						})
+					} else {
+						gs.bus.Publish(eventbus.FetchCompletedEvent{
+							RepoPath: repoPath,
+							Success:  true,
+							Error:    nil,
+						})
+						// Refresh status after successful fetch
+						gs.RefreshRepo(ctx, repoPath)
 					}
-					// Refresh status after fetch
-					gs.RefreshRepo(ctx, repoPath)
 				}
 			}()
 		}
@@ -135,16 +147,28 @@ func NewGitService(bus eventbus.EventBus) GitService {
 				
 				// Pull each repository
 				for _, repoPath := range repos {
-					if err := gs.pullRepo(ctx, repoPath); err != nil {
+					err := gs.pullRepo(ctx, repoPath)
+					if err != nil {
 						log.Printf("Failed to pull %s: %v", repoPath, err)
-						// Publish error event
+						gs.bus.Publish(eventbus.PullCompletedEvent{
+							RepoPath: repoPath,
+							Success:  false,
+							Error:    err,
+						})
+						// Also publish error event for UI notification
 						gs.bus.Publish(eventbus.ErrorEvent{
 							Message: fmt.Sprintf("Pull failed for %s", filepath.Base(repoPath)),
 							Err:     err,
 						})
+					} else {
+						gs.bus.Publish(eventbus.PullCompletedEvent{
+							RepoPath: repoPath,
+							Success:  true,
+							Error:    nil,
+						})
+						// Refresh status after successful pull
+						gs.RefreshRepo(ctx, repoPath)
 					}
-					// Refresh status after pull
-					gs.RefreshRepo(ctx, repoPath)
 				}
 			}()
 		}

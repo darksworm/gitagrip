@@ -17,6 +17,8 @@ const (
 	EventStatusRefreshRequested EventType = "StatusRefreshRequested"
 	EventFetchRequested EventType = "FetchRequested"
 	EventPullRequested  EventType = "PullRequested"
+	EventFetchCompleted EventType = "FetchCompleted"
+	EventPullCompleted  EventType = "PullCompleted"
 	EventConfigLoaded   EventType = "ConfigLoaded"
 	EventConfigSaved    EventType = "ConfigSaved"
 	EventConfigChanged  EventType = "ConfigChanged"
@@ -134,3 +136,21 @@ type PullRequestedEvent struct {
 }
 
 func (e PullRequestedEvent) Type() EventType { return EventPullRequested }
+
+// FetchCompletedEvent is emitted when git fetch operation completes
+type FetchCompletedEvent struct {
+	RepoPath string
+	Success  bool
+	Error    error
+}
+
+func (e FetchCompletedEvent) Type() EventType { return EventFetchCompleted }
+
+// PullCompletedEvent is emitted when git pull operation completes
+type PullCompletedEvent struct {
+	RepoPath string
+	Success  bool
+	Error    error
+}
+
+func (e PullCompletedEvent) Type() EventType { return EventPullCompleted }

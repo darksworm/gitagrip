@@ -86,6 +86,38 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.ScanCompletedEvent:
 		h.state.Scanning = false
 		h.state.StatusMessage = fmt.Sprintf("Scan complete. Found %d repositories.", e.ReposFound)
+
+	case eventbus.FetchCompletedEvent:
+		// Clear fetching state for this repo
+		h.state.SetFetching([]string{e.RepoPath}, false)
+		
+		// Update status message
+		if e.Success {
+			h.state.StatusMessage = fmt.Sprintf("Fetch completed for %s", e.RepoPath)
+		} else {
+			h.state.StatusMessage = fmt.Sprintf("Fetch failed for %s: %v", e.RepoPath, e.Error)
+		}
+		
+		// Check if all fetch operations completed
+		if len(h.state.FetchingRepos) == 0 {
+			h.state.StatusMessage = "All fetch operations completed"
+		}
+
+	case eventbus.PullCompletedEvent:
+		// Clear pulling state for this repo
+		h.state.SetPulling([]string{e.RepoPath}, false)
+		
+		// Update status message
+		if e.Success {
+			h.state.StatusMessage = fmt.Sprintf("Pull completed for %s", e.RepoPath)
+		} else {
+			h.state.StatusMessage = fmt.Sprintf("Pull failed for %s: %v", e.RepoPath, e.Error)
+		}
+		
+		// Check if all pull operations completed
+		if len(h.state.PullingRepos) == 0 {
+			h.state.StatusMessage = "All pull operations completed"
+		}
 	}
 
 	return nil
