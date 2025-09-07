@@ -1221,33 +1221,27 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.ToggleGroupAction:
 		// First try to get the group if we're on a group header
 		groupName := m.getSelectedGroup()
+		wasOnGroupHeader := groupName != ""
+		
 		if groupName == "" {
 			// If not on a group header, check if we're on a repo within a group
 			groupName = m.getGroupAtIndex(m.state.SelectedIndex)
 		}
 		
 		if groupName != "" && groupName != "Ungrouped" {
+			// Check if we're closing the group while inside it
+			isClosing := m.state.ExpandedGroups[groupName]
+			wasInsideGroup := !wasOnGroupHeader && isClosing
+			
 			// Toggle the group expansion state
 			m.state.ExpandedGroups[groupName] = !m.state.ExpandedGroups[groupName]
 			
 			// If we just collapsed a group and we were inside it, move selection to the group header
-			if !m.state.ExpandedGroups[groupName] && m.getRepoPathAtIndex(m.state.SelectedIndex) != "" {
+			if wasInsideGroup {
 				// Find the group header position
-				currentIndex := 0
-				for _, gName := range m.store.GetOrderedGroups() {
-					if gName == groupName {
-						m.state.SelectedIndex = currentIndex
-						break
-					}
-					currentIndex++
-					if m.store.IsGroupExpanded(gName) {
-						group, _ := m.store.GetGroup(gName)
-						currentIndex += len(group.Repos)
-					}
-					// Account for gaps
-					if gName != HiddenGroupName {
-						currentIndex++
-					}
+				newIndex := m.getCurrentIndexForGroup(groupName)
+				if newIndex >= 0 {
+					m.state.SelectedIndex = newIndex
 				}
 			}
 			m.ensureSelectedVisible()
