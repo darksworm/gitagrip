@@ -63,6 +63,16 @@ func (n *Navigator) GetMaxIndex(ungroupedReposCount int) int {
 			count += len(group.Repos)
 		}
 	}
+	
+	// Add gaps after each group (except hidden at the end)
+	nonHiddenGroups := 0
+	for _, groupName := range n.orderedGroups {
+		if groupName != "_Hidden" {
+			nonHiddenGroups++
+		}
+	}
+	count += nonHiddenGroups // One gap per non-hidden group
+	
 	return count - 1
 }
 
@@ -154,6 +164,10 @@ func (n *Navigator) calculateTotalItems() int {
 			group := n.groups[groupName]
 			totalItems += len(group.Repos)
 		}
+		// Account for gap after group (except hidden at the end)
+		if groupName != "_Hidden" {
+			totalItems++ // Gap after group
+		}
 	}
 	// Add ungrouped repos
 	totalItems += n.ungroupedRepoCount
@@ -226,6 +240,11 @@ func (n *Navigator) JumpToGroupBoundary(toBeginning bool, ungroupedRepoPaths []s
 				currentIndex++
 			}
 		}
+		
+		// Account for gap after group (except hidden at the end)
+		if groupName != "_Hidden" {
+			currentIndex++ // Gap after group
+		}
 	}
 	
 	// Check ungrouped repos
@@ -265,6 +284,11 @@ func (n *Navigator) GetCurrentIndexForGroup(targetGroupName string) int {
 			group := n.groups[name]
 			currentIndex += len(group.Repos)
 		}
+		
+		// Account for gap after group (except hidden at the end)
+		if name != "_Hidden" {
+			currentIndex++ // Gap after group
+		}
 	}
 	
 	return -1
@@ -286,6 +310,11 @@ func (n *Navigator) GetCurrentIndexForRepo(repoPath string, ungroupedRepoPaths [
 				}
 				currentIndex++
 			}
+		}
+		
+		// Account for gap after group (except hidden at the end)
+		if groupName != "_Hidden" {
+			currentIndex++ // Gap after group
 		}
 	}
 	
@@ -329,6 +358,10 @@ func (n *Navigator) JumpToNextGroupEnd(currentGroupName string, ungroupedRepoPat
 								g := n.groups[groupName]
 								currentIndex += len(g.Repos)
 							}
+							// Account for gap after group (except hidden at the end)
+							if groupName != "_Hidden" {
+								currentIndex++ // Gap after group
+							}
 						} else if j == i {
 							// We're at the target group, add repos to get to last one
 							currentIndex += len(group.Repos) - 1
@@ -352,6 +385,10 @@ func (n *Navigator) JumpToNextGroupEnd(currentGroupName string, ungroupedRepoPat
 			if n.expandedGroups[groupName] {
 				group := n.groups[groupName]
 				currentIndex += len(group.Repos)
+			}
+			// Account for gap after group (except hidden at the end)
+			if groupName != "_Hidden" {
+				currentIndex++ // Gap after group
 			}
 		}
 		// Add ungrouped repos
@@ -392,6 +429,10 @@ func (n *Navigator) JumpToPreviousGroupStart(currentGroupName string) bool {
 							if n.expandedGroups[groupName] {
 								g := n.groups[groupName]
 								currentIndex += len(g.Repos)
+							}
+							// Account for gap after group (except hidden at the end)
+							if groupName != "_Hidden" {
+								currentIndex++ // Gap after group
 							}
 						} else if j == i {
 							// We're at the target group, we're already at first repo

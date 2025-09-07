@@ -2,10 +2,11 @@ package domain
 
 // Repository represents a git repository
 type Repository struct {
-	Path   string
-	Name   string
-	Group  string // group name it belongs to ("" if ungrouped)
-	Status RepoStatus
+	Path        string
+	Name        string
+	DisplayName string // Name shown in UI, may include path for duplicates
+	Group       string // group name it belongs to ("" if ungrouped)
+	Status      RepoStatus
 }
 
 // RepoStatus represents the current status of a repository

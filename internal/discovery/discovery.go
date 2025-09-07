@@ -155,9 +155,10 @@ func (ds *discoveryService) scanDirectory(ctx context.Context, root string) int 
 			
 			// Create repository info with minimal status
 			repo := domain.Repository{
-				Path:   repoPath,
-				Name:   repoName,
-				Group:  "", // Will be determined by group manager
+				Path:        repoPath,
+				Name:        repoName,
+				DisplayName: repoName, // Initially same as Name, will be updated if duplicates found
+				Group:       "", // Will be determined by group manager
 				Status: domain.RepoStatus{
 					Branch: "⋯", // Loading indicator, will be updated by git service
 				},

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -114,8 +115,8 @@ var (
 		key.WithHelp("cmd+a", "select all"),
 	)
 	keyNewGroup = key.NewBinding(
-		key.WithKeys("n"),
-		key.WithHelp("n", "new group"),
+		key.WithKeys("N"),
+		key.WithHelp("N", "new group"),
 	)
 	keyMoveToGroup = key.NewBinding(
 		key.WithKeys("m"),
@@ -454,6 +455,9 @@ func (m *Model) updateOrderedLists() {
 
 	// Update ungrouped repos cache
 	m.state.UngroupedRepos = m.getUngroupedRepos()
+	
+	// Detect and handle duplicate repository names
+	m.updateDuplicateRepoNames()
 
 	// Sort ungrouped repos if needed
 	if m.currentSort != logic.SortByName {
@@ -618,6 +622,11 @@ func (m *Model) getSelectedGroup() string {
 			group, _ := m.store.GetGroup(groupName)
 			currentIndex += len(group.Repos)
 		}
+		
+		// Account for gap after group (except hidden group at the end)
+		if groupName != HiddenGroupName || currentIndex < m.state.SelectedIndex {
+			currentIndex++ // Gap after group
+		}
 
 		if currentIndex > m.state.SelectedIndex {
 			break
@@ -649,6 +658,14 @@ func (m *Model) getRepoPathAtIndex(index int) string {
 				}
 				currentIndex++
 			}
+		}
+		
+		// Account for gap after group (except hidden group at the end)
+		if groupName != HiddenGroupName || currentIndex < index {
+			if currentIndex == index {
+				return "" // This is a gap, not a repo
+			}
+			currentIndex++ // Gap after group
 		}
 
 		if currentIndex > index {
@@ -865,12 +882,24 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		case "up":
 			if m.state.SelectedIndex > 0 {
 				m.state.SelectedIndex--
+				// Skip gaps when moving up
+				if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
+					if m.state.SelectedIndex > 0 {
+						m.state.SelectedIndex--
+					}
+				}
 				m.ensureSelectedVisible()
 			}
 		case "down":
 			maxIndex := m.getMaxIndex()
 			if m.state.SelectedIndex < maxIndex {
 				m.state.SelectedIndex++
+				// Skip gaps when moving down
+				if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
+					if m.state.SelectedIndex < maxIndex {
+						m.state.SelectedIndex++
+					}
+				}
 				m.ensureSelectedVisible()
 			}
 		case "left":
@@ -1434,6 +1463,12 @@ func (m *Model) pageUp() {
 	for i := 0; i < pageSize; i++ {
 		if m.state.SelectedIndex > 0 {
 			m.state.SelectedIndex--
+			// Skip gaps
+			if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
+				if m.state.SelectedIndex > 0 {
+					m.state.SelectedIndex--
+				}
+			}
 		}
 	}
 	m.ensureSelectedVisible()
@@ -1450,6 +1485,12 @@ func (m *Model) pageDown() {
 	for i := 0; i < pageSize; i++ {
 		if m.state.SelectedIndex < maxIndex {
 			m.state.SelectedIndex++
+			// Skip gaps
+			if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
+				if m.state.SelectedIndex < maxIndex {
+					m.state.SelectedIndex++
+				}
+			}
 		}
 	}
 	m.ensureSelectedVisible()
@@ -1470,6 +1511,41 @@ func tick() tea.Cmd {
 // getGroupsMap returns a map of group names to repository paths
 func (m *Model) getGroupsMap() map[string][]string {
 	return m.state.GetGroupsMap()
+}
+
+// updateDuplicateRepoNames updates DisplayName for repos with duplicate names
+func (m *Model) updateDuplicateRepoNames() {
+	// Count occurrences of each repository name
+	nameCount := make(map[string]int)
+	for _, repo := range m.state.Repositories {
+		nameCount[repo.Name]++
+	}
+	
+	// For repos with duplicate names, update their DisplayName
+	for path, repo := range m.state.Repositories {
+		if nameCount[repo.Name] > 1 {
+			// Calculate relative path from base directory
+			relativePath := strings.TrimPrefix(path, m.config.BaseDir)
+			relativePath = strings.TrimPrefix(relativePath, "/")
+			
+			// Remove the repo name from the end of the path
+			dirPath := filepath.Dir(relativePath)
+			if dirPath == "." {
+				dirPath = ""
+			}
+			
+			// Set display name with relative path
+			if dirPath != "" {
+				repo.DisplayName = fmt.Sprintf("%s (%s)", repo.Name, dirPath)
+			} else {
+				// If at root, use full path
+				repo.DisplayName = fmt.Sprintf("%s (%s)", repo.Name, relativePath)
+			}
+		} else {
+			// No duplicates, use regular name
+			repo.DisplayName = repo.Name
+		}
+	}
 }
 
 // performSearch searches for repositories matching the search query
@@ -1516,6 +1592,11 @@ func (m *Model) performSearch() {
 				}
 				currentIdx++
 			}
+		}
+		
+		// Account for gap after group (except hidden at the end)
+		if groupName != HiddenGroupName {
+			currentIdx++ // Gap after group
 		}
 	}
 	

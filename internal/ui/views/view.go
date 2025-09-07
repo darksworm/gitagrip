@@ -183,6 +183,14 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 				currentIndex++
 			}
 		}
+		
+		// Add gap after group (except for hidden group at the end)
+		if groupName != "_Hidden" || currentIndex < state.SelectedIndex {
+			if currentIndex >= state.ViewportOffset && len(visibleLines) > 0 {
+				visibleLines = append(visibleLines, "") // Empty line for gap
+			}
+			currentIndex++ // Count the gap in index
+		}
 	}
 
 	// Ungrouped repos

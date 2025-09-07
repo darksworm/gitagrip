@@ -84,7 +84,10 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 	}
 	
 	// Repository name (with search highlighting if applicable)
-	repoName := repo.Name
+	repoName := repo.DisplayName
+	if repoName == "" {
+		repoName = repo.Name // Fallback to Name if DisplayName not set
+	}
 	nameStyle := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
 	if searchQuery != "" && strings.Contains(strings.ToLower(repoName), strings.ToLower(searchQuery)) {
 		repoName = r.highlightMatch(repoName, searchQuery, 
