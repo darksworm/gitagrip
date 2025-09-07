@@ -3,7 +3,7 @@ package query
 import (
 	"sort"
 	"strings"
-	
+
 	"gitagrip/internal/domain"
 	"gitagrip/internal/logic"
 )
@@ -13,7 +13,7 @@ type Service struct {
 	// Dependencies
 	repoStore  logic.RepositoryStore
 	groupStore logic.GroupStore
-	
+
 	// State caches
 	orderedGroups  []string
 	orderedRepos   []string
@@ -27,6 +27,9 @@ func NewService(repoStore logic.RepositoryStore, groupStore logic.GroupStore) *S
 		repoStore:      repoStore,
 		groupStore:     groupStore,
 		expandedGroups: make(map[string]bool),
+		orderedGroups:  []string{},
+		orderedRepos:   []string{},
+		ungroupedRepos: []string{},
 	}
 }
 
@@ -49,11 +52,11 @@ func (s *Service) SetExpandedGroups(expanded map[string]bool) {
 // GetMaxIndex returns the maximum selectable index
 func (s *Service) GetMaxIndex() int {
 	count := 0
-	
+
 	// Count groups and their repos if expanded
 	for _, groupName := range s.orderedGroups {
 		count++ // Group header
-		
+
 		if s.expandedGroups[groupName] {
 			group := s.groupStore.GetGroup(groupName)
 			if group != nil {
@@ -61,10 +64,10 @@ func (s *Service) GetMaxIndex() int {
 			}
 		}
 	}
-	
+
 	// Count ungrouped repos
 	count += len(s.ungroupedRepos)
-	
+
 	// Return max index (count - 1)
 	if count > 0 {
 		return count - 1
@@ -75,7 +78,7 @@ func (s *Service) GetMaxIndex() int {
 // GetIndexInfo returns information about what's at a specific index
 func (s *Service) GetIndexInfo(index int) *IndexInfo {
 	currentIdx := 0
-	
+
 	// Check groups
 	for _, groupName := range s.orderedGroups {
 		if currentIdx == index {
@@ -86,7 +89,7 @@ func (s *Service) GetIndexInfo(index int) *IndexInfo {
 			}
 		}
 		currentIdx++
-		
+
 		// Check repos in group if expanded
 		if s.expandedGroups[groupName] {
 			group := s.groupStore.GetGroup(groupName)
@@ -106,7 +109,7 @@ func (s *Service) GetIndexInfo(index int) *IndexInfo {
 			}
 		}
 	}
-	
+
 	// Check ungrouped repos
 	for _, repoPath := range s.ungroupedRepos {
 		if currentIdx == index {
@@ -119,7 +122,7 @@ func (s *Service) GetIndexInfo(index int) *IndexInfo {
 		}
 		currentIdx++
 	}
-	
+
 	return nil
 }
 
@@ -143,13 +146,16 @@ func (s *Service) GetRepositoryPathAtIndex(index int) string {
 
 // GetUngroupedRepos returns repositories not in any group
 func (s *Service) GetUngroupedRepos() []string {
+	if s.ungroupedRepos == nil {
+		return []string{}
+	}
 	return s.ungroupedRepos
 }
 
 // GetVisibleRepositoryPaths returns all visible repository paths in order
 func (s *Service) GetVisibleRepositoryPaths() []string {
 	var paths []string
-	
+
 	// Add repos from expanded groups
 	for _, groupName := range s.orderedGroups {
 		if s.expandedGroups[groupName] {
@@ -159,17 +165,17 @@ func (s *Service) GetVisibleRepositoryPaths() []string {
 			}
 		}
 	}
-	
+
 	// Add ungrouped repos
 	paths = append(paths, s.ungroupedRepos...)
-	
+
 	return paths
 }
 
 // GetAllRepositoryPaths returns all repository paths regardless of visibility
 func (s *Service) GetAllRepositoryPaths() []string {
 	var paths []string
-	
+
 	// Add all repos from groups
 	for _, groupName := range s.orderedGroups {
 		group := s.groupStore.GetGroup(groupName)
@@ -177,10 +183,10 @@ func (s *Service) GetAllRepositoryPaths() []string {
 			paths = append(paths, group.Repos...)
 		}
 	}
-	
+
 	// Add ungrouped repos
 	paths = append(paths, s.ungroupedRepos...)
-	
+
 	return paths
 }
 
@@ -192,11 +198,11 @@ func (s *Service) IsGroupExpanded(groupName string) bool {
 // GetIndexForRepository finds the index of a repository
 func (s *Service) GetIndexForRepository(targetPath string) int {
 	currentIdx := 0
-	
+
 	// Check groups
 	for _, groupName := range s.orderedGroups {
 		currentIdx++ // Group header
-		
+
 		// Check repos in group if expanded
 		if s.expandedGroups[groupName] {
 			group := s.groupStore.GetGroup(groupName)
@@ -210,7 +216,7 @@ func (s *Service) GetIndexForRepository(targetPath string) int {
 			}
 		}
 	}
-	
+
 	// Check ungrouped repos
 	for _, repoPath := range s.ungroupedRepos {
 		if repoPath == targetPath {
@@ -218,23 +224,46 @@ func (s *Service) GetIndexForRepository(targetPath string) int {
 		}
 		currentIdx++
 	}
+
+	return -1 // Not found
+}
+// GetIndexForGroup finds the index of a group header
+func (s *Service) GetIndexForGroup(targetGroupName string) int {
+	currentIdx := 0
+	
+	// Search through groups
+	for _, groupName := range s.orderedGroups {
+		if groupName == targetGroupName {
+			return currentIdx
+		}
+		currentIdx++
+		
+		// Skip repos in group if expanded
+		if s.expandedGroups[groupName] {
+			group := s.groupStore.GetGroup(groupName)
+			if group != nil {
+				currentIdx += len(group.Repos)
+			}
+		}
+	}
 	
 	return -1 // Not found
 }
 
+
 // Internal methods
 func (s *Service) updateUngroupedRepos() {
 	grouped := make(map[string]bool)
-	
+
 	// Mark all grouped repos
 	for _, group := range s.groupStore.GetAllGroups() {
 		for _, repoPath := range group.Repos {
 			grouped[repoPath] = true
 		}
 	}
-	
+
 	// Find ungrouped repos
-	s.ungroupedRepos = nil
+	s.ungroupedRepos = []string{}
 	for _, repoPath := range s.orderedRepos {
 		if !grouped[repoPath] {
 			s.ungroupedRepos = append(s.ungroupedRepos, repoPath)
@@ -247,7 +276,7 @@ func (s *Service) GetRepositoriesMatching(query string) []IndexInfo {
 	var matches []IndexInfo
 	lowerQuery := strings.ToLower(query)
 	currentIdx := 0
-	
+
 	// Search through groups
 	for _, groupName := range s.orderedGroups {
 		// Check group name
@@ -258,7 +287,7 @@ func (s *Service) GetRepositoriesMatching(query string) []IndexInfo {
 			})
 		}
 		currentIdx++
-		
+
 		// Check repos in group if expanded
 		if s.expandedGroups[groupName] {
 			group := s.groupStore.GetGroup(groupName)
@@ -278,7 +307,7 @@ func (s *Service) GetRepositoriesMatching(query string) []IndexInfo {
 			}
 		}
 	}
-	
+
 	// Search ungrouped repos
 	for _, repoPath := range s.ungroupedRepos {
 		repo := s.repoStore.GetRepository(repoPath)
@@ -291,7 +320,7 @@ func (s *Service) GetRepositoriesMatching(query string) []IndexInfo {
 		}
 		currentIdx++
 	}
-	
+
 	return matches
 }
 
@@ -307,7 +336,7 @@ func (s *Service) SortRepositories(paths []string, sortMode logic.SortMode) {
 			}
 			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 		})
-		
+
 	case logic.SortByStatus:
 		sort.Slice(paths, func(i, j int) bool {
 			repoI := s.repoStore.GetRepository(paths[i])
@@ -317,7 +346,7 @@ func (s *Service) SortRepositories(paths []string, sortMode logic.SortMode) {
 			}
 			return getStatusPriority(repoI.Status) > getStatusPriority(repoJ.Status)
 		})
-		
+
 	case logic.SortByBranch:
 		sort.Slice(paths, func(i, j int) bool {
 			repoI := s.repoStore.GetRepository(paths[i])
@@ -327,7 +356,7 @@ func (s *Service) SortRepositories(paths []string, sortMode logic.SortMode) {
 			}
 			return strings.ToLower(repoI.Status.Branch) < strings.ToLower(repoJ.Status.Branch)
 		})
-		
+
 	case logic.SortByPath:
 		sort.Strings(paths)
 	}

@@ -3,6 +3,7 @@ package eventbus
 import (
 	"gitagrip/internal/domain"
 	"log"
+	"runtime/debug"
 	"sync"
 )
 
@@ -13,6 +14,7 @@ type EventType = domain.EventType
 // Event type constants
 const (
 	EventRepoDiscovered = domain.EventRepoDiscovered
+	EventReposDiscoveredBatch = domain.EventReposDiscoveredBatch // Add batch event
 	EventStatusUpdated  = domain.EventStatusUpdated
 	EventError          = domain.EventError
 	EventGroupAdded     = domain.EventGroupAdded
@@ -31,6 +33,7 @@ const (
 
 // Re-export domain event types
 type RepoDiscoveredEvent = domain.RepoDiscoveredEvent
+type ReposDiscoveredBatchEvent = domain.ReposDiscoveredBatchEvent // Add batch event type
 type StatusUpdatedEvent = domain.StatusUpdatedEvent
 type ErrorEvent = domain.ErrorEvent
 type GroupAddedEvent = domain.GroupAddedEvent
@@ -68,7 +71,7 @@ type bus struct {
 func New() EventBus {
 	b := &bus{
 		handlers:  make(map[EventType][]EventHandler),
-		eventChan: make(chan DomainEvent, 100),
+		eventChan: make(chan DomainEvent, 1000), // Increased from 100 to 1000
 		quit:      make(chan struct{}),
 	}
 	
@@ -81,6 +84,14 @@ func New() EventBus {
 
 // Publish publishes an event to all subscribers
 func (b *bus) Publish(event DomainEvent) {
+	// Skip logging for high-frequency events
+	switch event.Type() {
+	case EventStatusUpdated:
+		// Don't log status updates as they're too frequent
+	default:
+		log.Printf("EventBus: Publishing event %s", event.Type())
+	}
+	
 	select {
 	case b.eventChan <- event:
 		// Event sent successfully
@@ -101,66 +112,60 @@ func (b *bus) Subscribe(eventType EventType, handler EventHandler) func() {
 	
 	// Return unsubscribe function
 	return func() {
-		b.unsubscribe(eventType, handler)
-	}
-}
-
-// unsubscribe removes a handler from the subscription list
-func (b *bus) unsubscribe(eventType EventType, handler EventHandler) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	
-	handlers := b.handlers[eventType]
-	for i, h := range handlers {
-		// Compare function pointers
-		if &h == &handler {
-			// Remove handler from slice
-			b.handlers[eventType] = append(handlers[:i], handlers[i+1:]...)
-			break
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		
+		// Find and remove the handler
+		handlers := b.handlers[eventType]
+		for i, h := range handlers {
+			// Compare function pointers
+			if &h == &handler {
+				// Remove handler by slicing
+				b.handlers[eventType] = append(handlers[:i], handlers[i+1:]...)
+				break
+			}
 		}
 	}
 }
 
-// dispatch runs in a goroutine and dispatches events to handlers
+// dispatch handles event distribution to subscribers
 func (b *bus) dispatch() {
 	defer b.wg.Done()
 	
 	for {
 		select {
 		case event := <-b.eventChan:
-			b.dispatchEvent(event)
+			// Get handlers for this event type
+			b.mu.RLock()
+			handlers := b.handlers[event.Type()]
+			// Make a copy to avoid holding lock during handler execution
+			handlersCopy := make([]EventHandler, len(handlers))
+			copy(handlersCopy, handlers)
+			b.mu.RUnlock()
+			
+			// Call each handler
+			for _, handler := range handlersCopy {
+				// Call handler in a goroutine to avoid blocking
+				go func(h EventHandler, eventType EventType) {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Event handler panic for %s: %v\nStack: %s", eventType, r, debug.Stack())
+						}
+					}()
+					h(event)
+				}(handler, event.Type())
+			}
+			
 		case <-b.quit:
-			return
+			// Drain remaining events
+			for {
+				select {
+				case <-b.eventChan:
+					// Discard event
+				default:
+					return
+				}
+			}
 		}
 	}
-}
-
-// dispatchEvent sends an event to all registered handlers
-func (b *bus) dispatchEvent(event DomainEvent) {
-	b.mu.RLock()
-	handlers := b.handlers[event.Type()]
-	// Make a copy of handlers to avoid holding lock during execution
-	handlersCopy := make([]EventHandler, len(handlers))
-	copy(handlersCopy, handlers)
-	b.mu.RUnlock()
-	
-	// Execute handlers
-	for _, handler := range handlersCopy {
-		// Run each handler in a goroutine to avoid blocking
-		go func(h EventHandler) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("Panic in event handler: %v", r)
-				}
-			}()
-			h(event)
-		}(handler)
-	}
-}
-
-// Stop stops the event bus (for cleanup)
-func (b *bus) Stop() {
-	close(b.quit)
-	b.wg.Wait()
-	close(b.eventChan)
 }

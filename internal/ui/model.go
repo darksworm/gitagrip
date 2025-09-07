@@ -49,17 +49,20 @@ type Model struct {
 
 // UIState contains only UI-specific state
 type UIState struct {
-	Width         int
-	Height        int
-	ShowHelp      bool
-	ShowLog       bool
-	LogContent    string
-	ShowInfo      bool
-	InfoContent   string
-	StatusMessage string
-	Repositories  map[string]*domain.Repository // Cache for rendering
-	RepoMutex     sync.RWMutex                   // Protects Repositories map
-	HelpModel     help.Model
+	Width           int
+	Height          int
+	ShowHelp        bool
+	ShowLog         bool
+	LogContent      string
+	ShowInfo        bool
+	InfoContent     string
+	StatusMessage   string
+	Repositories    map[string]*domain.Repository // Cache for rendering
+	RepoMutex       sync.RWMutex                   // Protects Repositories map
+	HelpModel       help.Model
+	RefreshingRepos map[string]bool
+	FetchingRepos   map[string]bool
+	PullingRepos    map[string]bool
 }
 
 // NewModel creates a new refactored model
@@ -115,9 +118,12 @@ func NewModel(
 		inputHandler: input.New(),
 		renderer:     renderer,
 		state: UIState{
-			ShowHelp:     false,
-			Repositories: make(map[string]*domain.Repository),
-			HelpModel:    help.New(),
+			ShowHelp:        false,
+			Repositories:    make(map[string]*domain.Repository),
+			HelpModel:       help.New(),
+			RefreshingRepos: make(map[string]bool),
+			FetchingRepos:   make(map[string]bool),
+			PullingRepos:    make(map[string]bool),
 		},
 		eventChan: eventChan,
 	}
@@ -604,6 +610,48 @@ func (m *Model) handleDomainEvent(event interface{}) {
 		// Groups are already handled by the group store, just update UI
 		m.coordinator.UpdateOrderedLists()
 		
+	case eventbus.FetchRequestedEvent:
+		log.Printf("[HANDLE_DOMAIN] FetchRequestedEvent for %d repos", len(e.RepoPaths))
+		// The git service will handle the fetch and send status updates
+		// Show status message
+		if len(e.RepoPaths) == 1 {
+			m.state.StatusMessage = fmt.Sprintf("Fetching %s...", filepath.Base(e.RepoPaths[0]))
+		} else {
+			m.state.StatusMessage = fmt.Sprintf("Fetching %d repositories...", len(e.RepoPaths))
+		}
+		// Mark repos as fetching for UI feedback
+		for _, path := range e.RepoPaths {
+			m.state.FetchingRepos[path] = true
+		}
+		
+	case eventbus.PullRequestedEvent:
+		log.Printf("[HANDLE_DOMAIN] PullRequestedEvent for %d repos", len(e.RepoPaths))
+		// The git service will handle the pull and send status updates
+		// Show status message
+		if len(e.RepoPaths) == 1 {
+			m.state.StatusMessage = fmt.Sprintf("Pulling %s...", filepath.Base(e.RepoPaths[0]))
+		} else {
+			m.state.StatusMessage = fmt.Sprintf("Pulling %d repositories...", len(e.RepoPaths))
+		}
+		// Mark repos as pulling for UI feedback
+		for _, path := range e.RepoPaths {
+			m.state.PullingRepos[path] = true
+		}
+		
+	case eventbus.StatusRefreshRequestedEvent:
+		log.Printf("[HANDLE_DOMAIN] StatusRefreshRequestedEvent for %d repos", len(e.RepoPaths))
+		// The git service will handle the refresh and send status updates
+		// Show status message
+		if len(e.RepoPaths) == 1 {
+			m.state.StatusMessage = fmt.Sprintf("Refreshing %s...", filepath.Base(e.RepoPaths[0]))
+		} else {
+			m.state.StatusMessage = fmt.Sprintf("Refreshing %d repositories...", len(e.RepoPaths))
+		}
+		// Mark repos as refreshing for UI feedback
+		for _, path := range e.RepoPaths {
+			m.state.RefreshingRepos[path] = true
+		}
+		
 	default:
 		// For any other events, log but don't process
 		log.Printf("[HANDLE_DOMAIN] Unhandled domain event type: %T", e)
@@ -663,12 +711,10 @@ func (m *Model) buildViewState() views.ViewState {
 	}
 	m.coordinator.Sorting.SortGroups(orderedGroups)
 	
-	// Get operation states
-	refreshing := make(map[string]bool)
-	fetching := make(map[string]bool)
-	pulling := make(map[string]bool)
-	
-	// TODO: Track operation states from git service events
+	// Get operation states from model state
+	refreshing := m.state.RefreshingRepos
+	fetching := m.state.FetchingRepos
+	pulling := m.state.PullingRepos
 	
 	// Make a copy of repositories under lock
 	m.state.RepoMutex.RLock()

@@ -6,6 +6,7 @@ type EventType string
 // Event types
 const (
 	EventRepoDiscovered EventType = "RepoDiscovered"
+	EventReposDiscoveredBatch EventType = "ReposDiscoveredBatch" // New batch event
 	EventStatusUpdated  EventType = "StatusUpdated"
 	EventError          EventType = "Error"
 	EventGroupAdded     EventType = "GroupAdded"
@@ -33,6 +34,13 @@ type RepoDiscoveredEvent struct {
 }
 
 func (e RepoDiscoveredEvent) Type() EventType { return EventRepoDiscovered }
+
+// ReposDiscoveredBatchEvent is emitted when multiple repositories are discovered at once
+type ReposDiscoveredBatchEvent struct {
+	Repos []Repository
+}
+
+func (e ReposDiscoveredBatchEvent) Type() EventType { return EventReposDiscoveredBatch }
 
 // StatusUpdatedEvent is emitted when a repository's status is updated
 type StatusUpdatedEvent struct {

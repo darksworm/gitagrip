@@ -26,12 +26,16 @@ type discoveryService struct {
 	isScanning  bool
 	cancelFunc  context.CancelFunc
 	wg          sync.WaitGroup
+	
+	// Batching configuration
+	batchSize   int // Number of repos per batch
 }
 
 // NewDiscoveryService creates a new discovery service
 func NewDiscoveryService(bus eventbus.EventBus) DiscoveryService {
 	ds := &discoveryService{
-		bus: bus,
+		bus:       bus,
+		batchSize: 100, // Process 100 repos per batch event
 	}
 	
 	// Subscribe to scan requests
@@ -106,12 +110,17 @@ func (ds *discoveryService) StopScan() {
 // scanDirectory recursively scans a directory for git repositories
 func (ds *discoveryService) scanDirectory(ctx context.Context, root string) int {
 	reposFound := 0
+	repoBatch := make([]domain.Repository, 0, ds.batchSize)
 	maxDepth := 5 // Maximum depth to scan
 	
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		// Check context cancellation
 		select {
 		case <-ctx.Done():
+			// Flush any remaining repos
+			if len(repoBatch) > 0 {
+				ds.bus.Publish(eventbus.ReposDiscoveredBatchEvent{Repos: repoBatch})
+			}
 			return ctx.Err()
 		default:
 		}
@@ -163,9 +172,16 @@ func (ds *discoveryService) scanDirectory(ctx context.Context, root string) int 
 				},
 			}
 			
-			// Publish discovery event immediately
-			ds.bus.Publish(eventbus.RepoDiscoveredEvent{Repo: repo})
+			// Add to batch
+			repoBatch = append(repoBatch, repo)
 			reposFound++
+			
+			// Publish batch when it reaches the batch size
+			if len(repoBatch) >= ds.batchSize {
+				ds.bus.Publish(eventbus.ReposDiscoveredBatchEvent{Repos: repoBatch})
+				// Create new batch
+				repoBatch = make([]domain.Repository, 0, ds.batchSize)
+			}
 			
 			// Don't descend into .git directory
 			return fs.SkipDir
@@ -186,6 +202,11 @@ func (ds *discoveryService) scanDirectory(ctx context.Context, root string) int 
 		
 		return nil
 	})
+	
+	// Publish any remaining repos in the batch
+	if len(repoBatch) > 0 {
+		ds.bus.Publish(eventbus.ReposDiscoveredBatchEvent{Repos: repoBatch})
+	}
 	
 	if err != nil && err != context.Canceled {
 		log.Printf("Error scanning directory %s: %v", root, err)

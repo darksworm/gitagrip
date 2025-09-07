@@ -9,6 +9,7 @@ import (
 
 type Handler struct {
 	currentMode types.Mode
+	modeData    string
 	modes       map[types.Mode]types.ModeHandler
 	textInput   *textinput.Model // Shared text input for text modes
 }
@@ -111,7 +112,7 @@ func (h *Handler) RegisterMode(mode types.Mode, handler types.ModeHandler) {
 
 func (h *Handler) isTextMode(mode types.Mode) bool {
 	switch mode {
-	case types.ModeSearch, types.ModeFilter, types.ModeNewGroup, types.ModeMoveToGroup, types.ModeSort:
+	case types.ModeSearch, types.ModeFilter, types.ModeNewGroup, types.ModeMoveToGroup, types.ModeSort, types.ModeDeleteConfirm:
 		return true
 	default:
 		return false
@@ -142,6 +143,7 @@ func (h *Handler) Init() tea.Cmd {
 // ChangeMode changes the current input mode
 func (h *Handler) ChangeMode(mode types.Mode, data string) {
 	h.currentMode = mode
+	h.modeData = data
 	if h.isTextMode(mode) {
 		h.textInput.Reset()
 		h.textInput.SetValue(data)
@@ -164,8 +166,7 @@ func (h *Handler) GetModeData() string {
 	if h == nil {
 		return ""
 	}
-	// For now, return empty - mode data handling could be added later
-	return ""
+	return h.modeData
 }
 
 // GetTextInput returns the text input model
@@ -181,6 +182,9 @@ func (h *Handler) GetFilterQuery() string {
 	if h == nil {
 		return ""
 	}
-	// For now return empty - filter query tracking could be added later
+	// Return the filter text when in filter mode
+	if h.currentMode == types.ModeFilter && h.textInput != nil {
+		return h.textInput.Value()
+	}
 	return ""
 }

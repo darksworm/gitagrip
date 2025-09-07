@@ -1,0 +1,8 @@
+./confirm.go
+./filter.go
+./movegroup.go
+./newgroup.go
+./normal.go
+./search.go
+./sort.go
+./textbase.go

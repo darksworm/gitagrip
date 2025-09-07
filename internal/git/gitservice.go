@@ -29,6 +29,7 @@ type gitService struct {
 	mu           sync.Mutex
 	knownRepos   map[string]bool
 	workerPool   chan struct{} // Semaphore for limiting concurrent git operations
+	statusCount  int           // Counter for status updates
 }
 
 // NewGitService creates a new git service
@@ -36,7 +37,7 @@ func NewGitService(bus eventbus.EventBus) GitService {
 	gs := &gitService{
 		bus:        bus,
 		knownRepos: make(map[string]bool),
-		workerPool: make(chan struct{}, 5), // Limit to 5 concurrent git operations
+		workerPool: make(chan struct{}, 2), // Limit to 2 concurrent git operations to prevent UI blocking
 	}
 	
 	// Subscribe to repo discovery events
@@ -55,6 +56,47 @@ func NewGitService(bus eventbus.EventBus) GitService {
 		}
 	})
 	
+	
+	// Subscribe to batch repo discovery events
+	bus.Subscribe(eventbus.EventReposDiscoveredBatch, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.ReposDiscoveredBatchEvent); ok {
+			// Mark all repos as known
+			gs.mu.Lock()
+			for _, repo := range event.Repos {
+				gs.knownRepos[repo.Path] = true
+			}
+			gs.mu.Unlock()
+			
+			// Get initial status for all repos in batch
+			go func() {
+				log.Printf("Git service: Starting batch status refresh for %d repos", len(event.Repos))
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				
+				// Process repos with rate limiting
+				for i, repo := range event.Repos {
+					select {
+					case <-ctx.Done():
+						log.Printf("[GIT_SERVICE] Context cancelled, stopping batch processing at %d/%d", i, len(event.Repos))
+						return
+					default:
+						log.Printf("[GIT_SERVICE] Processing repo %d/%d: %s", i+1, len(event.Repos), filepath.Base(repo.Path))
+						gs.RefreshRepo(ctx, repo.Path)
+						
+						// Add delay between each repo to prevent UI overload
+						time.Sleep(50 * time.Millisecond)
+						
+						// Longer delay every 5 repos
+						if i > 0 && i%5 == 0 {
+							log.Printf("[GIT_SERVICE] Extra delay after %d repos", i+1)
+							time.Sleep(200 * time.Millisecond)
+						}
+					}
+				}
+				log.Printf("[GIT_SERVICE] Batch processing complete for %d repos", len(event.Repos))
+			}()
+		}
+	})
 	// Subscribe to status refresh requests
 	bus.Subscribe(eventbus.EventStatusRefreshRequested, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.StatusRefreshRequestedEvent); ok {
@@ -437,6 +479,12 @@ func (gs *gitService) getStashCount(ctx context.Context, repoPath string) (int, 
 
 // publishStatus publishes a status update event
 func (gs *gitService) publishStatus(repoPath string, status domain.RepoStatus) {
+	gs.mu.Lock()
+	gs.statusCount++
+	count := gs.statusCount
+	gs.mu.Unlock()
+	
+	log.Printf("[GIT_SERVICE] Publishing status update #%d for repo: %s", count, filepath.Base(repoPath))
 	gs.bus.Publish(eventbus.StatusUpdatedEvent{
 		RepoPath: repoPath,
 		Status:   status,

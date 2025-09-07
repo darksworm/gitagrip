@@ -266,6 +266,13 @@ func main() {
 			log.Println("Event channel full, dropping event")
 		}
 	})
+	bus.Subscribe(eventbus.EventStatusRefreshRequested, func(e eventbus.DomainEvent) {
+		select {
+		case eventChan <- e:
+		default:
+			log.Println("Event channel full, dropping event")
+		}
+	})
 
 	// Don't consume events here - the UI reads from eventChan directly via waitForEvent()
 	// This was causing a race condition where events could go to either p.Send or waitForEvent
