@@ -50,23 +50,23 @@ func NewGroupManager(bus eventbus.EventBus, initialGroups map[string][]string) G
 	// Subscribe to group-related events
 	bus.Subscribe(eventbus.EventGroupAdded, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.GroupAddedEvent); ok {
-			gm.CreateGroup(event.Name)
+			_ = gm.CreateGroup(event.Name)
 		}
 	})
 
 	bus.Subscribe(eventbus.EventGroupRemoved, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.GroupRemovedEvent); ok {
-			gm.RemoveGroup(event.Name)
+			_ = gm.RemoveGroup(event.Name)
 		}
 	})
 
 	bus.Subscribe(eventbus.EventRepoMoved, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.RepoMovedEvent); ok {
 			if event.FromGroup != "" {
-				gm.RemoveRepoFromGroup(event.RepoPath, event.FromGroup)
+				_ = gm.RemoveRepoFromGroup(event.RepoPath, event.FromGroup)
 			}
 			if event.ToGroup != "" {
-				gm.AddRepoToGroup(event.RepoPath, event.ToGroup)
+				_ = gm.AddRepoToGroup(event.RepoPath, event.ToGroup)
 			}
 		}
 	})
@@ -141,7 +141,7 @@ func (gm *groupManager) AddRepoToGroup(repoPath string, groupName string) error 
 
 	// Remove from current group if any
 	if hasGroup {
-		gm.removeRepoFromGroupLocked(repoPath, currentGroup)
+		_ = gm.removeRepoFromGroupLocked(repoPath, currentGroup)
 	}
 
 	// Add to new group

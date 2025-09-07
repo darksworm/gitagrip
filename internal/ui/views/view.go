@@ -14,39 +14,39 @@ import (
 
 // ViewState contains all the state needed for rendering
 type ViewState struct {
-	Width           int
-	Height          int
-	Repositories    map[string]*domain.Repository
-	Groups          map[string]*domain.Group
-	OrderedGroups   []string
-	SelectedIndex   int
-	SelectedRepos   map[string]bool
-	RefreshingRepos map[string]bool
-	FetchingRepos   map[string]bool
-	PullingRepos    map[string]bool
-	ExpandedGroups  map[string]bool
-	Scanning        bool
-	StatusMessage   string
-	ShowHelp        bool
+	Width            int
+	Height           int
+	Repositories     map[string]*domain.Repository
+	Groups           map[string]*domain.Group
+	OrderedGroups    []string
+	SelectedIndex    int
+	SelectedRepos    map[string]bool
+	RefreshingRepos  map[string]bool
+	FetchingRepos    map[string]bool
+	PullingRepos     map[string]bool
+	ExpandedGroups   map[string]bool
+	Scanning         bool
+	StatusMessage    string
+	ShowHelp         bool
 	HelpScrollOffset int
-	ShowLog         bool
-	LogContent      string
-	ShowInfo        bool
-	InfoContent     string
-	ViewportOffset  int
-	ViewportHeight  int
-	SearchQuery     string
-	FilterQuery     string
-	IsFiltered      bool
-	ShowAheadBehind bool
-	HelpModel       help.Model
-	DeleteTarget    string
-	TextInput       string
-	InputMode       string
-	UngroupedRepos  []string
-	SortOptionIndex int
-	LoadingState    string
-	LoadingCount    int
+	ShowLog          bool
+	LogContent       string
+	ShowInfo         bool
+	InfoContent      string
+	ViewportOffset   int
+	ViewportHeight   int
+	SearchQuery      string
+	FilterQuery      string
+	IsFiltered       bool
+	ShowAheadBehind  bool
+	HelpModel        help.Model
+	DeleteTarget     string
+	TextInput        string
+	InputMode        string
+	UngroupedRepos   []string
+	SortOptionIndex  int
+	LoadingState     string
+	LoadingCount     int
 }
 
 // Renderer handles all view rendering
@@ -352,18 +352,6 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderLogPopup renders the git log popup
-func (r *Renderer) renderLogPopup(content *strings.Builder, logContent string) {
-	content.WriteString("\n\n")
-	content.WriteString(r.styles.LogBox.Render(logContent))
-}
-
-// renderInfoPopup renders the repository info popup
-func (r *Renderer) renderInfoPopup(content *strings.Builder, infoContent string) {
-	content.WriteString("\n\n")
-	content.WriteString(r.styles.InfoBox.Render(infoContent))
-}
-
 // renderPopupOverlay renders a popup overlay on top of the main content
 func (r *Renderer) renderPopupOverlay(mainContent, popupContent string, height, width int, popupStyle lipgloss.Style) string {
 	// Create a centered modal-style popup
@@ -386,7 +374,7 @@ func (r *Renderer) renderPopupOverlay(mainContent, popupContent string, height, 
 	}
 
 	// Add padding for the border and internal padding
-	popupWidth := contentWidth + 4  // 2 for border, 2 for horizontal padding
+	popupWidth := contentWidth + 4   // 2 for border, 2 for horizontal padding
 	popupHeight := contentHeight + 2 // 2 for border only
 
 	// Ensure popup fits on screen
@@ -560,13 +548,13 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 	content := help.String()
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
-	
+
 	// Calculate visible window (account for popup border and padding)
 	visibleHeight := height - 4
 	if visibleHeight < 5 {
 		visibleHeight = 5
 	}
-	
+
 	// Apply scrolling
 	if totalLines > visibleHeight {
 		// Ensure scroll offset is valid
@@ -577,14 +565,14 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 		if scrollOffset < 0 {
 			scrollOffset = 0
 		}
-		
+
 		// Extract visible lines
 		endLine := scrollOffset + visibleHeight
 		if endLine > totalLines {
 			endLine = totalLines
 		}
 		lines = lines[scrollOffset:endLine]
-		
+
 		// Add scroll indicators
 		if scrollOffset > 0 {
 			lines[0] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↑ (more above)")
@@ -593,68 +581,7 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 			lines[len(lines)-1] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↓ (more below)")
 		}
 	}
-	
-	return strings.Join(lines, "\n")
-}
-
-// renderLoadingScreen renders the loading screen
-func (r *Renderer) renderLoadingScreen(state ViewState) string {
-	lines := []string{}
-
-	// Use full window height for centering
-	fullHeight := state.Height
-	if fullHeight < 10 {
-		fullHeight = 10 // Minimum height
-	}
-
-	// Center the content vertically
-	topPadding := (fullHeight - 6) / 2 // 6 lines for content (title + spacing + loading + spacing + hint)
-	if topPadding < 0 {
-		topPadding = 0
-	}
-
-	for i := 0; i < topPadding; i++ {
-		lines = append(lines, "")
-	}
-
-	// Spinner
-	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	frame := int(time.Now().UnixMilli()/80) % len(spinner)
-
-	// Loading title (centered)
-	titleStyle := r.styles.Title.Copy().MarginBottom(0).AlignHorizontal(lipgloss.Center).Width(state.Width)
-	lines = append(lines, titleStyle.Render("gitagrip"))
-	lines = append(lines, "")
-
-	// Loading state
-	loadingLine := fmt.Sprintf("%s %s", spinner[frame], state.LoadingState)
-	if state.LoadingCount > 0 {
-		loadingLine = fmt.Sprintf("%s %s (%d found)", spinner[frame], state.LoadingState, state.LoadingCount)
-	}
-	loadingStyle := r.styles.Scan.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
-	lines = append(lines, loadingStyle.Render(loadingLine))
-
-	// Hint
-	lines = append(lines, "")
-	hintStyle := r.styles.Dim.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
-
-	if state.LoadingState == "Loading repositories..." {
-		lines = append(lines, hintStyle.Render("Preparing your repository view"))
-	} else if state.LoadingState == "Scanning for repositories..." {
-		if state.LoadingCount > 0 {
-			lines = append(lines, hintStyle.Render("Organizing repositories into groups"))
-		} else {
-			lines = append(lines, hintStyle.Render("Looking for Git repositories..."))
-		}
-	} else if state.LoadingState == "Initializing..." {
-		lines = append(lines, hintStyle.Render("Setting up gitagrip"))
-	}
-
-	// Fill the rest with empty lines to ensure full height
-	currentLines := len(lines)
-	for i := currentLines; i < fullHeight; i++ {
-		lines = append(lines, "")
-	}
 
 	return strings.Join(lines, "\n")
 }
+

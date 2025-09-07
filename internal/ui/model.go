@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -32,108 +31,7 @@ import (
 const HiddenGroupName = "_Hidden"
 
 // Key bindings
-var (
-	keyUp = key.NewBinding(
-		key.WithKeys("up", "k"),
-		key.WithHelp("↑/k", "up"),
-	)
-	keyDown = key.NewBinding(
-		key.WithKeys("down", "j"),
-		key.WithHelp("↓/j", "down"),
-	)
-	keyLeft = key.NewBinding(
-		key.WithKeys("left", "h"),
-		key.WithHelp("←/h", "collapse"),
-	)
-	keyRight = key.NewBinding(
-		key.WithKeys("right", "l"),
-		key.WithHelp("→/l", "expand"),
-	)
-	keyRefresh = key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "refresh"),
-	)
-	keyFullScan = key.NewBinding(
-		key.WithKeys("S"),
-		key.WithHelp("S", "full scan"),
-	)
-	keyFetch = key.NewBinding(
-		key.WithKeys("f"),
-		key.WithHelp("f", "fetch"),
-	)
-	keyFilter = key.NewBinding(
-		key.WithKeys("F"),
-		key.WithHelp("F", "filter"),
-	)
-	keyPull = key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", "pull"),
-	)
-	keyLog = key.NewBinding(
-		key.WithKeys("l"),
-		key.WithHelp("l", "log"),
-	)
-	keyHelp = key.NewBinding(
-		key.WithKeys("?"),
-		key.WithHelp("?", "help"),
-	)
-	keyQuit = key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
-	)
-	keyTop = key.NewBinding(
-		key.WithKeys("g g", "home"),
-		key.WithHelp("gg/home", "top"),
-	)
-	keyBottom = key.NewBinding(
-		key.WithKeys("G", "end"),
-		key.WithHelp("G/end", "bottom"),
-	)
-	keyPageUp = key.NewBinding(
-		key.WithKeys("pgup", "ctrl+b"),
-		key.WithHelp("pgup/ctrl+b", "page up"),
-	)
-	keyPageDown = key.NewBinding(
-		key.WithKeys("pgdown", "ctrl+f", " "),
-		key.WithHelp("pgdn/ctrl+f/space", "page down"),
-	)
-	keyHalfPageUp = key.NewBinding(
-		key.WithKeys("ctrl+u"),
-		key.WithHelp("ctrl+u", "half page up"),
-	)
-	keyHalfPageDown = key.NewBinding(
-		key.WithKeys("ctrl+d"),
-		key.WithHelp("ctrl+d", "half page down"),
-	)
-	keySelect = key.NewBinding(
-		key.WithKeys(" "),
-		key.WithHelp("space", "select/expand"),
-	)
-	keySelectAll = key.NewBinding(
-		key.WithKeys("cmd+a"),
-		key.WithHelp("cmd+a", "select all"),
-	)
-	keyNewGroup = key.NewBinding(
-		key.WithKeys("N"),
-		key.WithHelp("N", "new group"),
-	)
-	keyMoveToGroup = key.NewBinding(
-		key.WithKeys("m"),
-		key.WithHelp("m", "move to group"),
-	)
-	keyDelete = key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", "delete group"),
-	)
-	keyCopy = key.NewBinding(
-		key.WithKeys("y"),
-		key.WithHelp("y", "copy path"),
-	)
-	keyInfo = key.NewBinding(
-		key.WithKeys("i"),
-		key.WithHelp("i", "repo info"),
-	)
-)
+// Removed unused key bindings - they're now handled by the input system
 
 // Model represents the UI state
 type Model struct {
@@ -145,7 +43,6 @@ type Model struct {
 	width       int
 	height      int
 	help        help.Model
-	lastKeyWasG bool // track 'g' key for 'gg' command
 	// Removed: inputMode, textInput, deleteTarget - now handled by input handler
 	currentSort logic.SortMode // current sort mode
 	// Removed: useNewInput - fully migrated to new input handler
@@ -359,12 +256,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // handleEvent processes domain events
-func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
-	cmd := m.eventHandler.HandleEvent(event)
-	// Update searchFilter reference
-	m.searchFilter = m.eventHandler.GetSearchFilter()
-	return m, cmd
-}
+// func (m *Model) handleEvent(event eventbus.DomainEvent) (tea.Model, tea.Cmd) {
+// 	cmd := m.eventHandler.HandleEvent(event)
+// 	// Update searchFilter reference
+// 	m.searchFilter = m.eventHandler.GetSearchFilter()
+// 	return m, cmd
+// }
 
 // View renders the UI
 func (m *Model) View() string {
@@ -946,109 +843,10 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 }
 
 // countVisibleItems counts how many items are visible with current filter
-func (m *Model) countVisibleItems() int {
-	count := 0
-
-	// Count groups and their repos
-	for _, groupName := range m.store.GetOrderedGroups() {
-		group, _ := m.store.GetGroup(groupName)
-
-		// Check if group or any of its repos match
-		groupHasMatches := false
-		repoCount := 0
-
-		for _, repoPath := range group.Repos {
-			if repo, ok := m.state.Repositories[repoPath]; ok {
-				if m.searchFilter.MatchesFilter(repo, groupName, m.state.FilterQuery) {
-					groupHasMatches = true
-					repoCount++
-				}
-			}
-		}
-
-		if groupHasMatches || m.searchFilter.MatchesGroupFilter(groupName, m.state.FilterQuery) {
-			count++ // Count the group header
-			if m.store.IsGroupExpanded(groupName) {
-				count += repoCount
-			}
-		}
-	}
-
-	// Count ungrouped repos
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-	for _, repoPath := range ungroupedRepos {
-		if repo, ok := m.state.Repositories[repoPath]; ok {
-			if m.searchFilter.MatchesFilter(repo, "", m.state.FilterQuery) {
-				count++
-			}
-		}
-	}
-
-	return count
-}
-
 // getCurrentIndexForGroup finds the current display index for a group
 func (m *Model) getCurrentIndexForGroup(groupName string) int {
 	m.syncNavigatorState()
 	return m.navigator.GetCurrentIndexForGroup(groupName)
-}
-
-// getCurrentIndexForRepo finds the current display index for a repo
-func (m *Model) getCurrentIndexForRepo(repoPath string) int {
-	m.syncNavigatorState()
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-	return m.navigator.GetCurrentIndexForRepo(repoPath, ungroupedRepos)
-}
-
-// jumpToGroupBoundary jumps to the beginning or end of the current group
-func (m *Model) jumpToGroupBoundary(toBeginning bool) {
-	m.syncNavigatorState()
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-
-	needsCrossGroupJump, fromGroup := m.navigator.JumpToGroupBoundary(toBeginning, ungroupedRepos)
-	m.state.SelectedIndex = m.navigator.GetSelectedIndex()
-	m.state.ViewportOffset = m.navigator.GetViewportOffset()
-
-	if needsCrossGroupJump && fromGroup != "" {
-		if toBeginning {
-			m.jumpToPreviousGroupStart(fromGroup)
-		} else {
-			m.jumpToNextGroupEnd(fromGroup)
-		}
-	}
-}
-
-// jumpToNextGroupEnd jumps to the last repo of the next group
-func (m *Model) jumpToNextGroupEnd(currentGroupName string) {
-	m.syncNavigatorState()
-	ungroupedRepos := m.state.UngroupedRepos
-	if len(ungroupedRepos) == 0 {
-		ungroupedRepos = m.getUngroupedRepos()
-	}
-
-	if m.navigator.JumpToNextGroupEnd(currentGroupName, ungroupedRepos) {
-		m.state.SelectedIndex = m.navigator.GetSelectedIndex()
-		m.state.ViewportOffset = m.navigator.GetViewportOffset()
-	}
-}
-
-// jumpToPreviousGroupStart jumps to the first repo of the previous group
-func (m *Model) jumpToPreviousGroupStart(currentGroupName string) {
-	m.syncNavigatorState()
-
-	if m.navigator.JumpToPreviousGroupStart(currentGroupName) {
-		m.state.SelectedIndex = m.navigator.GetSelectedIndex()
-		m.state.ViewportOffset = m.navigator.GetViewportOffset()
-	}
 }
 
 // fetchGitLog returns a command that fetches git log for a repository
@@ -1172,10 +970,11 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		if m.state.SearchQuery != "" && len(m.state.SearchMatches) > 0 {
 			oldIndex := m.state.SearchIndex
 
-			if a.Direction == "next" {
+			switch a.Direction {
+			case "next":
 				// Navigate to next search result
 				m.state.SearchIndex = (m.state.SearchIndex + 1) % len(m.state.SearchMatches)
-			} else if a.Direction == "prev" {
+			case "prev":
 				// Navigate to previous search result
 				m.state.SearchIndex--
 				if m.state.SearchIndex < 0 {
@@ -1219,9 +1018,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 				if groupName != "" && groupName != "Ungrouped" {
 					// Refresh all repos in the group
 					if group, ok := m.store.GetGroup(groupName); ok {
-						for _, repoPath := range group.Repos {
-							repoPaths = append(repoPaths, repoPath)
-						}
+						repoPaths = append(repoPaths, group.Repos...)
 						m.state.StatusMessage = fmt.Sprintf("Refreshing all repos in '%s'", groupName)
 					}
 				} else {
@@ -1247,9 +1044,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			if groupName != "" && groupName != "Ungrouped" {
 				// Fetch all repos in the group
 				if group, ok := m.store.GetGroup(groupName); ok {
-					for _, repoPath := range group.Repos {
-						repoPaths = append(repoPaths, repoPath)
-					}
+					repoPaths = append(repoPaths, group.Repos...)
 					m.state.StatusMessage = fmt.Sprintf("Fetching all repos in '%s'", groupName)
 				}
 			} else {
@@ -1274,9 +1069,7 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			if groupName != "" && groupName != "Ungrouped" {
 				// Pull all repos in the group
 				if group, ok := m.store.GetGroup(groupName); ok {
-					for _, repoPath := range group.Repos {
-						repoPaths = append(repoPaths, repoPath)
-					}
+					repoPaths = append(repoPaths, group.Repos...)
 					m.state.StatusMessage = fmt.Sprintf("Pulling all repos in '%s'", groupName)
 				}
 			} else {

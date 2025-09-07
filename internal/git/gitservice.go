@@ -50,7 +50,7 @@ func NewGitService(bus eventbus.EventBus) GitService {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				gs.RefreshRepo(ctx, event.Repo.Path)
+				_, _ = gs.RefreshRepo(ctx, event.Repo.Path)
 			}()
 		}
 	})
@@ -119,7 +119,7 @@ func NewGitService(bus eventbus.EventBus) GitService {
 							Error:    nil,
 						})
 						// Refresh status after successful fetch
-						gs.RefreshRepo(ctx, repoPath)
+						_, _ = gs.RefreshRepo(ctx, repoPath)
 					}
 				}
 			}()
@@ -167,7 +167,7 @@ func NewGitService(bus eventbus.EventBus) GitService {
 							Error:    nil,
 						})
 						// Refresh status after successful pull
-						gs.RefreshRepo(ctx, repoPath)
+						_, _ = gs.RefreshRepo(ctx, repoPath)
 					}
 				}
 			}()
@@ -228,7 +228,7 @@ func (gs *gitService) RefreshAll(ctx context.Context, repos []domain.Repository)
 		wg.Add(1)
 		go func(r domain.Repository) {
 			defer wg.Done()
-			gs.RefreshRepo(ctx, r.Path)
+			_, _ = gs.RefreshRepo(ctx, r.Path)
 		}(repo)
 	}
 

@@ -37,7 +37,9 @@ func NewDiscoveryService(bus eventbus.EventBus) DiscoveryService {
 	// Subscribe to scan requests
 	bus.Subscribe(eventbus.EventScanRequested, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.ScanRequestedEvent); ok {
-			go ds.StartScan(context.Background(), event.Paths)
+			go func() {
+				_ = ds.StartScan(context.Background(), event.Paths)
+			}()
 		}
 	})
 

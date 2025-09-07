@@ -52,7 +52,7 @@ func NewConfigService() ConfigService {
 
 	// Create gitagrip config directory
 	gitagripDir := filepath.Join(configDir, "gitagrip")
-	os.MkdirAll(gitagripDir, 0755)
+	_ = os.MkdirAll(gitagripDir, 0755)
 
 	return &configService{
 		filePath: filepath.Join(gitagripDir, ".gitagrip.toml"),

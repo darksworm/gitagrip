@@ -101,8 +101,9 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 	}
 	nameStyle := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
 	if searchQuery != "" && strings.Contains(strings.ToLower(repoName), strings.ToLower(searchQuery)) {
-		repoName = r.highlightMatch(repoName, searchQuery,
-			nameStyle.Copy().Foreground(lipgloss.Color("226")), nameStyle)
+		highlightStyle := nameStyle
+		highlightStyle = highlightStyle.Foreground(lipgloss.Color("226"))
+		repoName = r.highlightMatch(repoName, searchQuery, highlightStyle, nameStyle)
 	}
 	parts = append(parts, nameStyle.Render(repoName))
 

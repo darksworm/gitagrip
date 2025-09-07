@@ -55,7 +55,9 @@ func main() {
 	if err != nil {
 		log.Printf("Could not open log file: %v", err)
 	} else {
-		defer logFile.Close()
+		defer func() {
+			_ = logFile.Close()
+		}()
 		log.SetOutput(logFile)
 	}
 
@@ -207,7 +209,9 @@ func main() {
 
 	// Start initial scan
 	if cfg.BaseDir != "" {
-		go discoverySvc.StartScan(ctx, []string{cfg.BaseDir})
+		go func() {
+			_ = discoverySvc.StartScan(ctx, []string{cfg.BaseDir})
+		}()
 	}
 
 	// Run the UI
@@ -265,7 +269,7 @@ func generateGroupsFromDirectory(baseDir string) map[string][]string {
 	maxDepth := 3
 	reposByParent := make(map[string][]string)
 
-	filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Continue walking
 		}
