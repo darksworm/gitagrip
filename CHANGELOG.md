@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.5](https://github.com/darksworm/gitagrip/compare/v1.0.4...v1.0.5) (2025-09-07)
+
+
+### Bug Fixes
+
+* add QEMU setup for ARM64 Docker builds ([c451066](https://github.com/darksworm/gitagrip/commit/c4510668b19f057dc508f6eb6d4fea89fe735733))
+* enable buildx for multi-arch Docker builds ([41ab83f](https://github.com/darksworm/gitagrip/commit/41ab83f578a2f00c2b8b830d5c2610d16951fd91))
+
 ## [1.0.4](https://github.com/darksworm/gitagrip/compare/v1.0.3...v1.0.4) (2025-09-07)
 
 
