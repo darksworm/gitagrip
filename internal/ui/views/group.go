@@ -23,7 +23,7 @@ func NewGroupRenderer(styles *Styles) *GroupRenderer {
 
 // RenderGroupHeader renders a group header
 func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, isSelected bool,
-	searchQuery string, repoCount int, width int) string {
+	searchQuery string, repoCount int, width int, groupIsFullySelected bool) string {
 
 	// Determine arrow
 	arrow := "▶"
@@ -40,8 +40,16 @@ func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, 
 	// Format the complete line
 	line := fmt.Sprintf("%s %s (%d)", arrow, groupName, repoCount)
 
-	// Apply selection highlighting with full width
+	// Apply background color based on selection state
+	var bgColor string
 	if isSelected {
+		bgColor = "238" // Darker background for cursor selection
+	} else if groupIsFullySelected {
+		bgColor = "240" // Lighter background when all repos are selected
+	}
+
+	// Apply background if needed
+	if bgColor != "" {
 		// Pad the line to full width
 		if width > 0 {
 			lineLen := lipgloss.Width(line)
@@ -49,7 +57,8 @@ func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, 
 				line = line + strings.Repeat(" ", width-lineLen)
 			}
 		}
-		return g.styles.HighlightBg.Render(line)
+		style := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
+		return style.Render(line)
 	}
 
 	// Apply dim style for hidden group

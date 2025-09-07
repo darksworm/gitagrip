@@ -238,20 +238,39 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 		// Check if group is in viewport
 		if currentIndex >= state.ViewportOffset {
 			repoCount := 0
+			allReposSelected := true
+			hasSelectedRepos := false
+			
 			if isExpanded {
-				// Count visible repos in group
+				// Count visible repos in group and check selection
 				for _, repoPath := range group.Repos {
 					if repo, ok := state.Repositories[repoPath]; ok {
 						if r.matchesFilter(repo, groupName, state.FilterQuery) {
 							repoCount++
+							if state.SelectedRepos[repoPath] {
+								hasSelectedRepos = true
+							} else {
+								allReposSelected = false
+							}
 						}
 					}
 				}
 			} else {
+				// For collapsed groups, check all repos
 				repoCount = len(group.Repos)
+				for _, repoPath := range group.Repos {
+					if state.SelectedRepos[repoPath] {
+						hasSelectedRepos = true
+					} else {
+						allReposSelected = false
+					}
+				}
 			}
+			
+			// Only highlight if there are repos and all are selected
+			groupIsFullySelected := repoCount > 0 && allReposSelected && hasSelectedRepos
 
-			header := r.groupRender.RenderGroupHeader(group, isExpanded, isSelected, state.SearchQuery, repoCount, state.Width)
+			header := r.groupRender.RenderGroupHeader(group, isExpanded, isSelected, state.SearchQuery, repoCount, state.Width, groupIsFullySelected)
 			visibleLines = append(visibleLines, header)
 		}
 		currentIndex++
