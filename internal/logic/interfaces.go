@@ -45,6 +45,12 @@ type RepositoryUpdatedEvent struct {
 	Repository *domain.Repository
 }
 
+// StatusUpdatedEvent contains only the status update information, not the whole repository
+type StatusUpdatedEvent struct {
+	Path   string
+	Status domain.RepoStatus
+}
+
 type ScanStartedEvent struct{}
 
 type ScanCompletedEvent struct {

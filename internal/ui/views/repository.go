@@ -127,6 +127,10 @@ func (r *RepositoryRenderer) getStatusIcon(repo *domain.Repository, isFetching, 
 	if isRefreshing || isPulling {
 		return "⟳"
 	}
+	// Check if status is still loading (branch is the loading indicator)
+	if repo.Status.Branch == "⋯" || repo.Status.Branch == "" {
+		return "⋯"
+	}
 	if repo.Status.Error != "" {
 		return "✗"
 	}
@@ -143,6 +147,10 @@ func (r *RepositoryRenderer) getStatusStyle(repo *domain.Repository, isFetching,
 	}
 	if isRefreshing {
 		return r.styles.StatusRefreshing
+	}
+	// Check if status is still loading
+	if repo.Status.Branch == "⋯" || repo.Status.Branch == "" {
+		return r.styles.StatusLoading
 	}
 	if repo.Status.Error != "" {
 		return r.styles.StatusError

@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"gitagrip/internal/config"
@@ -65,7 +67,7 @@ func main() {
 	}
 
 	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Handle interrupt signals
@@ -99,7 +101,7 @@ func main() {
 	})
 
 	// Initialize services
-	discoverySvc := discovery.NewDiscoveryService(bus)
+	_ = discovery.NewDiscoveryService(bus) // Creates service and subscribes to events
 	_ = git.NewGitService(bus) // Git service subscribes to events automatically
 	_ = groups.NewGroupManager(bus, cfg.Groups) // Group manager subscribes to events automatically
 
@@ -116,14 +118,25 @@ func main() {
 	}
 
 	// Create event channel for UI
-	eventChan := make(chan interface{}, 100)
+	eventChan := make(chan interface{}, 1000)
+	
+	// Start channel monitor goroutine
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			log.Printf("[CHANNEL_MONITOR] Event channel status: %d/%d events", len(eventChan), cap(eventChan))
+		}
+	}()
 	
 	// Forward events to the event channel
 	forwardEvent := func(e interface{}) {
+		log.Printf("[FORWARD] Attempting to forward event: %T", e)
 		select {
 		case eventChan <- e:
+			log.Printf("[FORWARD] Successfully forwarded event: %T, channel len: %d/%d", e, len(eventChan), cap(eventChan))
 		default:
-			log.Println("Event channel full, dropping event")
+			log.Printf("[FORWARD] ERROR: Event channel full, dropping event: %T", e)
 		}
 	}
 
@@ -150,13 +163,61 @@ func main() {
 		}
 	})
 	
+	// Subscribe to batch repository discovery events
+	bus.Subscribe(eventbus.EventReposDiscoveredBatch, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.ReposDiscoveredBatchEvent); ok {
+			// Process all repositories in the batch
+			for _, repoData := range event.Repos {
+				repo := &domain.Repository{
+					Path:   repoData.Path,
+					Name:   repoData.Name,
+					Status: domain.RepoStatus{},
+				}
+				repoStore.AddRepository(repo)
+			}
+			// Forward the batch event as-is to the UI
+			log.Printf("Main: Forwarding batch event with %d repos", len(event.Repos))
+			forwardEvent(event)
+		}
+	})
+	
+	// Forward scan events
+	bus.Subscribe(eventbus.EventScanStarted, func(e eventbus.DomainEvent) {
+		forwardEvent(logic.ScanStartedEvent{})
+	})
+	
+	bus.Subscribe(eventbus.EventScanCompleted, func(e eventbus.DomainEvent) {
+		if event, ok := e.(eventbus.ScanCompletedEvent); ok {
+			log.Printf("Main: Scan completed with %d repos", event.ReposFound)
+			forwardEvent(logic.ScanCompletedEvent{Count: event.ReposFound})
+		}
+	})
+	
 	bus.Subscribe(eventbus.EventStatusUpdated, func(e eventbus.DomainEvent) {
 		if event, ok := e.(eventbus.StatusUpdatedEvent); ok {
+			log.Printf("[MAIN] Received StatusUpdatedEvent for %s with branch: %s", 
+				filepath.Base(event.RepoPath), event.Status.Branch)
 			repo := repoStore.GetRepository(event.RepoPath)
 			if repo != nil {
 				repo.Status = event.Status
 				repoStore.UpdateRepository(repo)
-				forwardEvent(logic.RepositoryUpdatedEvent{Repository: repo})
+				
+				// Send only the status update, not the whole repository
+				statusCopy := domain.RepoStatus{
+					Branch:       event.Status.Branch,
+					IsDirty:      event.Status.IsDirty,
+					HasUntracked: event.Status.HasUntracked,
+					AheadCount:   event.Status.AheadCount,
+					BehindCount:  event.Status.BehindCount,
+					StashCount:   event.Status.StashCount,
+					Error:        event.Status.Error,
+				}
+				log.Printf("[MAIN] Forwarding status update for %s with branch: %s (copy: %s)", 
+					filepath.Base(repo.Path), event.Status.Branch, statusCopy.Branch)
+				forwardEvent(logic.StatusUpdatedEvent{
+					Path:   event.RepoPath,
+					Status: statusCopy,
+				})
 			}
 		}
 	})
@@ -206,29 +267,46 @@ func main() {
 		}
 	})
 
-	// Start forwarding events to UI in background
-	go func() {
-		for event := range eventChan {
-			// Convert to EventMsg type expected by UI
-			p.Send(eventReceivedMsg{event: event})
-		}
-	}()
+	// Don't consume events here - the UI reads from eventChan directly via waitForEvent()
+	// This was causing a race condition where events could go to either p.Send or waitForEvent
 
 	// Initialize groups from config
 	for name := range cfg.Groups {
 		bus.Publish(eventbus.GroupAddedEvent{Name: name})
 	}
 
-	// Start initial scan
-	if cfg.BaseDir != "" {
-		go discoverySvc.StartScan(ctx, []string{cfg.BaseDir})
-	}
+	// Don't start scan here - let UI trigger it once initialized
+	// This prevents race conditions with large directories
+	// if cfg.BaseDir != "" {
+	// 	go discoverySvc.StartScan(ctx, []string{cfg.BaseDir})
+	// }
 
+	// Add panic recovery at the top level
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic to file since Bubble Tea may have taken over terminal
+			panicFile, err := os.OpenFile("gitagrip.panic", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+			if err == nil {
+				panicFile.WriteString(fmt.Sprintf("PANIC: %v\n", r))
+				panicFile.WriteString(fmt.Sprintf("Stack trace:\n%s\n", debug.Stack()))
+				panicFile.Close()
+			}
+			log.Printf("PANIC: %v\nStack: %s", r, debug.Stack())
+			panic(r) // Re-panic to get full goroutine dump
+		}
+	}()
+	
 	// Run the UI
 	log.Printf("Starting UI...")
 	if _, err := p.Run(); err != nil {
 		log.Printf("Error running program: %v", err)
 		fmt.Printf("Error running program: %v\n", err)
+		// Write error to separate file too
+		errFile, _ := os.OpenFile("gitagrip.error", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+		if errFile != nil {
+			errFile.WriteString(fmt.Sprintf("Error: %v\n", err))
+			errFile.Close()
+		}
 		os.Exit(1)
 	}
 	log.Printf("UI exited normally")

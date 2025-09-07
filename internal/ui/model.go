@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"log"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -39,6 +41,10 @@ type Model struct {
 	
 	// Channels
 	eventChan <-chan interface{}
+	
+	// Debounce timer for ordered list updates
+	updateTimer *time.Timer
+	updateMutex sync.Mutex
 }
 
 // UIState contains only UI-specific state
@@ -52,6 +58,7 @@ type UIState struct {
 	InfoContent   string
 	StatusMessage string
 	Repositories  map[string]*domain.Repository // Cache for rendering
+	RepoMutex     sync.RWMutex                   // Protects Repositories map
 	HelpModel     help.Model
 }
 
@@ -116,7 +123,7 @@ func NewModel(
 	}
 	
 	// Update coordinator with initial data
-	m.coordinator.UpdateOrderedLists()
+	m.coordinator.UpdateOrderedLists() // Initial load, no debounce needed
 	
 	// Subscribe to service events
 	m.subscribeToEvents()
@@ -126,6 +133,13 @@ func NewModel(
 
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
+	// Trigger initial scan after UI is ready
+	if m.config.BaseDir != "" {
+		m.eventBus.Publish(eventbus.ScanRequestedEvent{
+			Paths: []string{m.config.BaseDir},
+		})
+	}
+	
 	return tea.Batch(
 		m.waitForEvent(),
 		m.inputHandler.Init(),
@@ -135,9 +149,24 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Only log non-tick messages to reduce noise
+	switch msg.(type) {
+	case tickMsg, nil:
+		// Don't log these frequent messages
+	default:
+		log.Printf("[UPDATE] Starting Update with msg type: %T", msg)
+	}
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tickMsg:
+		// On tick, check for events
+		cmds = append(cmds, m.waitForEvent())
+		
+	case nil:
+		// Nil message from waitForEvent - don't do anything special
+		// The tick will handle re-checking
+		
 	case tea.WindowSizeMsg:
 		m.state.Width = msg.Width
 		m.state.Height = msg.Height
@@ -160,9 +189,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case eventReceivedMsg:
-		// Handle domain events
+		// Handle single domain event via p.Send()
+		switch e := msg.event.(type) {
+		case logic.StatusUpdatedEvent:
+			log.Printf("[UPDATE] Received StatusUpdatedEvent via p.Send() for %s with branch: %s", 
+				filepath.Base(e.Path), e.Status.Branch)
+		default:
+			log.Printf("[UPDATE] Received event via p.Send(): %T", msg.event)
+		}
 		m.handleDomainEvent(msg.event)
-		cmds = append(cmds, m.waitForEvent())
+		log.Printf("[UPDATE] Finished handleDomainEvent")
+		
+	case batchEventReceivedMsg:
+		// Handle multiple events at once
+		var statusUpdateCount int
+		for _, event := range msg.events {
+			if _, ok := event.(logic.StatusUpdatedEvent); ok {
+				statusUpdateCount++
+			}
+		}
+		log.Printf("[UPDATE] Processing batch of %d events (including %d status updates)", len(msg.events), statusUpdateCount)
+		
+		for _, event := range msg.events {
+			m.handleDomainEvent(event)
+		}
+		
+		// Log summary of repositories with statuses
+		m.state.RepoMutex.RLock()
+		reposWithStatus := 0
+		for _, repo := range m.state.Repositories {
+			if repo.Status.Branch != "" {
+				reposWithStatus++
+			}
+		}
+		totalRepos := len(m.state.Repositories)
+		m.state.RepoMutex.RUnlock()
+		
+		log.Printf("[UPDATE] Finished processing batch. Repos with status: %d/%d", reposWithStatus, totalRepos)
 
 	case EventMsg:
 		// Handle domain events from external sources
@@ -173,11 +236,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Always tick for animations
 	cmds = append(cmds, tickCmd())
 	
+	// Only log return for non-routine updates
+	switch msg.(type) {
+	case tickMsg, nil:
+		// Don't log these
+	default:
+		log.Printf("[UPDATE] Returning with %d commands", len(cmds))
+	}
 	return m, tea.Batch(cmds...)
 }
 
 // View renders the UI
 func (m *Model) View() string {
+	viewStartTime := time.Now()
+	defer func() {
+		elapsed := time.Since(viewStartTime)
+		if elapsed > 50*time.Millisecond {
+			log.Printf("[VIEW] WARNING: View() took %v to complete", elapsed)
+		}
+	}()
+	
 	// Prevent nil pointer panics
 	if m == nil {
 		return "Model is nil"
@@ -186,11 +264,15 @@ func (m *Model) View() string {
 		return "Renderer is nil"
 	}
 	
+	log.Printf("[VIEW] Building view state...")
 	// Build view state from services
 	viewState := m.buildViewState()
 	
+	log.Printf("[VIEW] Rendering with %d repos, %d groups", len(viewState.Repositories), len(viewState.Groups))
 	// Render using the views package
-	return m.renderer.Render(viewState)
+	result := m.renderer.Render(viewState)
+	log.Printf("[VIEW] Render complete, result length: %d", len(result))
+	return result
 }
 
 // handleAction processes an action from the input handler
@@ -447,7 +529,7 @@ func (m *Model) handleInputSubmit(a inputtypes.SubmitTextAction) tea.Cmd {
 		case "p":
 			m.coordinator.Sorting.SetMode(logic.SortByPath)
 		}
-		m.coordinator.UpdateOrderedLists()
+		m.coordinator.UpdateOrderedLists() // Immediate update for sort mode changes
 	}
 	
 	// Return to normal mode
@@ -457,47 +539,100 @@ func (m *Model) handleInputSubmit(a inputtypes.SubmitTextAction) tea.Cmd {
 
 // Event handling
 func (m *Model) subscribeToEvents() {
-	// Repository updates
-	m.eventBus.Subscribe("logic.RepositoryDiscoveredEvent", func(e eventbus.DomainEvent) {
-		if adapter, ok := e.(eventAdapter); ok {
-			if event, ok := adapter.event.(logic.RepositoryDiscoveredEvent); ok {
-				if event.Repository != nil && event.Repository.Path != "" {
-					m.state.Repositories[event.Repository.Path] = event.Repository
-					m.coordinator.UpdateOrderedLists()
-				}
-			}
-		}
-	})
+	// The internal UI event bus is used for communication between UI services
+	// We no longer subscribe to domain events here as they are handled directly
+	// in handleDomainEvent to avoid event loops
 	
-	m.eventBus.Subscribe("logic.RepositoryUpdatedEvent", func(e eventbus.DomainEvent) {
-		if adapter, ok := e.(eventAdapter); ok {
-			if event, ok := adapter.event.(logic.RepositoryUpdatedEvent); ok {
-				if event.Repository != nil && event.Repository.Path != "" {
-					m.state.Repositories[event.Repository.Path] = event.Repository
-				}
-			}
-		}
-	})
-	
-	// Status messages
-	m.eventBus.Subscribe("logic.ScanStartedEvent", func(e eventbus.DomainEvent) {
-		m.state.StatusMessage = "Scanning for repositories..."
-	})
-	
-	m.eventBus.Subscribe("logic.ScanCompletedEvent", func(e eventbus.DomainEvent) {
-		if adapter, ok := e.(eventAdapter); ok {
-			if event, ok := adapter.event.(logic.ScanCompletedEvent); ok {
-				m.state.StatusMessage = fmt.Sprintf("Scan completed: %d repositories found", event.Count)
-			}
-		}
-	})
+	// Note: If UI services need to communicate, they should use this event bus
+	// For now, we don't have any internal UI events to subscribe to
 }
 
 // handleDomainEvent processes domain events
 func (m *Model) handleDomainEvent(event interface{}) {
-	// Wrap the event in an adapter and publish to event bus
-	adapter := eventAdapter{event: event}
-	m.eventBus.Publish(adapter)
+	log.Printf("[HANDLE_DOMAIN] Starting handleDomainEvent with type: %T", event)
+	startTime := time.Now()
+	
+	// Process domain events directly based on their type
+	switch e := event.(type) {
+	case eventbus.ReposDiscoveredBatchEvent:
+		log.Printf("[HANDLE_DOMAIN] ReposDiscoveredBatchEvent with %d repos", len(e.Repos))
+		// Handle batch directly
+		m.handleReposDiscoveredBatch(e)
+		
+	case logic.StatusUpdatedEvent:
+		log.Printf("[HANDLE_DOMAIN] StatusUpdatedEvent for path: %s", e.Path)
+		log.Printf("[HANDLE_DOMAIN] Status - Branch: %s, Dirty: %v, Ahead: %d, Behind: %d", 
+			e.Status.Branch, e.Status.IsDirty, 
+			e.Status.AheadCount, e.Status.BehindCount)
+		
+		m.state.RepoMutex.Lock()
+		if existingRepo, exists := m.state.Repositories[e.Path]; exists {
+			// Update only the status of the existing repository
+			existingRepo.Status = e.Status
+			log.Printf("[HANDLE_DOMAIN] Updated repo %s with branch: %s, dirty: %v", 
+				filepath.Base(existingRepo.Path), existingRepo.Status.Branch, existingRepo.Status.IsDirty)
+			m.state.RepoMutex.Unlock()
+			
+			// Trigger UI update after status change
+			m.debouncedUpdateOrderedLists()
+		} else {
+			log.Printf("[HANDLE_DOMAIN] WARNING: Received status update for unknown repo: %s", e.Path)
+			m.state.RepoMutex.Unlock()
+		}
+		
+	case logic.RepositoryUpdatedEvent:
+		// This is now used only for full repository updates, not status updates
+		log.Printf("[HANDLE_DOMAIN] RepositoryUpdatedEvent for path: %s", e.Repository.Path)
+		if e.Repository != nil && e.Repository.Path != "" {
+			m.state.RepoMutex.Lock()
+			m.state.Repositories[e.Repository.Path] = e.Repository
+			m.state.RepoMutex.Unlock()
+		}
+		
+	case logic.ScanStartedEvent:
+		log.Printf("[HANDLE_DOMAIN] ScanStartedEvent")
+		m.state.StatusMessage = "Scanning for repositories..."
+		
+	case logic.ScanCompletedEvent:
+		log.Printf("[HANDLE_DOMAIN] ScanCompletedEvent with count: %d", e.Count)
+		m.state.StatusMessage = fmt.Sprintf("Scan completed: %d repositories found", e.Count)
+		// Final update after scan
+		m.coordinator.UpdateOrderedLists()
+		
+	case domain.GroupAddedEvent:
+		log.Printf("[HANDLE_DOMAIN] GroupAddedEvent")
+		// Groups are already handled by the group store, just update UI
+		m.coordinator.UpdateOrderedLists()
+		
+	default:
+		// For any other events, log but don't process
+		log.Printf("[HANDLE_DOMAIN] Unhandled domain event type: %T", e)
+	}
+	
+	elapsed := time.Since(startTime)
+	log.Printf("[HANDLE_DOMAIN] Completed in %v", elapsed)
+}
+
+// handleReposDiscoveredBatch processes a batch of discovered repositories
+func (m *Model) handleReposDiscoveredBatch(event eventbus.ReposDiscoveredBatchEvent) {
+	log.Printf("UI: Processing batch with %d repos", len(event.Repos))
+	
+	// Add all repositories from batch
+	m.state.RepoMutex.Lock()
+	beforeCount := len(m.state.Repositories)
+	for _, repo := range event.Repos {
+		if repo.Path != "" {
+			repoCopy := repo
+			m.state.Repositories[repo.Path] = &repoCopy
+		}
+	}
+	afterCount := len(m.state.Repositories)
+	m.state.RepoMutex.Unlock()
+	
+	log.Printf("UI: Batch processed, repos before: %d, after: %d", beforeCount, afterCount)
+	
+	// Update ordered lists with debouncing
+	m.debouncedUpdateOrderedLists()
 }
 
 // buildViewState creates view state from services
@@ -535,10 +670,30 @@ func (m *Model) buildViewState() views.ViewState {
 	
 	// TODO: Track operation states from git service events
 	
+	// Make a copy of repositories under lock
+	m.state.RepoMutex.RLock()
+	repoCount := len(m.state.Repositories)
+	reposCopy := make(map[string]*domain.Repository, repoCount)
+	statusCount := 0
+	for k, v := range m.state.Repositories {
+		reposCopy[k] = v
+		if v.Status.Branch != "" {
+			statusCount++
+			// Log first few repos with status
+			if statusCount <= 3 {
+				log.Printf("[VIEW] Repo %s has status - Branch: %s, Dirty: %v", 
+					filepath.Base(v.Path), v.Status.Branch, v.Status.IsDirty)
+			}
+		}
+	}
+	m.state.RepoMutex.RUnlock()
+	
+	log.Printf("[VIEW] Building view state with %d repositories (%d have status)", repoCount, statusCount)
+	
 	return views.ViewState{
 		Width:           m.state.Width,
 		Height:          m.state.Height,
-		Repositories:    m.state.Repositories,
+		Repositories:    reposCopy,
 		Groups:          groups,
 		OrderedGroups:   orderedGroups,
 		SelectedIndex:   cursor,
@@ -616,6 +771,20 @@ func getStatusText(status domain.RepoStatus) string {
 	return "Clean"
 }
 
+// debouncedUpdateOrderedLists schedules an UpdateOrderedLists call with debouncing
+func (m *Model) debouncedUpdateOrderedLists() {
+	// Cancel any existing timer
+	if m.updateTimer != nil {
+		m.updateTimer.Stop()
+	}
+	
+	// Schedule a new update in 100ms
+	m.updateTimer = time.AfterFunc(100*time.Millisecond, func() {
+		log.Printf("Debounced UpdateOrderedLists triggered")
+		m.coordinator.UpdateOrderedLists()
+	})
+}
+
 // contextAdapter implements input.Context for the input handler
 type contextAdapter struct {
 	model *Model
@@ -664,15 +833,58 @@ type eventReceivedMsg struct {
 
 func (m *Model) waitForEvent() tea.Cmd {
 	return func() tea.Msg {
-		event := <-m.eventChan
-		return eventReceivedMsg{event: event}
+		// Collect all available events (up to a limit to prevent blocking UI)
+		var events []interface{}
+		var statusCount int
+		collectLoop:
+		for i := 0; i < 500; i++ { // Process up to 500 events at once to handle large bursts
+			select {
+			case event := <-m.eventChan:
+				events = append(events, event)
+				// Count status events
+				if _, ok := event.(logic.StatusUpdatedEvent); ok {
+					statusCount++
+				}
+				// Log only the first few events to avoid spam
+				if i < 3 || (statusCount > 0 && statusCount % 20 == 0) {
+					switch e := event.(type) {
+					case logic.RepositoryUpdatedEvent:
+						log.Printf("[WAIT_EVENT] RepositoryUpdatedEvent for: %s", filepath.Base(e.Repository.Path))
+					case logic.StatusUpdatedEvent:
+						log.Printf("[WAIT_EVENT] StatusUpdatedEvent #%d for: %s with branch: %s", statusCount, filepath.Base(e.Path), e.Status.Branch)
+					default:
+						log.Printf("[WAIT_EVENT] Received event: %T", event)
+					}
+				}
+			default:
+				// No more events available
+				if i > 100 && len(m.eventChan) > 0 {
+					// If we've collected many events but channel still has more, continue
+					log.Printf("[WAIT_EVENT] Collected %d events so far, channel still has %d", i, len(m.eventChan))
+					continue
+				}
+				break collectLoop
+			}
+		}
+		
+		if len(events) > 0 {
+			log.Printf("[WAIT_EVENT] Collected %d events (including %d status updates), channel buffer remaining: %d", len(events), statusCount, len(m.eventChan))
+			return batchEventReceivedMsg{events: events}
+		}
+		return nil
 	}
+}
+
+// batchEventReceivedMsg contains multiple events
+type batchEventReceivedMsg struct {
+	events []interface{}
 }
 
 // Tick for animations
 func tickCmd() tea.Cmd {
-	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg {
-		return nil
+	return tea.Tick(20*time.Millisecond, func(time.Time) tea.Msg {
+		// Return a special tick message instead of nil
+		return tickMsg{}
 	})
 }
 
@@ -691,6 +903,8 @@ func (e eventAdapter) Type() eventbus.EventType {
 		return "logic.ScanStartedEvent"
 	case logic.ScanCompletedEvent:
 		return "logic.ScanCompletedEvent"
+	case eventbus.ReposDiscoveredBatchEvent:
+		return "eventbus.ReposDiscoveredBatchEvent"
 	default:
 		return "unknown"
 	}
