@@ -10,72 +10,15 @@ before:
 
 # Go builds for multiple platforms
 builds:
-  - id: linux-amd64
+  - id: gitagrip
     binary: gitagrip
     main: ./main.go
     goos:
       - linux
-    goarch:
-      - amd64
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-        
-  - id: linux-arm64
-    binary: gitagrip
-    main: ./main.go
-    goos:
-      - linux
-    goarch:
-      - arm64
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-        
-  - id: darwin-amd64
-    binary: gitagrip
-    main: ./main.go
-    goos:
       - darwin
-    goarch:
-      - amd64
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-        
-  - id: darwin-arm64
-    binary: gitagrip
-    main: ./main.go
-    goos:
-      - darwin
-    goarch:
-      - arm64
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-        
-  - id: windows-amd64
-    binary: gitagrip
-    main: ./main.go
-    goos:
       - windows
     goarch:
       - amd64
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-        
-  - id: windows-arm64
-    binary: gitagrip
-    main: ./main.go
-    goos:
-      - windows
-    goarch:
       - arm64
     env:
       - CGO_ENABLED=0
@@ -205,7 +148,9 @@ nix:
 dockers:
   - id: docker-amd64
     dockerfile: Dockerfile
-    ids: [linux-amd64]
+    ids: [gitagrip]
+    goos: linux
+    goarch: amd64
     image_templates:
       - "ghcr.io/darksworm/gitagrip:{{ .Version }}-amd64"
       - "ghcr.io/darksworm/gitagrip:latest-amd64"
@@ -219,7 +164,9 @@ dockers:
       
   - id: docker-arm64
     dockerfile: Dockerfile
-    ids: [linux-arm64]
+    ids: [gitagrip]
+    goos: linux
+    goarch: arm64
     image_templates:
       - "ghcr.io/darksworm/gitagrip:{{ .Version }}-arm64"
       - "ghcr.io/darksworm/gitagrip:latest-arm64"
