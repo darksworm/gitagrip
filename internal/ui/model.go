@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -225,6 +224,17 @@ func (m *Model) syncNavigatorState() {
 func (m *Model) Init() tea.Cmd {
 	// Initialize viewport with reasonable defaults
 	m.state.ViewportHeight = 20 // Will be updated on first WindowSizeMsg
+	
+	// If no repositories exist, show loading state
+	if len(m.state.Repositories) == 0 {
+		// Check if we have groups defined, which would mean auto-grouping is happening
+		if len(m.config.Groups) > 0 {
+			m.state.LoadingState = "Setting up repository groups..."
+		} else {
+			m.state.LoadingState = "Initializing..."
+		}
+	}
+	
 	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
@@ -1528,19 +1538,8 @@ func (m *Model) updateDuplicateRepoNames() {
 			relativePath := strings.TrimPrefix(path, m.config.BaseDir)
 			relativePath = strings.TrimPrefix(relativePath, "/")
 			
-			// Remove the repo name from the end of the path
-			dirPath := filepath.Dir(relativePath)
-			if dirPath == "." {
-				dirPath = ""
-			}
-			
-			// Set display name with relative path
-			if dirPath != "" {
-				repo.DisplayName = fmt.Sprintf("%s (%s)", repo.Name, dirPath)
-			} else {
-				// If at root, use full path
-				repo.DisplayName = fmt.Sprintf("%s (%s)", repo.Name, relativePath)
-			}
+			// Use the relative path as the display name
+			repo.DisplayName = relativePath
 		} else {
 			// No duplicates, use regular name
 			repo.DisplayName = repo.Name

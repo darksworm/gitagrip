@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -248,7 +250,64 @@ func loadOrCreateConfig(configSvc config.ConfigService, targetDir string) *confi
 // generateGroupsFromDirectory creates groups based on directory structure
 // For now, return empty groups and let the discovery service populate them
 func generateGroupsFromDirectory(baseDir string) map[string][]string {
-	// Don't do any scanning here - let the background discovery service handle it
-	// This prevents the UI from hanging on large directories
-	return make(map[string][]string)
+	groups := make(map[string][]string)
+	
+	// Do a quick scan to find git repos and group them by immediate parent directory
+	// We'll limit depth to avoid hanging on large directories
+	maxDepth := 3
+	reposByParent := make(map[string][]string)
+	
+	filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // Continue walking
+		}
+		
+		// Check depth
+		relPath, _ := filepath.Rel(baseDir, path)
+		depth := strings.Count(relPath, string(filepath.Separator))
+		if depth > maxDepth {
+			return filepath.SkipDir
+		}
+		
+		// Skip common non-repo directories
+		if d.IsDir() {
+			name := d.Name()
+			if name == "node_modules" || name == ".npm" || name == "__pycache__" || 
+			   name == ".pytest_cache" || name == "venv" || name == ".venv" ||
+			   name == "target" || name == "build" || name == "dist" {
+				return filepath.SkipDir
+			}
+		}
+		
+		// Check if this is a .git directory
+		if d.IsDir() && d.Name() == ".git" {
+			repoPath := filepath.Dir(path)
+			
+			// Get the parent directory relative to base
+			relRepo, _ := filepath.Rel(baseDir, repoPath)
+			parentDir := filepath.Dir(relRepo)
+			
+			// If repo is directly in base dir, don't create a group
+			if parentDir == "." {
+				return filepath.SkipDir
+			}
+			
+			// Use the immediate parent directory as the group name
+			groupName := filepath.Base(parentDir)
+			reposByParent[groupName] = append(reposByParent[groupName], repoPath)
+			
+			return filepath.SkipDir
+		}
+		
+		return nil
+	})
+	
+	// Only create groups that have 2 or more repos
+	for groupName, repos := range reposByParent {
+		if len(repos) >= 2 {
+			groups[groupName] = repos
+		}
+	}
+	
+	return groups
 }

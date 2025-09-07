@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/lipgloss"
 
 	"gitagrip/internal/domain"
 	"gitagrip/internal/ui/input/modes"
@@ -43,6 +44,8 @@ type ViewState struct {
 	InputMode       string
 	UngroupedRepos  []string
 	SortOptionIndex int
+	LoadingState    string
+	LoadingCount    int
 }
 
 // Renderer handles all view rendering
@@ -85,7 +88,9 @@ func (r *Renderer) Render(state ViewState) string {
 	}
 
 	// Main content
-	if state.Scanning && len(state.Repositories) == 0 {
+	if state.LoadingState != "" {
+		content.WriteString(r.renderLoadingScreen(state))
+	} else if state.Scanning && len(state.Repositories) == 0 {
 		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		frame := int(time.Now().UnixMilli()/80) % len(spinner)
 		content.WriteString(r.styles.Scan.Render(fmt.Sprintf("%s Scanning for repositories...", spinner[frame])))
@@ -154,7 +159,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 				repoCount = len(group.Repos)
 			}
 
-			header := r.groupRender.RenderGroupHeader(group, isExpanded, isSelected, state.SearchQuery, repoCount)
+			header := r.groupRender.RenderGroupHeader(group, isExpanded, isSelected, state.SearchQuery, repoCount, state.Width)
 			visibleLines = append(visibleLines, header)
 		}
 		currentIndex++
@@ -177,6 +182,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 						state.PullingRepos[repoPath],
 						state.SearchQuery,
 						state.SelectedRepos[repoPath],
+						state.Width,
 					)
 					visibleLines = append(visibleLines, line)
 				}
@@ -210,6 +216,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 				state.PullingRepos[repoPath],
 				state.SearchQuery,
 				state.SelectedRepos[repoPath],
+				state.Width,
 			)
 			visibleLines = append(visibleLines, line)
 		}
@@ -362,4 +369,57 @@ func (r *Renderer) renderSortOptions(state ViewState) string {
 		return sortLine + "\n" + helpLine
 	}
 	return ""
+}
+
+// renderLoadingScreen renders the loading screen
+func (r *Renderer) renderLoadingScreen(state ViewState) string {
+	lines := []string{}
+	
+	// Calculate effective viewport height (account for title and status bar)
+	effectiveHeight := state.ViewportHeight
+	if effectiveHeight < 10 {
+		effectiveHeight = 10 // Minimum height
+	}
+	
+	// Center the content vertically
+	topPadding := effectiveHeight / 3
+	for i := 0; i < topPadding; i++ {
+		lines = append(lines, "")
+	}
+	
+	// Spinner
+	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	frame := int(time.Now().UnixMilli()/80) % len(spinner)
+	
+	// Loading title (centered)
+	titleStyle := r.styles.Title.Copy().MarginBottom(0).AlignHorizontal(lipgloss.Center).Width(state.Width)
+	lines = append(lines, titleStyle.Render("GitaGrip"))
+	lines = append(lines, "")
+	
+	// Loading state
+	loadingLine := fmt.Sprintf("%s %s", spinner[frame], state.LoadingState)
+	if state.LoadingCount > 0 {
+		loadingLine = fmt.Sprintf("%s %s (%d found)", spinner[frame], state.LoadingState, state.LoadingCount)
+	}
+	loadingStyle := r.styles.Scan.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
+	lines = append(lines, loadingStyle.Render(loadingLine))
+	
+	// Hint
+	if state.LoadingState == "Setting up repository groups..." {
+		lines = append(lines, "")
+		hintStyle := r.styles.Dim.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
+		lines = append(lines, hintStyle.Render("Analyzing directory structure for automatic grouping"))
+	} else if state.LoadingState == "Scanning for repositories..." {
+		lines = append(lines, "")
+		hintStyle := r.styles.Dim.Copy().AlignHorizontal(lipgloss.Center).Width(state.Width)
+		lines = append(lines, hintStyle.Render("This may take a moment for large directories"))
+	}
+	
+	// Fill the rest with empty lines
+	currentLines := len(lines)
+	for i := currentLines; i < effectiveHeight; i++ {
+		lines = append(lines, "")
+	}
+	
+	return strings.Join(lines, "\n")
 }

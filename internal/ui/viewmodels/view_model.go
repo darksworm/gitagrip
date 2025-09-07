@@ -94,5 +94,7 @@ func (vm *ViewModel) BuildViewState() views.ViewState {
 		InputMode:        vm.inputTransformer.GetInputModeString(),
 		UngroupedRepos:   vm.ungroupedRepos,
 		SortOptionIndex:  vm.state.SortOptionIndex,
+		LoadingState:     vm.state.LoadingState,
+		LoadingCount:     vm.state.LoadingCount,
 	}
 }

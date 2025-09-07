@@ -35,6 +35,8 @@ type AppState struct {
 	ShowInfo        bool
 	InfoContent     string
 	StatusMessage   string                      // status bar message
+	LoadingState    string                      // current loading state description
+	LoadingCount    int                         // count for loading progress
 	
 	// Search and filter state
 	SearchQuery     string                      // current search query

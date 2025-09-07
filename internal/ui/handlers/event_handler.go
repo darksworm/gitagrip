@@ -39,6 +39,10 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 		h.updateOrderedLists()
 		// Update searchFilter with new repositories
 		h.searchFilter = logic.NewSearchFilter(h.state.Repositories)
+		// Update loading count if we're in loading state
+		if h.state.LoadingState != "" {
+			h.state.LoadingCount = len(h.state.Repositories)
+		}
 
 	case eventbus.StatusUpdatedEvent:
 		// Update repository status
@@ -77,6 +81,8 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.ScanStartedEvent:
 		h.state.Scanning = true
 		h.state.StatusMessage = "Scanning for repositories..."
+		h.state.LoadingState = "Scanning for repositories..."
+		h.state.LoadingCount = 0
 		// Return a tick command to start the spinner animation
 		return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
 			// Return tick event to trigger animation update
@@ -86,6 +92,11 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 	case eventbus.ScanCompletedEvent:
 		h.state.Scanning = false
 		h.state.StatusMessage = fmt.Sprintf("Scan complete. Found %d repositories.", e.ReposFound)
+		// Clear loading state once we have repos
+		if e.ReposFound > 0 {
+			h.state.LoadingState = ""
+			h.state.LoadingCount = 0
+		}
 
 	case eventbus.FetchCompletedEvent:
 		// Clear fetching state for this repo

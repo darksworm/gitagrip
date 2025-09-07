@@ -23,7 +23,7 @@ func NewGroupRenderer(styles *Styles) *GroupRenderer {
 
 // RenderGroupHeader renders a group header
 func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, isSelected bool, 
-	searchQuery string, repoCount int) string {
+	searchQuery string, repoCount int, width int) string {
 	
 	// Determine arrow
 	arrow := "▶"
@@ -40,8 +40,15 @@ func (g *GroupRenderer) RenderGroupHeader(group *domain.Group, isExpanded bool, 
 	// Format the complete line
 	line := fmt.Sprintf("%s %s (%d)", arrow, groupName, repoCount)
 	
-	// Apply selection highlighting
+	// Apply selection highlighting with full width
 	if isSelected {
+		// Pad the line to full width
+		if width > 0 {
+			lineLen := lipgloss.Width(line)
+			if lineLen < width {
+				line = line + strings.Repeat(" ", width-lineLen)
+			}
+		}
 		return g.styles.HighlightBg.Render(line)
 	}
 	

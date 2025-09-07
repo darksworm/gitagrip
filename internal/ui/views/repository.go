@@ -26,7 +26,7 @@ func NewRepositoryRenderer(styles *Styles, showAheadBehind bool) *RepositoryRend
 // RenderRepository renders a repository item
 func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelected bool, indent int, 
 	isMultiSelect bool, isFetching bool, isRefreshing bool, isPulling bool,
-	searchQuery string, isRepoSelected bool) string {
+	searchQuery string, isRepoSelected bool, width int) string {
 	if repo == nil {
 		return ""
 	}
@@ -37,13 +37,18 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 		bgColor = "238"
 	}
 	
+	// Different background for multi-selected items
+	if isRepoSelected && isMultiSelect {
+		bgColor = "240" // Slightly different shade for selected repos
+	}
+	
 	// Get status components
 	status := r.getStatusIcon(repo, isFetching, isRefreshing, isPulling)
 	branchName := r.formatBranchName(repo.Status.Branch)
 	
 	// Apply styles
 	statusStyle := r.getStatusStyle(repo, isFetching, isRefreshing)
-	if isSelected {
+	if bgColor != "" {
 		statusStyle = statusStyle.Background(lipgloss.Color(bgColor))
 	}
 	
@@ -53,7 +58,8 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 	if repo.Status.IsDirty || repo.Status.HasUntracked {
 		branchStyle = branchStyle.Bold(true)
 	}
-	if isSelected {
+	// Apply background color if selected
+	if bgColor != "" {
 		branchStyle = branchStyle.Background(lipgloss.Color(bgColor))
 	}
 	coloredBranch := branchStyle.Render(branchName)
@@ -63,24 +69,26 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 	
 	// Indentation
 	if indent > 0 {
-		parts = append(parts, strings.Repeat("  ", indent))
+		indentText := strings.Repeat("  ", indent)
+		if bgColor != "" {
+			indentStyle := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
+			parts = append(parts, indentStyle.Render(indentText))
+		} else {
+			parts = append(parts, indentText)
+		}
 	}
 	
-	// Multi-select indicator
-	if isMultiSelect {
-		selectionIndicator := "[ ]"
-		if isRepoSelected {
-			selectionIndicator = "[x]"
-		}
-		selectionStyle := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
-		parts = append(parts, selectionStyle.Render(selectionIndicator))
-		parts = append(parts, " ")
-	}
+	// No checkbox needed - we use background color to indicate selection
 	
 	// Status icon
 	if status != "" {
 		parts = append(parts, statusStyle.Render(status))
-		parts = append(parts, " ")
+		if bgColor != "" {
+			spacerStyle := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
+			parts = append(parts, spacerStyle.Render(" "))
+		} else {
+			parts = append(parts, " ")
+		}
 	}
 	
 	// Repository name (with search highlighting if applicable)
@@ -119,7 +127,21 @@ func (r *RepositoryRenderer) RenderRepository(repo *domain.Repository, isSelecte
 		parts = append(parts, stashStyle.Render(stashText))
 	}
 	
-	return strings.Join(parts, "")
+	// Join the parts
+	line := strings.Join(parts, "")
+	
+	// Pad the line to full width with background color if selected
+	if bgColor != "" && width > 0 {
+		// Calculate the current line length without ANSI codes
+		lineLen := lipgloss.Width(line)
+		if lineLen < width {
+			padding := strings.Repeat(" ", width-lineLen)
+			paddingStyle := lipgloss.NewStyle().Background(lipgloss.Color(bgColor))
+			line = line + paddingStyle.Render(padding)
+		}
+	}
+	
+	return line
 }
 
 // getStatusIcon returns the appropriate status icon for a repository
