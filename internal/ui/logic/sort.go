@@ -14,7 +14,6 @@ const (
 	SortByName SortMode = iota
 	SortByStatus
 	SortByBranch
-	SortByGroup
 )
 
 // RepositorySorter handles repository sorting logic
@@ -38,9 +37,6 @@ func (s *RepositorySorter) SortRepositories(repoPaths []string, mode SortMode) {
 		s.sortByStatus(repoPaths)
 	case SortByBranch:
 		s.sortByBranch(repoPaths)
-	case SortByGroup:
-		// Group sort doesn't affect repository order within groups
-		s.sortByName(repoPaths)
 	default:
 		// Default to alphabetical by path
 		sort.Strings(repoPaths)
@@ -115,7 +111,3 @@ func GetStatusPriority(repo *domain.Repository) int {
 	return 0 // Lowest priority - clean
 }
 
-// ShouldSortGroups returns true if groups should be sorted alphabetically
-func ShouldSortGroups(mode SortMode) bool {
-	return mode == SortByGroup
-}

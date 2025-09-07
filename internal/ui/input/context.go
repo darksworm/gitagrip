@@ -200,8 +200,6 @@ func (c *ModelContext) GetCurrentSort() string {
 		return "status"
 	case logic.SortByBranch:
 		return "branch"
-	case logic.SortByGroup:
-		return "group"
 	default:
 		return "name"
 	}

@@ -87,6 +87,34 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		}
 		return nil, false
 		
+	case "J":
+		// Shift+J moves group down
+		if ctx.IsOnGroup() || ctx.GetRepoPathAtIndex(ctx.CurrentIndex()) != "" {
+			return []types.Action{types.MoveGroupDownAction{}}, true
+		}
+		return nil, false
+		
+	case "K":
+		// Shift+K moves group up  
+		if ctx.IsOnGroup() || ctx.GetRepoPathAtIndex(ctx.CurrentIndex()) != "" {
+			return []types.Action{types.MoveGroupUpAction{}}, true
+		}
+		return nil, false
+		
+	case "shift+up":
+		// Shift+Up moves group up
+		if ctx.IsOnGroup() || ctx.GetRepoPathAtIndex(ctx.CurrentIndex()) != "" {
+			return []types.Action{types.MoveGroupUpAction{}}, true
+		}
+		return nil, false
+		
+	case "shift+down":
+		// Shift+Down moves group down
+		if ctx.IsOnGroup() || ctx.GetRepoPathAtIndex(ctx.CurrentIndex()) != "" {
+			return []types.Action{types.MoveGroupDownAction{}}, true
+		}
+		return nil, false
+		
 	case " ":
 		// Space toggles selection on repo or selects/deselects all in group
 		if ctx.IsOnGroup() {

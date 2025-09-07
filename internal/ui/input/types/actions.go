@@ -103,6 +103,14 @@ type ToggleGroupAction struct{}
 
 func (a ToggleGroupAction) Type() string { return "toggle_group" }
 
+type MoveGroupUpAction struct{}
+
+func (a MoveGroupUpAction) Type() string { return "move_group_up" }
+
+type MoveGroupDownAction struct{}
+
+func (a MoveGroupDownAction) Type() string { return "move_group_down" }
+
 type SearchNavigateAction struct {
 	Direction string // "next" or "prev"
 }

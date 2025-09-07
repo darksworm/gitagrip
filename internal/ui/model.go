@@ -415,34 +415,18 @@ func (m *Model) updateOrderedLists() {
 			return strings.ToLower(repoI.Name) < strings.ToLower(repoJ.Name)
 		})
 
-	case logic.SortByGroup:
-		// For group sort, we don't sort the repos here, but we sort groups alphabetically
-		// Repos will be displayed in their groups
-
 	default:
 		// Default to alphabetical by path
 		sort.Strings(m.state.OrderedRepos)
 	}
 
-	// Update ordered groups
-	if m.currentSort == logic.SortByGroup {
-		// Sort groups alphabetically
-		m.state.OrderedGroups = make([]string, 0, len(m.state.Groups))
-		for name := range m.state.Groups {
+	// Update ordered groups - always use creation order
+	m.state.OrderedGroups = make([]string, 0, len(m.state.GroupCreationOrder))
+	// Only include groups that still exist
+	for _, name := range m.state.GroupCreationOrder {
+		if _, exists := m.state.Groups[name]; exists {
 			if name != HiddenGroupName {
 				m.state.OrderedGroups = append(m.state.OrderedGroups, name)
-			}
-		}
-		sort.Strings(m.state.OrderedGroups)
-	} else {
-		// Use creation order (newest first)
-		m.state.OrderedGroups = make([]string, 0, len(m.state.GroupCreationOrder))
-		// Only include groups that still exist
-		for _, name := range m.state.GroupCreationOrder {
-			if _, exists := m.state.Groups[name]; exists {
-				if name != HiddenGroupName {
-					m.state.OrderedGroups = append(m.state.OrderedGroups, name)
-				}
 			}
 		}
 	}
@@ -1506,6 +1490,93 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			return m.cmdExecutor.ExecuteMoveToGroup(repoPaths, fromGroups, HiddenGroupName)
 		}
 
+	case inputtypes.MoveGroupUpAction:
+		// Get the group at current position
+		groupName := m.getGroupAtIndex(m.state.SelectedIndex)
+		if groupName != "" && groupName != "Ungrouped" && groupName != HiddenGroupName {
+			// Find current position in OrderedGroups
+			currentIdx := -1
+			for i, g := range m.state.OrderedGroups {
+				if g == groupName {
+					currentIdx = i
+					break
+				}
+			}
+			
+			// Move up if possible
+			if currentIdx > 0 {
+				// Swap with previous group
+				m.state.OrderedGroups[currentIdx], m.state.OrderedGroups[currentIdx-1] = 
+					m.state.OrderedGroups[currentIdx-1], m.state.OrderedGroups[currentIdx]
+				
+				// Update GroupCreationOrder to match
+				m.updateGroupCreationOrder()
+				
+				// Update display
+				m.updateOrderedLists()
+				
+				// Move cursor to follow the group
+				newIdx := m.getCurrentIndexForGroup(groupName)
+				if newIdx >= 0 {
+					m.state.SelectedIndex = newIdx
+					m.ensureSelectedVisible()
+				}
+				
+				// Save config
+				if m.bus != nil {
+					m.bus.Publish(eventbus.ConfigChangedEvent{
+						Groups: m.getGroupsMap(),
+					})
+				}
+			}
+		}
+
+	case inputtypes.MoveGroupDownAction:
+		// Get the group at current position
+		groupName := m.getGroupAtIndex(m.state.SelectedIndex)
+		if groupName != "" && groupName != "Ungrouped" && groupName != HiddenGroupName {
+			// Find current position in OrderedGroups
+			currentIdx := -1
+			for i, g := range m.state.OrderedGroups {
+				if g == groupName {
+					currentIdx = i
+					break
+				}
+			}
+			
+			// Move down if possible (not counting hidden group at the end)
+			maxIdx := len(m.state.OrderedGroups) - 1
+			if _, hasHidden := m.state.Groups[HiddenGroupName]; hasHidden {
+				maxIdx-- // Don't count hidden group
+			}
+			
+			if currentIdx >= 0 && currentIdx < maxIdx {
+				// Swap with next group
+				m.state.OrderedGroups[currentIdx], m.state.OrderedGroups[currentIdx+1] = 
+					m.state.OrderedGroups[currentIdx+1], m.state.OrderedGroups[currentIdx]
+				
+				// Update GroupCreationOrder to match
+				m.updateGroupCreationOrder()
+				
+				// Update display
+				m.updateOrderedLists()
+				
+				// Move cursor to follow the group
+				newIdx := m.getCurrentIndexForGroup(groupName)
+				if newIdx >= 0 {
+					m.state.SelectedIndex = newIdx
+					m.ensureSelectedVisible()
+				}
+				
+				// Save config
+				if m.bus != nil {
+					m.bus.Publish(eventbus.ConfigChangedEvent{
+						Groups: m.getGroupsMap(),
+					})
+				}
+			}
+		}
+
 	case inputtypes.QuitAction:
 		if !a.Force && m.config.UISettings.AutosaveOnExit && m.bus != nil {
 			m.bus.Publish(eventbus.ConfigChangedEvent{
@@ -1643,6 +1714,23 @@ func tick() tea.Cmd {
 func (m *Model) getGroupsMap() map[string][]string {
 	return m.state.GetGroupsMap()
 }
+
+// updateGroupCreationOrder updates the GroupCreationOrder to match OrderedGroups
+func (m *Model) updateGroupCreationOrder() {
+	// Create new creation order based on current ordered groups
+	newOrder := make([]string, 0, len(m.state.OrderedGroups))
+	
+	// Add all non-hidden groups in their current order
+	for _, groupName := range m.state.OrderedGroups {
+		if groupName != HiddenGroupName {
+			newOrder = append(newOrder, groupName)
+		}
+	}
+	
+	// Update the creation order
+	m.state.GroupCreationOrder = newOrder
+}
+
 
 // updateDuplicateRepoNames updates DisplayName for repos with duplicate names
 func (m *Model) updateDuplicateRepoNames() {
