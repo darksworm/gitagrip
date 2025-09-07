@@ -605,36 +605,139 @@ func (m *Model) updateViewportHeight() {
 	m.ensureSelectedVisible()
 }
 
+// isOnGap returns true if the given index is on a gap (empty line) between groups
+func (m *Model) isOnGap(index int) bool {
+	currentIndex := 0
+	// Check groups first
+	for i, groupName := range m.store.GetOrderedGroups() {
+		// Group header is not a gap
+		if currentIndex == index {
+			return false
+		}
+		currentIndex++
+		
+		// Skip group contents if expanded
+		if m.store.IsGroupExpanded(groupName) {
+			group, _ := m.store.GetGroup(groupName)
+			// Repository entries are not gaps
+			for j := 0; j < len(group.Repos); j++ {
+				if currentIndex == index {
+					return false
+				}
+				currentIndex++
+			}
+		}
+		
+		// Check if there should be a gap after this group
+		isLastGroup := i == len(m.store.GetOrderedGroups())-1
+		isHiddenGroup := groupName == HiddenGroupName
+		
+		// Add gap after group unless it's the hidden group at the end
+		if !isHiddenGroup || !isLastGroup {
+			if currentIndex == index {
+				// This is a gap
+				return true
+			}
+			currentIndex++ // Gap after group
+		}
+		
+		if currentIndex > index {
+			break
+		}
+	}
+	
+	// Check ungrouped section
+	ungroupedRepos := m.getUngroupedRepos()
+	for range ungroupedRepos {
+		if currentIndex == index {
+			return false // Ungrouped repos are not gaps
+		}
+		currentIndex++
+	}
+	
+	return false
+}
+
 // getSelectedGroup returns the group name if a group header is selected
 func (m *Model) getSelectedGroup() string {
 	currentIndex := 0
 
 	// Check groups first (since they're displayed first now)
-	for _, groupName := range m.store.GetOrderedGroups() {
+	for i, groupName := range m.store.GetOrderedGroups() {
 		if currentIndex == m.state.SelectedIndex {
 			return groupName // This is the selected group
 		}
 		currentIndex++
 
-		// Skip group contents
+		// Skip group contents if expanded
 		if m.store.IsGroupExpanded(groupName) {
 			group, _ := m.store.GetGroup(groupName)
 			currentIndex += len(group.Repos)
 		}
 		
-		// Check if we're on the gap after this group
-		gapIndex := currentIndex
-		// Account for gap after group (except hidden group at the end)
-		if groupName != HiddenGroupName || currentIndex < m.state.SelectedIndex {
-			if gapIndex == m.state.SelectedIndex {
-				// We're on the gap, return the group before it
-				return groupName
-			}
+		// Check if there should be a gap after this group
+		isLastGroup := i == len(m.store.GetOrderedGroups())-1
+		isHiddenGroup := groupName == HiddenGroupName
+		
+		// Add gap after group unless it's the hidden group at the end
+		if !isHiddenGroup || !isLastGroup {
 			currentIndex++ // Gap after group
 		}
 
 		if currentIndex > m.state.SelectedIndex {
 			break
+		}
+	}
+
+	return ""
+}
+
+// getGroupAtIndex returns the group name for the item at the given index
+// This returns the group name whether the index is on a group header or a repo within that group
+func (m *Model) getGroupAtIndex(index int) string {
+	currentIndex := 0
+
+	// Check groups
+	for i, groupName := range m.store.GetOrderedGroups() {
+		// Group header
+		if currentIndex == index {
+			return groupName
+		}
+		currentIndex++
+
+		// Check repos in group if expanded
+		if m.store.IsGroupExpanded(groupName) {
+			group, _ := m.store.GetGroup(groupName)
+			for range group.Repos {
+				if currentIndex == index {
+					return groupName // Repo belongs to this group
+				}
+				currentIndex++
+			}
+		}
+		
+		// Account for gap after group (except hidden group at the end)
+		isLastGroup := i == len(m.store.GetOrderedGroups())-1
+		isHiddenGroup := groupName == HiddenGroupName
+		if !isHiddenGroup || !isLastGroup {
+			if currentIndex == index {
+				// On a gap - return empty
+				return ""
+			}
+			currentIndex++ // Gap after group
+		}
+
+		if currentIndex > index {
+			break
+		}
+	}
+
+	// Check if in ungrouped section
+	ungroupedRepos := m.getUngroupedRepos()
+	if len(ungroupedRepos) > 0 {
+		// All remaining items are ungrouped
+		if index >= currentIndex && index < currentIndex + len(ungroupedRepos) {
+			return "Ungrouped"
 		}
 	}
 
@@ -888,10 +991,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			if m.state.SelectedIndex > 0 {
 				m.state.SelectedIndex--
 				// Skip gaps when moving up
-				if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
-					if m.state.SelectedIndex > 0 {
-						m.state.SelectedIndex--
-					}
+				for m.state.SelectedIndex > 0 && m.isOnGap(m.state.SelectedIndex) {
+					m.state.SelectedIndex--
 				}
 				m.ensureSelectedVisible()
 			}
@@ -900,10 +1001,8 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			if m.state.SelectedIndex < maxIndex {
 				m.state.SelectedIndex++
 				// Skip gaps when moving down
-				if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
-					if m.state.SelectedIndex < maxIndex {
-						m.state.SelectedIndex++
-					}
+				for m.state.SelectedIndex < maxIndex && m.isOnGap(m.state.SelectedIndex) {
+					m.state.SelectedIndex++
 				}
 				m.ensureSelectedVisible()
 			}
@@ -1109,8 +1208,38 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		m.state.ShowHelp = !m.state.ShowHelp
 
 	case inputtypes.ToggleGroupAction:
-		if groupName := m.getSelectedGroup(); groupName != "" {
+		// First try to get the group if we're on a group header
+		groupName := m.getSelectedGroup()
+		if groupName == "" {
+			// If not on a group header, check if we're on a repo within a group
+			groupName = m.getGroupAtIndex(m.state.SelectedIndex)
+		}
+		
+		if groupName != "" && groupName != "Ungrouped" {
+			// Toggle the group expansion state
 			m.state.ExpandedGroups[groupName] = !m.state.ExpandedGroups[groupName]
+			
+			// If we just collapsed a group and we were inside it, move selection to the group header
+			if !m.state.ExpandedGroups[groupName] && m.getRepoPathAtIndex(m.state.SelectedIndex) != "" {
+				// Find the group header position
+				currentIndex := 0
+				for _, gName := range m.store.GetOrderedGroups() {
+					if gName == groupName {
+						m.state.SelectedIndex = currentIndex
+						break
+					}
+					currentIndex++
+					if m.store.IsGroupExpanded(gName) {
+						group, _ := m.store.GetGroup(gName)
+						currentIndex += len(group.Repos)
+					}
+					// Account for gaps
+					if gName != HiddenGroupName {
+						currentIndex++
+					}
+				}
+			}
+			m.ensureSelectedVisible()
 		}
 
 	case inputtypes.CreateGroupAction:
@@ -1470,10 +1599,8 @@ func (m *Model) pageUp() {
 		if m.state.SelectedIndex > 0 {
 			m.state.SelectedIndex--
 			// Skip gaps
-			if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
-				if m.state.SelectedIndex > 0 {
-					m.state.SelectedIndex--
-				}
+			for m.state.SelectedIndex > 0 && m.isOnGap(m.state.SelectedIndex) {
+				m.state.SelectedIndex--
 			}
 		}
 	}
@@ -1492,10 +1619,8 @@ func (m *Model) pageDown() {
 		if m.state.SelectedIndex < maxIndex {
 			m.state.SelectedIndex++
 			// Skip gaps
-			if m.getRepoPathAtIndex(m.state.SelectedIndex) == "" && m.getSelectedGroup() == "" {
-				if m.state.SelectedIndex < maxIndex {
-					m.state.SelectedIndex++
-				}
+			for m.state.SelectedIndex < maxIndex && m.isOnGap(m.state.SelectedIndex) {
+				m.state.SelectedIndex++
 			}
 		}
 	}

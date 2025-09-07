@@ -59,7 +59,7 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 	currentIdx := 0
 	
 	// Check grouped repos
-	for _, groupName := range c.State.OrderedGroups {
+	for i, groupName := range c.State.OrderedGroups {
 		if currentIdx == index {
 			// On a group header
 			return ""
@@ -76,6 +76,17 @@ func (c *ModelContext) GetRepoPathAtIndex(index int) string {
 					currentIdx++
 				}
 			}
+		}
+		
+		// Add gap after group unless it's the hidden group at the end
+		isLastGroup := i == len(c.State.OrderedGroups)-1
+		isHiddenGroup := groupName == "_Hidden"
+		if !isHiddenGroup || !isLastGroup {
+			if currentIdx == index {
+				// On a gap
+				return ""
+			}
+			currentIdx++ // Gap after group
 		}
 	}
 	
@@ -105,7 +116,7 @@ func (c *ModelContext) IsOnGroup() bool {
 	targetIdx := c.CurrentIndex()
 	
 	// Check grouped repos
-	for _, groupName := range c.State.OrderedGroups {
+	for i, groupName := range c.State.OrderedGroups {
 		if currentIdx == targetIdx {
 			return true // On a group header
 		}
@@ -116,6 +127,13 @@ func (c *ModelContext) IsOnGroup() bool {
 			if group != nil {
 				currentIdx += len(group.Repos)
 			}
+		}
+		
+		// Add gap after group unless it's the hidden group at the end
+		isLastGroup := i == len(c.State.OrderedGroups)-1
+		isHiddenGroup := groupName == "_Hidden"
+		if !isHiddenGroup || !isLastGroup {
+			currentIdx++ // Gap after group
 		}
 	}
 	
@@ -136,7 +154,7 @@ func (c *ModelContext) CurrentGroupName() string {
 	targetIdx := c.CurrentIndex()
 	
 	// Check grouped repos
-	for _, groupName := range c.State.OrderedGroups {
+	for i, groupName := range c.State.OrderedGroups {
 		if currentIdx == targetIdx {
 			return groupName // On a group header
 		}
@@ -147,6 +165,13 @@ func (c *ModelContext) CurrentGroupName() string {
 			if group != nil {
 				currentIdx += len(group.Repos)
 			}
+		}
+		
+		// Add gap after group unless it's the hidden group at the end
+		isLastGroup := i == len(c.State.OrderedGroups)-1
+		isHiddenGroup := groupName == "_Hidden"
+		if !isHiddenGroup || !isLastGroup {
+			currentIdx++ // Gap after group
 		}
 	}
 	
