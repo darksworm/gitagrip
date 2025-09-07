@@ -1,5 +1,5 @@
 # GoReleaser Dockerfile - uses pre-built binary
-FROM --platform=$TARGETPLATFORM alpine:latest
+FROM alpine:latest
 
 # Install git (required for gitagrip to function)
 RUN apk add --no-cache git ca-certificates
