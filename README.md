@@ -55,10 +55,10 @@ paru -S gitagrip-bin
   <summary><strong>Docker</strong></summary>
 
 ```bash
-# Run with current directory as base
+# Run with current directory
 docker run --rm -it -v $(pwd):/repos ghcr.io/darksworm/gitagrip:latest
 
-# Scan specific directory
+# Run with specific directory
 docker run --rm -it -v /path/to/repos:/repos ghcr.io/darksworm/gitagrip:latest
 ```
 </details>
@@ -98,11 +98,12 @@ Download the `.zip` file, extract, and add to your PATH.
 # Scan current directory
 gitagrip
 
-# Scan specific directory
-gitagrip --base-dir /path/to/repos
+# Scan specific directory (using flag)
+gitagrip -dir /path/to/repos
+gitagrip -d /path/to/repos  # shorthand
 
-# Specify a custom config file
-gitagrip --config /path/to/custom.toml
+# Scan specific directory (as argument)
+gitagrip /path/to/repos
 ```
 
 ## ⌨️ Keyboard Shortcuts

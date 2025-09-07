@@ -20,5 +20,5 @@ USER gitagrip
 # Set working directory
 WORKDIR /repos
 
-# Entrypoint
-ENTRYPOINT ["gitagrip"]
+# Entrypoint - always scan /repos directory
+ENTRYPOINT ["gitagrip", "/repos"]
