@@ -1,4 +1,4 @@
-# GitaGrip
+# gitagrip
 
 [![GitHub Downloads](https://img.shields.io/github/downloads/darksworm/gitagrip/total?style=flat-square&label=github+downloads)](https://github.com/darksworm/gitagrip/releases/latest)
 [![Latest Release](https://img.shields.io/github/v/release/darksworm/gitagrip?style=flat-square)](https://github.com/darksworm/gitagrip/releases/latest)
@@ -150,33 +150,6 @@ gitagrip --config /path/to/custom.toml
 - `status:clean` - Show only clean repositories  
 - `status:ahead` - Show repositories ahead of remote
 
-## 📁 Configuration
-
-GitaGrip stores its configuration in a `.gitagrip.toml` file in the directory being scanned. This allows different repository collections to have their own configurations.
-
-### Example Configuration
-
-```toml
-version = 1
-base_dir = "/home/user/code"
-
-[ui]
-show_ahead_behind = true
-autosave_on_exit = true
-
-[groups]
-Work = [
-  "/home/user/code/project1",
-  "/home/user/code/project2"
-]
-Personal = [
-  "/home/user/code/dotfiles"
-]
-
-# Group display order
-group_order = ["Work", "Personal"]
-```
-
 ## 🖥️ Interface
 
 ```
@@ -230,28 +203,6 @@ go test ./...
 go install
 ```
 
-### Architecture
-
-GitaGrip follows an event-driven architecture:
-
-```
-cmd/gitagrip/         - Application entry point
-internal/
-  ├── config/         - Configuration management
-  ├── domain/         - Domain models and events
-  ├── discovery/      - Repository discovery service
-  ├── eventbus/       - Event-driven communication
-  ├── git/            - Git operations service
-  ├── groups/         - Group management service
-  └── ui/             - Bubble Tea UI implementation
-```
-
-### Key Principles
-
-- **Event-Driven**: Services communicate via a central event bus
-- **Non-Blocking**: All I/O operations run on background goroutines
-- **Clean Architecture**: Separation of concerns with clear boundaries
-
 ### Contributing
 
 1. Fork the repository
@@ -261,19 +212,6 @@ internal/
 5. Open a Pull Request
 
 Please follow conventional commits for your commit messages.
-
-## 📋 Roadmap
-
-- [x] Core TUI with repository discovery
-- [x] Git status integration
-- [x] Repository grouping
-- [x] Fetch/pull operations
-- [x] Search and filtering
-- [ ] Push operations
-- [ ] Bulk operations
-- [ ] Git worktree support
-- [ ] Repository templates
-- [ ] Plugin system
 
 ## 📄 License
 
