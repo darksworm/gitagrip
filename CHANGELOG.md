@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/darksworm/gitagrip/compare/v1.0.6...v1.1.0) (2025-09-07)
+
+
+### Features
+
+* highlight group header when all repos in group are selected ([9789611](https://github.com/darksworm/gitagrip/commit/97896119625103f8e098f8a6fa444b013ab4420d))
+
+
+### Bug Fixes
+
+* improve cursor visibility on selected items ([a947b5a](https://github.com/darksworm/gitagrip/commit/a947b5ad8776782da42020bcc6a729732726bcd6))
+
 ## [1.0.6](https://github.com/darksworm/gitagrip/compare/v1.0.5...v1.0.6) (2025-09-07)
 
 
