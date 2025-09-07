@@ -26,7 +26,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: go
-          package-name: gitagrip
 
   goreleaser:
     needs: release-please
