@@ -18,7 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const ringSize = 1 << 20 // 1 MiB of scrollback
+const ringSize = 1 << 20         // 1 MiB of scrollback
+const binPath = "./gitagrip_e2e" // unified binary path
 
 // Key constants for better readability
 const (
@@ -59,7 +60,7 @@ func NewTUITest(t *testing.T) *TUITestFramework {
 // StartApp launches the gitagrip application with given arguments in a PTY
 func (tf *TUITestFramework) StartApp(args ...string) error {
 	// Build the command
-	cmdArgs := append([]string{"./gitagrip_e2e"}, args...)
+	cmdArgs := append([]string{binPath}, args...)
 	tf.cmd = exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	// Set per-process environment variables
@@ -67,6 +68,7 @@ func (tf *TUITestFramework) StartApp(args ...string) error {
 		"TERM=xterm-256color",
 		"LC_ALL=C",
 		"LANG=C",
+		"HOME="+tf.workspace, // isolate git config
 		"GITAGRIP_E2E_TEST=1",
 	)
 
@@ -82,7 +84,7 @@ func (tf *TUITestFramework) StartApp(args ...string) error {
 	tf.cmd.Stdin = tty
 	tf.cmd.Stderr = tty
 
-	// Set terminal size using syscall (fallback to original method)
+	// Set terminal size
 	ws := struct {
 		Row uint16
 		Col uint16
@@ -162,6 +164,28 @@ func (tf *TUITestFramework) PageDown() error {
 	return tf.SendKeys(KeySpace)
 }
 
+// Driver DSL helpers for readable test scripts
+
+// Ready waits for the app to signal it's ready
+func (tf *TUITestFramework) Ready() bool {
+	return tf.OutputContains("__READY__", 5*time.Second)
+}
+
+// See waits for specific plain text to appear
+func (tf *TUITestFramework) See(text string) bool {
+	return tf.OutputContainsPlain(text, 3*time.Second)
+}
+
+// Quit sends quit command
+func (tf *TUITestFramework) Quit() error {
+	return tf.PressQuit()
+}
+
+// Down sends down navigation key
+func (tf *TUITestFramework) Down() error {
+	return tf.SendKeys(KeyDown)
+}
+
 // ANSI escape sequence regex for normalization
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b\]0;.*?\x07|\r`)
 
@@ -182,20 +206,28 @@ func (tf *TUITestFramework) SnapshotPlain() string {
 	return ansiRe.ReplaceAllString(tf.Snapshot(), "")
 }
 
+// DumpTailOnFail saves the last N bytes of normalized output to a file for debugging
+func (tf *TUITestFramework) DumpTailOnFail(t *testing.T, name string, n int) {
+	s := tf.SnapshotPlain()
+	if len(s) > n {
+		s = s[len(s)-n:]
+	}
+	p := filepath.Join(t.TempDir(), name+".txt")
+	_ = os.WriteFile(p, []byte(s), 0644)
+	t.Logf("Saved tail to %s", p)
+}
+
 // WaitFor waits for a predicate to be true in the output
 func (tf *TUITestFramework) WaitFor(pred func(string) bool, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	tf.mu.Lock()
-	defer tf.mu.Unlock()
-
 	for {
-		if pred(tf.snapshot()) {
+		if pred(tf.Snapshot()) {
 			return true
 		}
 		if time.Now().After(deadline) {
 			return false
 		}
-		tf.cond.Wait() // predicate loop handles spurious wakeups
+		time.Sleep(25 * time.Millisecond) // simple, reliable polling; tests only
 	}
 }
 
@@ -372,7 +404,7 @@ func WithRemote() RepoOption {
 func TestMain(m *testing.M) {
 	// Build the test binary from the parent directory
 	fmt.Println("Building test binary from main project...")
-	cmd := exec.Command("go", "build", "-o", "./e2e/gitagrip_e2e", ".")
+	cmd := exec.Command("go", "build", "-o", "e2e/"+binPath, ".")
 	cmd.Dir = ".." // Run from parent directory
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Failed to build test binary: %v\n", err)
@@ -383,7 +415,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup
-	os.Remove("./gitagrip_e2e")
+	os.Remove("e2e/" + binPath)
 	os.Exit(code)
 }
 
@@ -391,12 +423,12 @@ func TestHelpCommand(t *testing.T) {
 	t.Parallel()
 
 	// Ensure the test binary exists (it should be built by TestMain)
-	if _, err := os.Stat("./gitagrip_e2e"); os.IsNotExist(err) {
+	if _, err := os.Stat(binPath); os.IsNotExist(err) {
 		t.Skip("Test binary not found - TestMain may not have run yet")
 	}
 
 	// Test help command by running it directly (not through PTY since it exits quickly)
-	cmd := exec.Command("./gitagrip_e2e", "--help")
+	cmd := exec.Command(binPath, "--help")
 	output, err := cmd.CombinedOutput()
 
 	// The command should run without error
@@ -444,10 +476,10 @@ func TestBasicRepositoryDiscovery(t *testing.T) {
 	require.NoError(t, err, "Failed to start app")
 
 	// Wait for TUI to signal ready
-	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
+	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize and show content
-	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
+	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
 
 	// Get current buffered output
 	output := tf.Snapshot()
@@ -483,17 +515,21 @@ func TestKeyboardNavigation(t *testing.T) {
 	require.NoError(t, err, "Failed to start app")
 
 	// Wait for TUI to signal ready
-	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
+	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize
-	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
+	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
 
 	// Get initial state
 	initialOutput := tf.Snapshot()
 
 	// Send navigation commands
-	tf.SendKeys("j") // Down
-	time.Sleep(200 * time.Millisecond)
+	tf.Down()
+
+	// Wait for navigation to take effect (output should change)
+	require.True(t, tf.WaitFor(func(s string) bool {
+		return s != initialOutput
+	}, 1*time.Second), "Navigation should change output")
 
 	// Get output after navigation
 	navOutput := tf.Snapshot()
@@ -519,14 +555,21 @@ func TestRepositorySelection(t *testing.T) {
 	require.NoError(t, err, "Failed to start app")
 
 	// Wait for TUI to signal ready
-	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
+	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize
-	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
+	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
+
+	// Get initial output
+	initialOutput := tf.Snapshot()
 
 	// Try to select with spacebar
-	tf.SendKeys(" ")
-	time.Sleep(150 * time.Millisecond)
+	tf.SendKeys(KeySpace)
+
+	// Wait for selection to take effect
+	require.True(t, tf.WaitFor(func(s string) bool {
+		return s != initialOutput
+	}, 1*time.Second), "Selection should change output")
 
 	output := tf.Snapshot()
 
@@ -556,14 +599,17 @@ func TestConfigFileCreation(t *testing.T) {
 	require.NoError(t, err, "Failed to start app")
 
 	// Wait for TUI to signal ready
-	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
+	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize
-	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
+	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
 
 	// Exit gracefully
-	tf.PressQuit()
-	time.Sleep(200 * time.Millisecond)
+	tf.Quit()
+
+	// Wait for app to exit (process should terminate)
+	// The app should exit, so we'll just wait a bit for the process to clean up
+	time.Sleep(500 * time.Millisecond)
 
 	// Check if config file was created
 	_, err = os.Stat(configPath)
@@ -595,11 +641,9 @@ func TestApplicationExit(t *testing.T) {
 	err = tf.StartApp("-d", workspace)
 	require.NoError(t, err, "Failed to start app")
 
-	// Give TUI time to start up
-	time.Sleep(500 * time.Millisecond)
-
 	// Wait for TUI to initialize and render
-	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
+	require.True(t, tf.Ready(), "Should receive ready signal")
+	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
 
 	// Clear any buffered output first
 	tf.Snapshot()
@@ -612,7 +656,7 @@ func TestApplicationExit(t *testing.T) {
 
 	// Send 'q' to quit
 	t.Logf("Sending 'q' to quit application...")
-	tf.PressQuit()
+	tf.Quit()
 
 	// Give more time for graceful shutdown
 	select {
@@ -635,6 +679,7 @@ func TestApplicationExit(t *testing.T) {
 		t.Logf("Process exited with Ctrl+C (exit code: %v)", exitErr)
 	case <-time.After(750 * time.Millisecond):
 		t.Error("Application did not exit within total timeout")
-		tf.SendCtrlC() // Force exit again
+		tf.DumpTailOnFail(t, "exit-failure", 4096) // Debug output
+		tf.SendCtrlC()                             // Force exit again
 	}
 }
