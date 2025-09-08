@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -132,6 +133,8 @@ func (g *GitOps) ShowGitLogInPager(repoPath string) error {
 
 	// Ensure terminal is restored even if ov fails
 	defer func() {
+		// Small delay to ensure ov has fully exited before restoring terminal
+		time.Sleep(100 * time.Millisecond)
 		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
 	}()
 
@@ -179,6 +182,8 @@ func (g *GitOps) ShowGitDiffInPager(repoPath string) error {
 
 	// Ensure terminal is restored even if ov fails
 	defer func() {
+		// Small delay to ensure ov has fully exited before restoring terminal
+		time.Sleep(100 * time.Millisecond)
 		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
 	}()
 
