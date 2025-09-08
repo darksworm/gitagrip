@@ -3,10 +3,12 @@ package modes
 import (
 	"gitagrip/internal/ui/input/types"
 	tea "github.com/charmbracelet/bubbletea"
+	"time"
 )
 
 type NormalMode struct {
 	lastKeyWasG bool
+	lastGTime   time.Time
 }
 
 func NewNormalMode() *NormalMode {
@@ -242,13 +244,14 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.QuitAction{Force: false}}, true
 
 	case "g":
-		if m.lastKeyWasG {
-			// gg - go to top
+		if m.lastKeyWasG && time.Since(m.lastGTime) < 500*time.Millisecond {
+			// gg - go to top (within timeout)
 			m.lastKeyWasG = false
 			return []types.Action{types.NavigateAction{Direction: "home"}}, true
 		} else {
 			// First g, wait for next key
 			m.lastKeyWasG = true
+			m.lastGTime = time.Now()
 			return nil, true // consume the key but don't do anything
 		}
 
@@ -260,6 +263,10 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 	default:
 		// Any other key cancels the 'g' prefix
 		if m.lastKeyWasG && msg.String() != "g" {
+			m.lastKeyWasG = false
+		}
+		// Also cancel if too much time has passed since first 'g'
+		if m.lastKeyWasG && time.Since(m.lastGTime) >= 500*time.Millisecond {
 			m.lastKeyWasG = false
 		}
 	}

@@ -29,6 +29,8 @@ const (
 	KeyDown  = "j"
 	KeyQuit  = "q"
 	KeyDiff  = "D"
+	KeyFetch = "f"
+	KeyPull  = "p"
 )
 
 // ANSI escape sequence regex for normalization - covers CSI, OSC, charset, keypad modes
@@ -170,8 +172,24 @@ func (tf *TUITestFramework) PressQuit() error {
 
 // OpenDiffPager sends 'D' to open the git diff pager
 func (tf *TUITestFramework) OpenDiffPager() error {
-	tf.t.Helper()
 	return tf.SendKeys(KeyDiff)
+}
+
+// Fetch sends 'f' to trigger fetch operation
+func (tf *TUITestFramework) Fetch() error {
+	return tf.SendKeys(KeyFetch)
+}
+
+// Pull sends 'p' to trigger pull operation
+func (tf *TUITestFramework) Pull() error {
+	return tf.SendKeys(KeyPull)
+}
+
+// WaitForStatusMessage waits for a specific status message to appear
+func (tf *TUITestFramework) WaitForStatusMessage(message string, timeout time.Duration) bool {
+	return tf.WaitFor(func(s string) bool {
+		return strings.Contains(s, message)
+	}, timeout)
 }
 
 // PageDown sends space to page down in pager
