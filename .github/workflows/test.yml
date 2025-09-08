@@ -52,6 +52,33 @@ jobs:
     - name: Run govulncheck
       run: govulncheck ./...
 
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.21']
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run E2E Tests
+      run: |
+        cd e2e
+        go mod tidy
+        go test -v -timeout=120s
+      env:
+        # Ensure tests run in headless environment
+        CI: true
+
   lint:
     runs-on: ubuntu-latest
     steps:
