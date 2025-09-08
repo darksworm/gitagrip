@@ -1,29 +1,31 @@
-# E2E Testing with Microsoft TUI Test
+# GitaGrip End-to-End Testing
 
-This directory contains end-to-end tests for GitaGrip using Microsoft's TUI Test framework.
+This repository contains comprehensive end-to-end tests for GitaGrip using a native Go testing framework with real PTY interaction.
 
-## Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Build test binary
-npm run build-test
-```
-
-## Running Tests
+## 🚀 Quick Start
 
 ```bash
 # Run all tests
-npm test
+cd e2e
+./run_tests.sh
 
-# Run tests with traces for debugging
-npm run test:trace
+# Or use Go directly  
+go test -v -timeout=60s
 
-# Run specific test file
-npx @microsoft/tui-test e2e/01-basic-launch.spec.ts
+# Run specific test
+go test -v -run TestBasicRepositoryDiscovery
 ```
+
+## 🧪 Testing Framework
+
+GitaGrip uses a **production-grade Go TUI testing framework** that provides:
+
+- ✅ **Real PTY interaction** - Tests actual terminal behavior with Bubble Tea
+- ✅ **Native Go integration** - Same language and tooling as main app
+- ✅ **Parallel execution** - Fast test runs with proper isolation
+- ✅ **Clean output** - Concise summaries instead of verbose TUI dumps
+
+See [`e2e/README.md`](e2e/README.md) for detailed documentation and examples.
 
 ## Test Structure
 
