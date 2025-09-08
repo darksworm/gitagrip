@@ -50,3 +50,6 @@ type pauseRenderingMsg struct{}
 
 // resumeRenderingMsg signals to resume Bubble Tea rendering
 type resumeRenderingMsg struct{}
+
+// clearStatusMsg signals to clear the status message
+type clearStatusMsg struct{}

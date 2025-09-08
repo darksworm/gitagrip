@@ -115,6 +115,14 @@ func (r *Renderer) Render(state ViewState) string {
 				rightContent = filterText
 			}
 		}
+		if state.StatusMessage != "" {
+			statusText := r.styles.Title.Render(fmt.Sprintf("💬 %s", state.StatusMessage))
+			if rightContent != "" {
+				rightContent = fmt.Sprintf("%s  %s", rightContent, statusText)
+			} else {
+				rightContent = statusText
+			}
+		}
 
 		// Calculate padding needed
 		rightWidth := lipgloss.Width(rightContent)
