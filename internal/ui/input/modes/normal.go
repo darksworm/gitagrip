@@ -201,6 +201,13 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		}
 		return nil, false
 
+	case "d":
+		// Delete group (only if on a group)
+		if ctx.IsOnGroup() {
+			return []types.Action{types.ChangeModeAction{Mode: types.ModeDeleteConfirm}}, true
+		}
+		return nil, false
+
 	case "D":
 		// Show git diff for current repo
 		if ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup() {
