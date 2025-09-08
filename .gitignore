@@ -39,3 +39,13 @@ temp/
 # GoReleaser
 dist/
 .goreleaser.yml.bak
+
+.claude/
+CLAUDE.md
+AGENTS.md
+
+e2e
+tui-test.config.ts
+
+gitagrip.log
+landscape.md
