@@ -44,3 +44,9 @@ type gitDiffPagerMsg struct {
 type quitMsg struct {
 	saveConfig bool
 }
+
+// pauseRenderingMsg signals to pause Bubble Tea rendering
+type pauseRenderingMsg struct{}
+
+// resumeRenderingMsg signals to resume Bubble Tea rendering
+type resumeRenderingMsg struct{}

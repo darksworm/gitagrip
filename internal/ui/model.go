@@ -45,6 +45,7 @@ type Model struct {
 	// Removed: inputMode, textInput, deleteTarget - now handled by input handler
 	currentSort logic.SortMode // current sort mode
 	// Removed: useNewInput - fully migrated to new input handler
+	inPagerMode bool // tracks if we're currently in pager mode
 
 	// Handlers
 	searchFilter *logic.SearchFilter          // search and filter handler
@@ -903,7 +904,14 @@ func (m *Model) fetchGitDiff(repoPath string) tea.Cmd {
 // fetchGitLogPager returns a command that shows git log using ov pager
 func (m *Model) fetchGitLogPager(repoPath string) tea.Cmd {
 	return func() tea.Msg {
+		// Send pause message to stop rendering
+		m.program.Send(pauseRenderingMsg{})
+
 		err := m.gitOps.ShowGitLogInPager(repoPath)
+
+		// Send resume message to restart rendering
+		m.program.Send(resumeRenderingMsg{})
+
 		return gitLogPagerMsg{
 			repoPath: repoPath,
 			err:      err,
@@ -914,7 +922,14 @@ func (m *Model) fetchGitLogPager(repoPath string) tea.Cmd {
 // fetchGitDiffPager returns a command that shows git diff using ov pager
 func (m *Model) fetchGitDiffPager(repoPath string) tea.Cmd {
 	return func() tea.Msg {
+		// Send pause message to stop rendering
+		m.program.Send(pauseRenderingMsg{})
+
 		err := m.gitOps.ShowGitDiffInPager(repoPath)
+
+		// Send resume message to restart rendering
+		m.program.Send(resumeRenderingMsg{})
+
 		return gitDiffPagerMsg{
 			repoPath: repoPath,
 			err:      err,
@@ -1654,6 +1669,10 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		// Don't clear loading state automatically - let scan completion handle it
+		// Don't continue tick loop if we're in pager mode
+		if m.inPagerMode {
+			return m, nil
+		}
 		return m, tick()
 
 	case gitLogMsg:
@@ -1696,6 +1715,16 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchGitDiff(msg.repoPath)
 		}
 		// Pager succeeded, RestoreTerminal() should have restored the screen
+		return m, nil
+
+	case pauseRenderingMsg:
+		// Signal that rendering should be paused for external pager
+		m.inPagerMode = true
+		return m, nil
+
+	case resumeRenderingMsg:
+		// Signal that rendering should resume after external pager
+		m.inPagerMode = false
 		return m, nil
 
 	case quitMsg:
