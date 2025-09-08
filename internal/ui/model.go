@@ -56,6 +56,9 @@ type Model struct {
 	cmdExecutor  *commands.Executor           // command executor
 	inputHandler *input.Handler               // input handling
 	gitOps       *GitOps                      // git operations handler
+
+	// Program reference for terminal management
+	program *tea.Program
 }
 
 // NewModel creates a new UI model
@@ -132,6 +135,15 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 	m.searchFilter = logic.NewSearchFilter(m.state.Repositories)
 
 	return m
+}
+
+// SetProgram sets the program reference for terminal management
+func (m *Model) SetProgram(p *tea.Program) {
+	m.program = p
+	// Also set it in gitOps
+	if m.gitOps != nil {
+		m.gitOps.SetProgram(p)
+	}
 }
 
 // syncNavigatorState updates the navigator with current model state
@@ -888,6 +900,28 @@ func (m *Model) fetchGitDiff(repoPath string) tea.Cmd {
 	}
 }
 
+// fetchGitLogPager returns a command that shows git log using ov pager
+func (m *Model) fetchGitLogPager(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.gitOps.ShowGitLogInPager(repoPath)
+		return gitLogPagerMsg{
+			repoPath: repoPath,
+			err:      err,
+		}
+	}
+}
+
+// fetchGitDiffPager returns a command that shows git diff using ov pager
+func (m *Model) fetchGitDiffPager(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.gitOps.ShowGitDiffInPager(repoPath)
+		return gitDiffPagerMsg{
+			repoPath: repoPath,
+			err:      err,
+		}
+	}
+}
+
 // processAction processes an action from the input handler
 func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	log.Printf("processAction: %T", action)
@@ -1101,15 +1135,25 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.OpenLogAction:
 		// Show git log for current repo
 		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-			m.state.ShowLog = true
-			return m.fetchGitLog(repoPath)
+			// Try pager first if available, fall back to popup
+			if m.gitOps.IsOvAvailable() {
+				return m.fetchGitLogPager(repoPath)
+			} else {
+				m.state.ShowLog = true
+				return m.fetchGitLog(repoPath)
+			}
 		}
 
 	case inputtypes.OpenDiffAction:
 		// Show git diff for current repo
 		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-			m.state.ShowLog = true
-			return m.fetchGitDiff(repoPath)
+			// Try pager first if available, fall back to popup
+			if m.gitOps.IsOvAvailable() {
+				return m.fetchGitDiffPager(repoPath)
+			} else {
+				m.state.ShowLog = true
+				return m.fetchGitDiff(repoPath)
+			}
 		}
 
 	case inputtypes.ToggleInfoAction:
@@ -1634,6 +1678,24 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.ShowLog = true
 			}
 		}
+		return m, nil
+
+	case gitLogPagerMsg:
+		if msg.err != nil {
+			// Pager failed, fall back to popup
+			m.state.StatusMessage = fmt.Sprintf("Pager failed, falling back to popup: %v", msg.err)
+			return m, m.fetchGitLog(msg.repoPath)
+		}
+		// Pager succeeded, RestoreTerminal() should have restored the screen
+		return m, nil
+
+	case gitDiffPagerMsg:
+		if msg.err != nil {
+			// Pager failed, fall back to popup
+			m.state.StatusMessage = fmt.Sprintf("Pager failed, falling back to popup: %v", msg.err)
+			return m, m.fetchGitDiff(msg.repoPath)
+		}
+		// Pager succeeded, RestoreTerminal() should have restored the screen
 		return m, nil
 
 	case quitMsg:

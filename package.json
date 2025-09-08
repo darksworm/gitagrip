@@ -1,0 +1,15 @@
+{
+  "name": "gitagrip-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "npx @microsoft/tui-test",
+    "test:trace": "npx @microsoft/tui-test --trace",
+    "build-test": "go build -o ./gitagrip_e2e ."
+  },
+  "devDependencies": {
+    "@microsoft/tui-test": "^0.2.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

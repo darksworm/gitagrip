@@ -1,18 +1,28 @@
 package ui
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/noborus/ov/oviewer"
 )
 
 // GitOps handles git operations like log and diff
-type GitOps struct{}
+type GitOps struct {
+	program *tea.Program // reference to Bubble Tea program for terminal management
+}
 
 // NewGitOps creates a new GitOps instance
 func NewGitOps() *GitOps {
 	return &GitOps{}
+}
+
+// SetProgram sets the program reference for terminal management
+func (g *GitOps) SetProgram(p *tea.Program) {
+	g.program = p
 }
 
 // FetchGitLog fetches git log for a repository with branch/tag decorations
@@ -102,4 +112,103 @@ func (g *GitOps) HasUncommittedChanges(repoPath string) (bool, error) {
 	}
 	// Exit code 0 means no changes
 	return false, nil
+}
+
+// IsOvAvailable checks if the ov pager is available (always true since we use the library)
+func (g *GitOps) IsOvAvailable() bool {
+	return true
+}
+
+// ShowGitLogInPager shows git log using ov pager
+func (g *GitOps) ShowGitLogInPager(repoPath string) error {
+	if g.program == nil {
+		return fmt.Errorf("program not set")
+	}
+
+	// Release terminal control to run ov
+	if err := g.program.ReleaseTerminal(); err != nil {
+		return err
+	}
+
+	// Ensure terminal is restored even if ov fails
+	defer func() {
+		g.program.RestoreTerminal()
+	}()
+
+	// Create git log command
+	gitCmd := exec.Command("git", "log", "--oneline", "-20", "--color=always", "--decorate")
+	gitCmd.Dir = repoPath
+
+	// Get stdout pipe
+	stdout, err := gitCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	// Start the command
+	if err := gitCmd.Start(); err != nil {
+		return err
+	}
+
+	// Create oviewer root from the stdout reader
+	root, err := oviewer.NewRoot(stdout)
+	if err != nil {
+		return err
+	}
+
+	// Configure ov to not write on exit (to avoid messing with our screen)
+	config := oviewer.NewConfig()
+	config.IsWriteOnExit = false
+	config.IsWriteOriginal = false
+	root.SetConfig(config)
+
+	// Run the oviewer (this will take over the terminal)
+	return root.Run()
+}
+
+// ShowGitDiffInPager shows git diff using ov pager
+func (g *GitOps) ShowGitDiffInPager(repoPath string) error {
+	if g.program == nil {
+		return fmt.Errorf("program not set")
+	}
+
+	// Release terminal control to run ov
+	if err := g.program.ReleaseTerminal(); err != nil {
+		return err
+	}
+
+	// Ensure terminal is restored even if ov fails
+	defer func() {
+		g.program.RestoreTerminal()
+	}()
+
+	// Create git diff command
+	gitCmd := exec.Command("git", "diff", "--color=always")
+	gitCmd.Dir = repoPath
+
+	// Get stdout pipe
+	stdout, err := gitCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	// Start the command
+	if err := gitCmd.Start(); err != nil {
+		return err
+	}
+
+	// Create oviewer root from the stdout reader
+	root, err := oviewer.NewRoot(stdout)
+	if err != nil {
+		return err
+	}
+
+	// Configure ov to not write on exit (to avoid messing with our screen)
+	config := oviewer.NewConfig()
+	config.IsWriteOnExit = false
+	config.IsWriteOriginal = false
+	root.SetConfig(config)
+
+	// Run the oviewer (this will take over the terminal)
+	return root.Run()
 }
