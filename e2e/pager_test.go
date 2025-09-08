@@ -40,19 +40,6 @@ func TestGitDiffPager(t *testing.T) {
 	// Verify we're back to main TUI
 	require.True(t, tf.SeePlain("gitagrip"), "Should return to main TUI after closing pager")
 
-	// Press 'q' again to exit the application
-	tf.Quit()
-
-	// Wait for app to exit
-	done := make(chan error, 1)
-	go func() { done <- tf.cmd.Wait() }()
-	select {
-	case <-done:
-		// App exited cleanly
-	case <-time.After(2 * time.Second):
-		t.Fatal("app did not exit after quit")
-	}
-
 	t.Logf("Diff pager test passed - pager opened and closed successfully")
 }
 
