@@ -98,7 +98,7 @@ func (r *Renderer) Render(state ViewState) string {
 
 	// Build the title line with right-aligned indicators
 	var titleLine string
-	if len(loadingIndicators) > 0 || state.FilterQuery != "" {
+	if len(loadingIndicators) > 0 || state.FilterQuery != "" || state.StatusMessage != "" {
 		// Calculate widths
 		logoWidth := lipgloss.Width(logo)
 
