@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"log"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -40,9 +39,9 @@ type Model struct {
 	state  *state.AppState // centralized state
 
 	// UI-specific state not in AppState
-	width       int
-	height      int
-	help        help.Model
+	width  int
+	height int
+	help   help.Model
 	// Removed: inputMode, textInput, deleteTarget - now handled by input handler
 	currentSort logic.SortMode // current sort mode
 	// Removed: useNewInput - fully migrated to new input handler
@@ -56,6 +55,7 @@ type Model struct {
 	store        repositories.RepositoryStore // repository store for data access
 	cmdExecutor  *commands.Executor           // command executor
 	inputHandler *input.Handler               // input handling
+	gitOps       *GitOps                      // git operations handler
 }
 
 // NewModel creates a new UI model
@@ -84,6 +84,9 @@ func NewModel(bus eventbus.EventBus, cfg *config.Config) *Model {
 
 	// Create command executor
 	m.cmdExecutor = commands.NewExecutor(appState, bus)
+
+	// Create git operations handler
+	m.gitOps = NewGitOps()
 
 	// Create view model with a placeholder text input (actual one is in input handler)
 	placeholderTextInput := textinput.New()
@@ -852,11 +855,7 @@ func (m *Model) getCurrentIndexForGroup(groupName string) int {
 // fetchGitLog returns a command that fetches git log for a repository
 func (m *Model) fetchGitLog(repoPath string) tea.Cmd {
 	return func() tea.Msg {
-		// Run git log command
-		cmd := exec.Command("git", "log", "--oneline", "-20", "--decorate", "--color=always")
-		cmd.Dir = repoPath
-
-		output, err := cmd.Output()
+		content, err := m.gitOps.FetchGitLog(repoPath)
 		if err != nil {
 			return gitLogMsg{
 				repoPath: repoPath,
@@ -866,7 +865,25 @@ func (m *Model) fetchGitLog(repoPath string) tea.Cmd {
 
 		return gitLogMsg{
 			repoPath: repoPath,
-			content:  string(output),
+			content:  content,
+		}
+	}
+}
+
+// fetchGitDiff returns a command that fetches git diff for a repository
+func (m *Model) fetchGitDiff(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		content, err := m.gitOps.FetchGitDiff(repoPath)
+		if err != nil {
+			return gitDiffMsg{
+				repoPath: repoPath,
+				err:      err,
+			}
+		}
+
+		return gitDiffMsg{
+			repoPath: repoPath,
+			content:  content,
 		}
 	}
 }
@@ -1086,6 +1103,13 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
 			m.state.ShowLog = true
 			return m.fetchGitLog(repoPath)
+		}
+
+	case inputtypes.OpenDiffAction:
+		// Show git diff for current repo
+		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+			m.state.ShowLog = true
+			return m.fetchGitDiff(repoPath)
 		}
 
 	case inputtypes.ToggleInfoAction:
@@ -1593,6 +1617,22 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state.LogContent = fmt.Sprintf("Error fetching log for %s:\n%v", msg.repoPath, msg.err)
 		} else {
 			m.state.LogContent = fmt.Sprintf("Git log for %s:\n\n%s", msg.repoPath, msg.content)
+		}
+		return m, nil
+
+	case gitDiffMsg:
+		if msg.err != nil {
+			// Show error as status message instead of popup
+			m.state.StatusMessage = fmt.Sprintf("Error fetching diff: %v", msg.err)
+		} else {
+			if msg.content == "" {
+				// No changes - show status message instead of opening popup
+				m.state.StatusMessage = "No uncommitted changes"
+			} else {
+				// Show diff in popup
+				m.state.LogContent = fmt.Sprintf("Git diff for %s:\n\n%s", msg.repoPath, msg.content)
+				m.state.ShowLog = true
+			}
 		}
 		return m, nil
 

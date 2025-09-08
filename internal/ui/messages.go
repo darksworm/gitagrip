@@ -21,6 +21,13 @@ type gitLogMsg struct {
 	err      error
 }
 
+// gitDiffMsg contains the result of a git diff command
+type gitDiffMsg struct {
+	repoPath string
+	content  string
+	err      error
+}
+
 // quitMsg signals that the application should quit
 type quitMsg struct {
 	saveConfig bool

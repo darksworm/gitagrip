@@ -54,6 +54,7 @@ type Renderer struct {
 	styles      *Styles
 	repoRender  *RepositoryRenderer
 	groupRender *GroupRenderer
+	popupRender *PopupRenderer
 }
 
 // NewRenderer creates a new renderer
@@ -63,6 +64,7 @@ func NewRenderer(showAheadBehind bool) *Renderer {
 		styles:      styles,
 		repoRender:  NewRepositoryRenderer(styles, showAheadBehind),
 		groupRender: NewGroupRenderer(styles),
+		popupRender: NewPopupRenderer(styles),
 	}
 }
 
@@ -206,16 +208,16 @@ func (r *Renderer) Render(state ViewState) string {
 
 	// Overlay popups on top of main content
 	if state.ShowLog && state.LogContent != "" {
-		return r.renderPopupOverlay(finalContent, state.LogContent, state.Height, state.Width, r.styles.LogBox)
+		return r.popupRender.RenderPopupOverlay(finalContent, state.LogContent, state.Height, state.Width, r.styles.LogBox)
 	}
 
 	if state.ShowInfo && state.InfoContent != "" {
-		return r.renderPopupOverlay(finalContent, state.InfoContent, state.Height, state.Width, r.styles.InfoBox)
+		return r.popupRender.RenderPopupOverlay(finalContent, state.InfoContent, state.Height, state.Width, r.styles.InfoBox)
 	}
 
 	if state.ShowHelp {
 		helpContent := r.renderHelpContent(state.Height, state.HelpScrollOffset)
-		return r.renderPopupOverlay(finalContent, helpContent, state.Height, state.Width, r.styles.InfoBox)
+		return r.popupRender.RenderPopupOverlay(finalContent, helpContent, state.Height, state.Width, r.styles.InfoBox)
 	}
 
 	return finalContent
@@ -240,7 +242,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 			repoCount := 0
 			allReposSelected := true
 			hasSelectedRepos := false
-			
+
 			if isExpanded {
 				// Count visible repos in group and check selection
 				for _, repoPath := range group.Repos {
@@ -266,7 +268,7 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 					}
 				}
 			}
-			
+
 			// Only highlight if there are repos and all are selected
 			groupIsFullySelected := repoCount > 0 && allReposSelected && hasSelectedRepos
 
@@ -371,64 +373,6 @@ func (r *Renderer) renderRepositoryList(state ViewState) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderPopupOverlay renders a popup overlay on top of the main content
-func (r *Renderer) renderPopupOverlay(mainContent, popupContent string, height, width int, popupStyle lipgloss.Style) string {
-	// Create a centered modal-style popup
-	// First, measure the popup content
-	lines := strings.Split(popupContent, "\n")
-	contentHeight := len(lines)
-	contentWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > contentWidth {
-			contentWidth = lipgloss.Width(line)
-		}
-	}
-
-	// Ensure minimum sizes
-	if contentWidth < 60 {
-		contentWidth = 60
-	}
-	if contentHeight < 10 {
-		contentHeight = 10
-	}
-
-	// Add padding for the border and internal padding
-	popupWidth := contentWidth + 4   // 2 for border, 2 for horizontal padding
-	popupHeight := contentHeight + 2 // 2 for border only
-
-	// Ensure popup fits on screen
-	if popupWidth > width-4 {
-		popupWidth = width - 4
-	}
-	if popupHeight > height-2 {
-		popupHeight = height - 2
-	}
-
-	// Apply the style with the calculated dimensions
-	styledPopup := popupStyle.
-		Width(popupWidth).
-		Height(popupHeight).
-		MaxWidth(width - 4).
-		MaxHeight(height - 2).
-		Render(popupContent)
-
-	// Center the popup
-	centeredPopup := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styledPopup)
-
-	// Create a semi-transparent overlay effect by dimming the background
-	mainLines := strings.Split(mainContent, "\n")
-	overlayLines := strings.Split(centeredPopup, "\n")
-
-	// Ensure we have enough lines
-	for len(overlayLines) < len(mainLines) {
-		overlayLines = append(overlayLines, "")
-	}
-
-	result := overlayLines
-
-	return strings.Join(result, "\n")
-}
-
 // matchesFilter checks if a repo matches the filter (simplified for now)
 func (r *Renderer) matchesFilter(repo *domain.Repository, groupName string, filterQuery string) bool {
 	if filterQuery == "" {
@@ -530,7 +474,8 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("r"), descStyle.Render("Refresh repository status")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("f"), descStyle.Render("Fetch from remote")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("p"), descStyle.Render("Pull from remote")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("l"), descStyle.Render("View git log")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("L"), descStyle.Render("View git log")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("D"), descStyle.Render("View git diff")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info & logs")))
 
 	// Group management section
@@ -541,7 +486,6 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("m"), descStyle.Render("Move to group")))
 	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+R"), descStyle.Render("Rename group")))
 	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+J/K"), descStyle.Render("Move group up/down")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("d"), descStyle.Render("Delete group (on group header)")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("Hide selected repositories")))
 
 	// Search & filter section
@@ -603,4 +547,3 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 
 	return strings.Join(lines, "\n")
 }
-
