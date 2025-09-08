@@ -1162,7 +1162,21 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.OpenDiffAction:
 		// Show git diff for current repo
 		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
-			// Try pager first if available, fall back to popup
+			// First check if there's any diff content
+			content, err := m.gitOps.FetchGitDiff(repoPath)
+			if err != nil {
+				// Show error as status message
+				m.state.StatusMessage = fmt.Sprintf("Error fetching diff: %v", err)
+				return nil
+			}
+
+			// If no changes, show status message instead of opening pager/popup
+			if content == "" {
+				m.state.StatusMessage = "No uncommitted changes"
+				return nil
+			}
+
+			// There are changes, proceed with pager or popup
 			if m.gitOps.IsOvAvailable() {
 				return m.fetchGitDiffPager(repoPath)
 			} else {
