@@ -70,11 +70,11 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
-    - name: Run E2E Tests
-      run: |
-        cd e2e
-        go mod tidy
-        go test -v -timeout=120s
+     - name: Run E2E Tests
+       run: |
+         cd e2e
+         go mod tidy
+         go test -tags e2e -v -timeout=120s
       env:
         # Ensure tests run in headless environment
         CI: true

@@ -1,5 +1,4 @@
 //go:build e2e && unix
-//go:build e2e && unix
 
 package main
 
@@ -17,11 +16,10 @@ import (
 	"unsafe"
 
 	"github.com/creack/pty"
-	"github.com/stretchr/testify/require"
 )
 
-const ringSize = 1 << 20             // 1 MiB of scrollback
-const binPath = "./e2e/gitagrip_e2e" // unified binary path
+const ringSize = 1 << 20     // 1 MiB of scrollback
+var binPath = "gitagrip_e2e" // unified binary path
 
 // Key constants for better readability
 const (

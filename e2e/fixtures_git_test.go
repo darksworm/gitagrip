@@ -1,5 +1,4 @@
 //go:build e2e && unix
-//go:build e2e && unix
 
 package main
 

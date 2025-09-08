@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestConfigFileCreation(t *testing.T) {
 	configPath := filepath.Join(workspace, ".gitagrip.toml")
 
 	// Ensure no config exists initially
-	require.NoError(t, os.Remove(configPath)) // Ignore error if file doesn't exist
+	os.Remove(configPath) // Ignore error if file doesn't exist
 
 	err = tf.StartApp("-d", workspace)
 	require.NoError(t, err, "Failed to start app")
