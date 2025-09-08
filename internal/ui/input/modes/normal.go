@@ -78,7 +78,11 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.NavigateAction{Direction: "left"}}, true
 
 	case "l":
-		return []types.Action{types.NavigateAction{Direction: "right"}}, true
+		// Show git log for current repo
+		if ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup() {
+			return []types.Action{types.OpenLogAction{}}, true
+		}
+		return nil, false
 
 	case "z":
 		// z toggles group expansion (works on group header or repo in group)
@@ -197,13 +201,10 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		}
 		return nil, false
 
-	case "d":
-		// Delete group (only if on group)
-		if ctx.IsOnGroup() {
-			return []types.Action{types.ChangeModeAction{
-				Mode: types.ModeDeleteConfirm,
-				Data: ctx.CurrentGroupName(),
-			}}, true
+	case "D":
+		// Show git diff for current repo
+		if ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup() {
+			return []types.Action{types.OpenDiffAction{}}, true
 		}
 		return nil, false
 

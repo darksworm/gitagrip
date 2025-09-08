@@ -73,6 +73,10 @@ type OpenLogAction struct{}
 
 func (a OpenLogAction) Type() string { return "open_log" }
 
+type OpenDiffAction struct{}
+
+func (a OpenDiffAction) Type() string { return "open_diff" }
+
 type ToggleInfoAction struct{}
 
 func (a ToggleInfoAction) Type() string { return "toggle_info" }
