@@ -68,7 +68,8 @@ func (tf *TUITestFramework) StartApp(args ...string) error {
 		"TERM=xterm-256color",
 		"LC_ALL=C",
 		"LANG=C",
-		"HOME="+tf.workspace, // isolate git config
+		"HOME="+tf.workspace,          // isolate $HOME
+		"GIT_CONFIG_GLOBAL=/dev/null", // ignore user ~/.gitconfig
 		"GITAGRIP_E2E_TEST=1",
 	)
 
@@ -135,32 +136,50 @@ func (tf *TUITestFramework) startReader() {
 
 // SendKeys sends keystrokes to the application
 func (tf *TUITestFramework) SendKeys(keys string) error {
+	tf.t.Helper()
 	_, err := tf.pty.Write([]byte(keys))
 	return err
 }
 
 // SendEnter sends an Enter key
 func (tf *TUITestFramework) SendEnter() error {
+	tf.t.Helper()
 	return tf.SendKeys(KeyEnter)
 }
 
 // SendCtrlC sends Ctrl+C to terminate the application
 func (tf *TUITestFramework) SendCtrlC() error {
+	tf.t.Helper()
 	return tf.SendKeys(KeyCtrlC)
 }
 
 // PressQuit sends 'q' to quit the application
 func (tf *TUITestFramework) PressQuit() error {
+	tf.t.Helper()
 	return tf.SendKeys(KeyQuit)
 }
 
 // OpenPager sends 'D' to open the git diff pager
 func (tf *TUITestFramework) OpenPager() error {
+	tf.t.Helper()
 	return tf.SendKeys(KeyDiff)
 }
 
 // PageDown sends space to page down in pager
 func (tf *TUITestFramework) PageDown() error {
+	tf.t.Helper()
+	return tf.SendKeys(KeySpace)
+}
+
+// OpenDiffPager sends 'D' to open the git diff pager
+func (tf *TUITestFramework) OpenDiffPager() error {
+	tf.t.Helper()
+	return tf.SendKeys(KeyDiff)
+}
+
+// Page sends space to page down in pager
+func (tf *TUITestFramework) Page() error {
+	tf.t.Helper()
 	return tf.SendKeys(KeySpace)
 }
 
@@ -168,46 +187,66 @@ func (tf *TUITestFramework) PageDown() error {
 
 // Ready waits for the app to signal it's ready
 func (tf *TUITestFramework) Ready() bool {
+	tf.t.Helper()
 	return tf.OutputContains("__READY__", 5*time.Second)
 }
 
-// See waits for specific plain text to appear
-func (tf *TUITestFramework) See(text string) bool {
+// SeePlain waits for specific plain text to appear (normalized output)
+func (tf *TUITestFramework) SeePlain(text string) bool {
+	tf.t.Helper()
 	return tf.OutputContainsPlain(text, 3*time.Second)
 }
 
 // Quit sends quit command
 func (tf *TUITestFramework) Quit() error {
+	tf.t.Helper()
 	return tf.PressQuit()
 }
 
 // Down sends down navigation key
 func (tf *TUITestFramework) Down() error {
+	tf.t.Helper()
 	return tf.SendKeys(KeyDown)
 }
 
-// ANSI escape sequence regex for normalization
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b\]0;.*?\x07|\r`)
+// Select sends space to select items
+func (tf *TUITestFramework) Select() error {
+	tf.t.Helper()
+	return tf.SendKeys(KeySpace)
+}
+
+// Enter sends enter key
+func (tf *TUITestFramework) Enter() error {
+	tf.t.Helper()
+	return tf.SendKeys(KeyEnter)
+}
+
+// ANSI escape sequence regex for normalization - covers CSI, OSC, charset, keypad modes
+var ansiRe = regexp.MustCompile(
+	`(?:\x1b\[[0-9;?]*[ -/]*[@-~])|` + // CSI sequences
+		`(?:\x1b\][^\x07]*\x07)|` + // OSC sequences
+		`(?:\x1b[\(\)][A-Za-z])|` + // charset sequences
+		`(?:\x1b=|\x1b>)|` + // keypad mode sequences
+		`\r`, // carriage returns
+)
 
 // OutputContains checks if the output contains specific text within a timeout
 func (tf *TUITestFramework) OutputContains(text string, timeout time.Duration) bool {
+	tf.t.Helper()
 	return tf.WaitFor(func(s string) bool { return strings.Contains(s, text) }, timeout)
 }
 
 // OutputContainsPlain checks if the normalized output contains specific text within a timeout
 func (tf *TUITestFramework) OutputContainsPlain(text string, timeout time.Duration) bool {
+	tf.t.Helper()
 	return tf.WaitFor(func(s string) bool {
 		return strings.Contains(ansiRe.ReplaceAllString(s, ""), text)
 	}, timeout)
 }
 
-// SnapshotPlain returns the current contents of the ring buffer with ANSI sequences removed
-func (tf *TUITestFramework) SnapshotPlain() string {
-	return ansiRe.ReplaceAllString(tf.Snapshot(), "")
-}
-
 // DumpTailOnFail saves the last N bytes of normalized output to a file for debugging
 func (tf *TUITestFramework) DumpTailOnFail(t *testing.T, name string, n int) {
+	tf.t.Helper()
 	s := tf.SnapshotPlain()
 	if len(s) > n {
 		s = s[len(s)-n:]
@@ -219,6 +258,7 @@ func (tf *TUITestFramework) DumpTailOnFail(t *testing.T, name string, n int) {
 
 // WaitFor waits for a predicate to be true in the output
 func (tf *TUITestFramework) WaitFor(pred func(string) bool, timeout time.Duration) bool {
+	tf.t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
 		if pred(tf.Snapshot()) {
@@ -233,14 +273,41 @@ func (tf *TUITestFramework) WaitFor(pred func(string) bool, timeout time.Duratio
 
 // WaitForText waits for specific text to appear in the output (legacy method)
 func (tf *TUITestFramework) WaitForText(expectedText string, timeout time.Duration) bool {
+	tf.t.Helper()
 	return tf.WaitFor(func(s string) bool { return strings.Contains(s, expectedText) }, timeout)
+}
+
+// WaitForE waits for a predicate with better error messages and failure artifacts
+func (tf *TUITestFramework) WaitForE(pred func(string) bool, timeout time.Duration, failMsg string) error {
+	tf.t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if pred(tf.Snapshot()) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			tail := tf.SnapshotPlain()
+			if len(tail) > 4096 {
+				tail = tail[len(tail)-4096:]
+			}
+			return fmt.Errorf("%s\n--- tail ---\n%s", failMsg, tail)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // Snapshot returns the current contents of the ring buffer (thread-safe)
 func (tf *TUITestFramework) Snapshot() string {
+	tf.t.Helper()
 	tf.mu.Lock()
 	defer tf.mu.Unlock()
 	return tf.snapshot()
+}
+
+// SnapshotPlain returns the current contents of the ring buffer with ANSI sequences removed
+func (tf *TUITestFramework) SnapshotPlain() string {
+	tf.t.Helper()
+	return ansiRe.ReplaceAllString(tf.Snapshot(), "")
 }
 
 // snapshot returns the current contents of the ring buffer
@@ -259,17 +326,21 @@ func (tf *TUITestFramework) snapshot() string {
 func (tf *TUITestFramework) Cleanup() {
 	// Close PTY first to deliver SIGHUP to child process
 	if tf.pty != nil {
-		tf.pty.Close()
+		_ = tf.pty.Close()
+		tf.pty = nil
 	}
 	if tf.tty != nil {
-		tf.tty.Close()
+		_ = tf.tty.Close()
+		tf.tty = nil
 	}
 	if tf.cmd != nil && tf.cmd.Process != nil {
-		tf.cmd.Process.Kill()
+		_ = tf.cmd.Process.Kill()
 		_, _ = tf.cmd.Process.Wait()
+		tf.cmd = nil
 	}
 	if tf.workspace != "" {
-		os.RemoveAll(tf.workspace)
+		_ = os.RemoveAll(tf.workspace)
+		tf.workspace = ""
 	}
 }
 
@@ -323,6 +394,16 @@ func (tf *TUITestFramework) CreateTestRepo(name string, options ...RepoOption) (
 		}
 	}
 
+	// Create custom files if requested
+	if opts.files != nil {
+		for filename, content := range opts.files {
+			filePath := filepath.Join(repoPath, filename)
+			if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+				return "", err
+			}
+		}
+	}
+
 	// Make dirty if requested
 	if opts.dirty {
 		dirtyPath := filepath.Join(repoPath, "dirty.txt")
@@ -355,12 +436,14 @@ func (tf *TUITestFramework) runGitCommand(dir string, args ...string) error {
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	// Set deterministic git environment
+	// Set deterministic git environment with isolation
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=GitaGrip Test",
 		"GIT_AUTHOR_EMAIL=test@gitagrip.test",
 		"GIT_COMMITTER_NAME=GitaGrip Test",
 		"GIT_COMMITTER_EMAIL=test@gitagrip.test",
+		"GIT_CONFIG_GLOBAL=/dev/null", // ignore user ~/.gitconfig
+		"HOME="+tf.workspace,          // isolate git config
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -376,6 +459,7 @@ type repoOptions struct {
 	withCommit bool
 	dirty      bool
 	withRemote bool
+	files      map[string]string // filename -> contents
 }
 
 // WithCommit creates the repository with an initial commit
@@ -396,6 +480,13 @@ func WithDirtyState() RepoOption {
 func WithRemote() RepoOption {
 	return func(opts *repoOptions) {
 		opts.withRemote = true
+	}
+}
+
+// WithFiles creates the repository with specific files and contents
+func WithFiles(files map[string]string) RepoOption {
+	return func(opts *repoOptions) {
+		opts.files = files
 	}
 }
 
@@ -476,10 +567,14 @@ func TestBasicRepositoryDiscovery(t *testing.T) {
 	require.NoError(t, err, "Failed to start app")
 
 	// Wait for TUI to signal ready
-	require.True(t, tf.Ready(), "Should receive ready signal")
+	require.NoError(t, tf.WaitForE(func(s string) bool {
+		return strings.Contains(s, "__READY__")
+	}, 5*time.Second, "did not see ready marker"))
 
 	// Wait for TUI to initialize and show content
-	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
+	require.NoError(t, tf.WaitForE(func(s string) bool {
+		return strings.Contains(ansiRe.ReplaceAllString(s, ""), "gitagrip")
+	}, 3*time.Second, "did not see gitagrip title"))
 
 	// Get current buffered output
 	output := tf.Snapshot()
@@ -518,7 +613,7 @@ func TestKeyboardNavigation(t *testing.T) {
 	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize
-	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
+	require.True(t, tf.SeePlain("gitagrip"), "Should show gitagrip title")
 
 	// Get initial state
 	initialOutput := tf.Snapshot()
@@ -558,7 +653,7 @@ func TestRepositorySelection(t *testing.T) {
 	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize
-	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
+	require.True(t, tf.SeePlain("gitagrip"), "Should show gitagrip title")
 
 	// Get initial output
 	initialOutput := tf.Snapshot()
@@ -602,14 +697,20 @@ func TestConfigFileCreation(t *testing.T) {
 	require.True(t, tf.Ready(), "Should receive ready signal")
 
 	// Wait for TUI to initialize
-	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
+	require.True(t, tf.SeePlain("gitagrip"), "Should show gitagrip title")
 
 	// Exit gracefully
 	tf.Quit()
 
 	// Wait for app to exit (process should terminate)
-	// The app should exit, so we'll just wait a bit for the process to clean up
-	time.Sleep(500 * time.Millisecond)
+	done := make(chan error, 1)
+	go func() { done <- tf.cmd.Wait() }()
+	select {
+	case <-done:
+		// App exited cleanly
+	case <-time.After(2 * time.Second):
+		t.Fatal("app did not exit after quit")
+	}
 
 	// Check if config file was created
 	_, err = os.Stat(configPath)
@@ -643,7 +744,7 @@ func TestApplicationExit(t *testing.T) {
 
 	// Wait for TUI to initialize and render
 	require.True(t, tf.Ready(), "Should receive ready signal")
-	require.True(t, tf.See("gitagrip"), "Should show gitagrip title")
+	require.True(t, tf.SeePlain("gitagrip"), "Should show gitagrip title")
 
 	// Clear any buffered output first
 	tf.Snapshot()
