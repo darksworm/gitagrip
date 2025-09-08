@@ -1173,7 +1173,10 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			// If no changes, show status message instead of opening pager/popup
 			if content == "" {
 				m.state.StatusMessage = "No uncommitted changes"
-				return nil
+				// Clear the status message after 3 seconds
+				return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+					return clearStatusMsg{}
+				})
 			}
 
 			// There are changes, proceed with pager or popup
@@ -1738,7 +1741,12 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resumeRenderingMsg:
 		// Signal that rendering should resume after external pager
-		m.inPagerMode = false
+		// Bubble Tea's RestoreTerminal() should handle the actual resuming
+		return m, nil
+
+	case clearStatusMsg:
+		// Clear the status message
+		m.state.StatusMessage = ""
 		return m, nil
 
 	case quitMsg:
