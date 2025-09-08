@@ -14,7 +14,6 @@ var SortOptions = []struct {
 	{"name", "Name", "Sort by repository name"},
 	{"status", "Status", "Sort by status (dirty, clean)"},
 	{"branch", "Branch", "Sort by branch name"},
-	{"group", "Group", "Sort by group"},
 }
 
 type SortSelectMode struct {

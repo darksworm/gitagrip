@@ -14,39 +14,38 @@ import (
 
 // ViewState contains all the state needed for rendering
 type ViewState struct {
-	Width            int
-	Height           int
-	Repositories     map[string]*domain.Repository
-	Groups           map[string]*domain.Group
-	OrderedGroups    []string
-	SelectedIndex    int
-	SelectedRepos    map[string]bool
-	RefreshingRepos  map[string]bool
-	FetchingRepos    map[string]bool
-	PullingRepos     map[string]bool
-	ExpandedGroups   map[string]bool
-	Scanning         bool
-	StatusMessage    string
-	ShowHelp         bool
-	HelpScrollOffset int
-	ShowLog          bool
-	LogContent       string
-	ShowInfo         bool
-	InfoContent      string
-	ViewportOffset   int
-	ViewportHeight   int
-	SearchQuery      string
-	FilterQuery      string
-	IsFiltered       bool
-	ShowAheadBehind  bool
-	HelpModel        help.Model
-	DeleteTarget     string
-	TextInput        string
-	InputMode        string
-	UngroupedRepos   []string
-	SortOptionIndex  int
-	LoadingState     string
-	LoadingCount     int
+	Width           int
+	Height          int
+	Repositories    map[string]*domain.Repository
+	Groups          map[string]*domain.Group
+	OrderedGroups   []string
+	SelectedIndex   int
+	SelectedRepos   map[string]bool
+	RefreshingRepos map[string]bool
+	FetchingRepos   map[string]bool
+	PullingRepos    map[string]bool
+	ExpandedGroups  map[string]bool
+	Scanning        bool
+	StatusMessage   string
+	ShowHelp        bool
+	ShowLog         bool
+	LogContent      string
+	ShowInfo        bool
+	InfoContent     string
+	ViewportOffset  int
+	ViewportHeight  int
+	SearchQuery     string
+	FilterQuery     string
+	IsFiltered      bool
+	ShowAheadBehind bool
+	HelpModel       help.Model
+	DeleteTarget    string
+	TextInput       string
+	InputMode       string
+	UngroupedRepos  []string
+	SortOptionIndex int
+	LoadingState    string
+	LoadingCount    int
 }
 
 // Renderer handles all view rendering
@@ -178,7 +177,7 @@ func (r *Renderer) Render(state ViewState) string {
 
 	// Calculate help text (shown at bottom when no popups are visible)
 	helpText := ""
-	if !state.ShowHelp && !state.ShowLog && !state.ShowInfo {
+	if !state.ShowLog && !state.ShowInfo {
 		helpText = r.styles.Help.Render("Press ? for help")
 	}
 
@@ -221,11 +220,6 @@ func (r *Renderer) Render(state ViewState) string {
 
 	if state.ShowInfo && state.InfoContent != "" {
 		return r.popupRender.RenderPopupOverlay(finalContent, state.InfoContent, state.Height, state.Width, r.styles.InfoBox)
-	}
-
-	if state.ShowHelp {
-		helpContent := r.renderHelpContent(state.Height, state.HelpScrollOffset)
-		return r.popupRender.RenderPopupOverlay(finalContent, helpContent, state.Height, state.Width, r.styles.InfoBox)
 	}
 
 	return finalContent
@@ -518,6 +512,7 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 	// Split into lines for scrolling
 	content := help.String()
 	lines := strings.Split(content, "\n")
+
 	totalLines := len(lines)
 
 	// Calculate visible window (account for popup border and padding)
@@ -538,20 +533,110 @@ func (r *Renderer) renderHelpContent(height int, scrollOffset int) string {
 		}
 
 		// Extract visible lines
-		endLine := scrollOffset + visibleHeight
+		startLine := scrollOffset
+		endLine := startLine + visibleHeight
 		if endLine > totalLines {
 			endLine = totalLines
 		}
-		lines = lines[scrollOffset:endLine]
+		visibleLines := lines[startLine:endLine]
 
 		// Add scroll indicators
 		if scrollOffset > 0 {
-			lines[0] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↑ (more above)")
+			visibleLines[0] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↑ (more above)")
 		}
 		if endLine < totalLines {
-			lines[len(lines)-1] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↓ (more below)")
+			visibleLines[len(visibleLines)-1] = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("↓ (more below)")
 		}
+
+		return strings.Join(visibleLines, "\n")
 	}
 
-	return strings.Join(lines, "\n")
+	return content
+}
+
+// RenderHelpContentPlain generates help content with colors for pager
+func (r *Renderer) RenderHelpContentPlain() string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("99")).
+		MarginBottom(1)
+
+	sectionStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("39")).
+		MarginTop(1)
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("220"))
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
+	var help strings.Builder
+
+	// Title
+	help.WriteString(titleStyle.Render("GitaGrip Help"))
+	help.WriteString("\n\n")
+
+	// Navigation section
+	help.WriteString(sectionStyle.Render("Navigation"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s  %s\n", keyStyle.Render("↑/↓, j/k"), descStyle.Render("Navigate up/down")))
+	help.WriteString(fmt.Sprintf("  %s  %s\n", keyStyle.Render("←/→, h/l"), descStyle.Render("Collapse/expand groups")))
+	help.WriteString(fmt.Sprintf("  %s    %s\n", keyStyle.Render("PgUp/PgDn"), descStyle.Render("Page up/down")))
+	help.WriteString(fmt.Sprintf("  %s       %s\n", keyStyle.Render("gg/G"), descStyle.Render("Go to top/bottom")))
+	help.WriteString("\n")
+
+	// Selection section
+	help.WriteString(sectionStyle.Render("Selection"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s        %s\n", keyStyle.Render("Space"), descStyle.Render("Toggle selection")))
+	help.WriteString(fmt.Sprintf("  %s          %s\n", keyStyle.Render("a/A"), descStyle.Render("Select/deselect all")))
+	help.WriteString(fmt.Sprintf("  %s          %s\n", keyStyle.Render("Esc"), descStyle.Render("Clear selection")))
+	help.WriteString("\n")
+
+	// Repository actions section
+	help.WriteString(sectionStyle.Render("Repository Actions"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("r"), descStyle.Render("Refresh repository status")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("f"), descStyle.Render("Fetch from remote")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("p"), descStyle.Render("Pull from remote")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("L"), descStyle.Render("View git log")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("D"), descStyle.Render("View git diff")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info & logs")))
+	help.WriteString("\n")
+
+	// Group management section
+	help.WriteString(sectionStyle.Render("Group Management"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("z"), descStyle.Render("Toggle group")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("N"), descStyle.Render("Create new group (with selection)")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("m"), descStyle.Render("Move to group")))
+	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+R"), descStyle.Render("Rename group")))
+	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+J/K"), descStyle.Render("Move group up/down")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("Hide selected repositories")))
+	help.WriteString("\n")
+
+	// Search & filter section
+	help.WriteString(sectionStyle.Render("Search & Filter"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("/"), descStyle.Render("Search repositories")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("n"), descStyle.Render("Next search result")))
+	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+N"), descStyle.Render("Previous search result")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("F"), descStyle.Render("Filter repositories")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("s"), descStyle.Render("Sort options")))
+	help.WriteString("\n")
+
+	// Filter examples (using italic style)
+	filterStyle := lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("241"))
+	help.WriteString(filterStyle.Render("  Filter examples: status:dirty, status:clean, status:ahead"))
+	help.WriteString("\n\n")
+
+	// Other section
+	help.WriteString(sectionStyle.Render("Other"))
+	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("?"), descStyle.Render("Toggle this help")))
+	help.WriteString(fmt.Sprintf("  %s            %s", keyStyle.Render("q"), descStyle.Render("Quit")))
+
+	return help.String()
 }

@@ -200,32 +200,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.state.ShowHelp {
-			switch msg.String() {
-			case "esc", "?", "q":
-				m.state.ShowHelp = false
-				m.state.HelpScrollOffset = 0
-				return m, nil
-			case "up", "k":
-				if m.state.HelpScrollOffset > 0 {
-					m.state.HelpScrollOffset--
-				}
-				return m, nil
-			case "down", "j":
-				m.state.HelpScrollOffset++
-				return m, nil
-			case "pgup":
-				m.state.HelpScrollOffset -= 10
-				if m.state.HelpScrollOffset < 0 {
-					m.state.HelpScrollOffset = 0
-				}
-				return m, nil
-			case "pgdown":
-				m.state.HelpScrollOffset += 10
-				return m, nil
-			}
-		}
-
 		// Create context for input handler
 		ctx := &input.ModelContext{
 			State:       m.state,
@@ -543,10 +517,7 @@ func (m *Model) getMaxIndex() int {
 func (m *Model) updateViewportHeight() {
 	// Account for title (2 lines), status (2 lines), help (1 line), and padding
 	reservedLines := 7
-	if m.state.ShowHelp {
-		// Full help takes more space
-		reservedLines += 8
-	}
+
 	// Account for input field when active
 	// Input mode lines handled by input handler
 
@@ -937,6 +908,23 @@ func (m *Model) fetchGitDiffPager(repoPath string) tea.Cmd {
 	}
 }
 
+// fetchHelpPager returns a command that shows help using ov pager
+func (m *Model) fetchHelpPager(helpContent string) tea.Cmd {
+	return func() tea.Msg {
+		// Send pause message to stop rendering
+		m.program.Send(pauseRenderingMsg{})
+
+		err := m.gitOps.ShowHelpInPager(helpContent)
+
+		// Send resume message to restart rendering
+		m.program.Send(resumeRenderingMsg{})
+
+		return helpPagerMsg{
+			err: err,
+		}
+	}
+}
+
 // processAction processes an action from the input handler
 func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	log.Printf("processAction: %T", action)
@@ -1209,10 +1197,10 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		}
 
 	case inputtypes.ToggleHelpAction:
-		m.state.ShowHelp = !m.state.ShowHelp
-		if m.state.ShowHelp {
-			m.state.HelpScrollOffset = 0
-		}
+		// Generate plain text help content for pager
+		helpContent := m.renderer.RenderHelpContentPlain()
+		// Show help using ov pager
+		return m.fetchHelpPager(helpContent)
 
 	case inputtypes.ExpandAllGroupsAction:
 		// Expand all groups (except hidden)
@@ -1734,6 +1722,14 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Pager succeeded, RestoreTerminal() should have restored the screen
 		return m, nil
 
+	case helpPagerMsg:
+		if msg.err != nil {
+			// Pager failed
+			m.state.StatusMessage = fmt.Sprintf("Help pager failed: %v", msg.err)
+		}
+		// Pager succeeded, RestoreTerminal() should have restored the screen
+		return m, nil
+
 	case pauseRenderingMsg:
 		// Signal that rendering should be paused for external pager
 		m.inPagerMode = true
@@ -1742,6 +1738,7 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resumeRenderingMsg:
 		// Signal that rendering should resume after external pager
 		// Bubble Tea's RestoreTerminal() should handle the actual resuming
+		m.inPagerMode = false
 		return m, nil
 
 	case clearStatusMsg:

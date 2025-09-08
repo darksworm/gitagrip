@@ -27,18 +27,17 @@ type AppState struct {
 	PullingRepos    map[string]bool // repositories currently being pulled
 
 	// UI state
-	ViewportOffset   int  // offset for scrolling
-	ViewportHeight   int  // available height for repo list
-	Scanning         bool // whether scanning is in progress
-	ShowHelp         bool
-	HelpScrollOffset int // scroll offset for help popup
-	ShowLog          bool
-	LogContent       string
-	ShowInfo         bool
-	InfoContent      string
-	StatusMessage    string // status bar message
-	LoadingState     string // current loading state description
-	LoadingCount     int    // count for loading progress
+	ViewportOffset int  // offset for scrolling
+	ViewportHeight int  // available height for repo list
+	Scanning       bool // whether scanning is in progress
+	ShowHelp       bool
+	ShowLog        bool
+	LogContent     string
+	ShowInfo       bool
+	InfoContent    string
+	StatusMessage  string // status bar message
+	LoadingState   string // current loading state description
+	LoadingCount   int    // count for loading progress
 
 	// Search and filter state
 	SearchQuery     string // current search query
