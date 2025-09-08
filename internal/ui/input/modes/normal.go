@@ -78,11 +78,7 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.NavigateAction{Direction: "left"}}, true
 
 	case "l":
-		// Show git log for current repo
-		if ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup() {
-			return []types.Action{types.OpenLogAction{}}, true
-		}
-		return nil, false
+		return []types.Action{types.NavigateAction{Direction: "right"}}, true
 
 	case "z":
 		// z toggles group expansion (works on group header or repo in group)
