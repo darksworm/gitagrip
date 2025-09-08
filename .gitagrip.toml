@@ -1,9 +1,0 @@
-version = 1
-base_dir = '/Users/ilmars/Dev/private/gitagrip'
-group_order = []
-
-[groups]
-
-[ui]
-show_ahead_behind = true
-autosave_on_exit = true

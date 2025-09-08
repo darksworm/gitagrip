@@ -49,3 +49,5 @@ tui-test.config.ts
 
 gitagrip.log
 landscape.md
+
+.gitagrip.toml
