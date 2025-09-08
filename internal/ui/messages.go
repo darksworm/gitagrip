@@ -28,6 +28,18 @@ type gitDiffMsg struct {
 	err      error
 }
 
+// gitLogPagerMsg contains the result of a git log pager command
+type gitLogPagerMsg struct {
+	repoPath string
+	err      error
+}
+
+// gitDiffPagerMsg contains the result of a git diff pager command
+type gitDiffPagerMsg struct {
+	repoPath string
+	err      error
+}
+
 // quitMsg signals that the application should quit
 type quitMsg struct {
 	saveConfig bool

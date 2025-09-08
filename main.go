@@ -107,6 +107,9 @@ func main() {
 	// Create Bubble Tea program
 	p := tea.NewProgram(uiModel, tea.WithAltScreen())
 
+	// Set program reference in model and gitOps for terminal management
+	uiModel.SetProgram(p)
+
 	// Set up event forwarding to UI
 	eventChan := make(chan eventbus.DomainEvent, 100)
 	bus.Subscribe(eventbus.EventRepoDiscovered, func(e eventbus.DomainEvent) {
