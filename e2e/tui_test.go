@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,6 +19,16 @@ import (
 )
 
 const ringSize = 1 << 20 // 1 MiB of scrollback
+
+// Key constants for better readability
+const (
+	KeyEnter = "\r"
+	KeyCtrlC = "\x03"
+	KeySpace = " "
+	KeyDown  = "j"
+	KeyQuit  = "q"
+	KeyDiff  = "D"
+)
 
 // TUITestFramework provides utilities for testing TUI applications
 type TUITestFramework struct {
@@ -51,6 +62,14 @@ func (tf *TUITestFramework) StartApp(args ...string) error {
 	cmdArgs := append([]string{"./gitagrip_e2e"}, args...)
 	tf.cmd = exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
+	// Set per-process environment variables
+	tf.cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+		"LC_ALL=C",
+		"LANG=C",
+		"GITAGRIP_E2E_TEST=1",
+	)
+
 	// Start the command with a PTY
 	pty, tty, err := pty.Open()
 	if err != nil {
@@ -63,7 +82,7 @@ func (tf *TUITestFramework) StartApp(args ...string) error {
 	tf.cmd.Stdin = tty
 	tf.cmd.Stderr = tty
 
-	// Set terminal size (using syscall)
+	// Set terminal size using syscall (fallback to original method)
 	ws := struct {
 		Row uint16
 		Col uint16
@@ -120,75 +139,69 @@ func (tf *TUITestFramework) SendKeys(keys string) error {
 
 // SendEnter sends an Enter key
 func (tf *TUITestFramework) SendEnter() error {
-	return tf.SendKeys("\r")
+	return tf.SendKeys(KeyEnter)
 }
 
 // SendCtrlC sends Ctrl+C to terminate the application
 func (tf *TUITestFramework) SendCtrlC() error {
-	return tf.SendKeys("\x03")
+	return tf.SendKeys(KeyCtrlC)
 }
 
-// ReadOutput reads available output from the PTY with timeout
-func (tf *TUITestFramework) ReadOutput(timeout time.Duration) (string, error) {
-	done := make(chan struct{})
-	var output strings.Builder
-	var readErr error
-
-	go func() {
-		defer close(done)
-		buf := make([]byte, 4096)
-		for {
-			n, err := tf.pty.Read(buf)
-			if n > 0 {
-				output.Write(buf[:n])
-			}
-			if err != nil {
-				readErr = err
-				return
-			}
-		}
-	}()
-
-	select {
-	case <-done:
-		return output.String(), readErr
-	case <-time.After(timeout):
-		return output.String(), nil
-	}
+// PressQuit sends 'q' to quit the application
+func (tf *TUITestFramework) PressQuit() error {
+	return tf.SendKeys(KeyQuit)
 }
+
+// OpenPager sends 'D' to open the git diff pager
+func (tf *TUITestFramework) OpenPager() error {
+	return tf.SendKeys(KeyDiff)
+}
+
+// PageDown sends space to page down in pager
+func (tf *TUITestFramework) PageDown() error {
+	return tf.SendKeys(KeySpace)
+}
+
+// ANSI escape sequence regex for normalization
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b\]0;.*?\x07|\r`)
 
 // OutputContains checks if the output contains specific text within a timeout
 func (tf *TUITestFramework) OutputContains(text string, timeout time.Duration) bool {
-	return tf.WaitForText(text, timeout)
+	return tf.WaitFor(func(s string) bool { return strings.Contains(s, text) }, timeout)
 }
 
-// WaitForText waits for specific text to appear in the output
-func (tf *TUITestFramework) WaitForText(expectedText string, timeout time.Duration) bool {
+// OutputContainsPlain checks if the normalized output contains specific text within a timeout
+func (tf *TUITestFramework) OutputContainsPlain(text string, timeout time.Duration) bool {
+	return tf.WaitFor(func(s string) bool {
+		return strings.Contains(ansiRe.ReplaceAllString(s, ""), text)
+	}, timeout)
+}
+
+// SnapshotPlain returns the current contents of the ring buffer with ANSI sequences removed
+func (tf *TUITestFramework) SnapshotPlain() string {
+	return ansiRe.ReplaceAllString(tf.Snapshot(), "")
+}
+
+// WaitFor waits for a predicate to be true in the output
+func (tf *TUITestFramework) WaitFor(pred func(string) bool, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	tf.mu.Lock()
 	defer tf.mu.Unlock()
 
-	for time.Now().Before(deadline) {
-		snap := tf.snapshot()
-		if strings.Contains(snap, expectedText) {
+	for {
+		if pred(tf.snapshot()) {
 			return true
 		}
-
-		// Wait for new data or timeout
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			break
+		if time.Now().After(deadline) {
+			return false
 		}
-
-		waitTime := 100 * time.Millisecond
-		if remaining < waitTime {
-			waitTime = remaining
-		}
-
-		tf.cond.Wait() // This atomically unlocks, waits, then locks again
+		tf.cond.Wait() // predicate loop handles spurious wakeups
 	}
+}
 
-	return false
+// WaitForText waits for specific text to appear in the output (legacy method)
+func (tf *TUITestFramework) WaitForText(expectedText string, timeout time.Duration) bool {
+	return tf.WaitFor(func(s string) bool { return strings.Contains(s, expectedText) }, timeout)
 }
 
 // Snapshot returns the current contents of the ring buffer (thread-safe)
@@ -212,15 +225,16 @@ func (tf *TUITestFramework) snapshot() string {
 
 // Cleanup closes the PTY and terminates the application
 func (tf *TUITestFramework) Cleanup() {
-	if tf.cmd != nil && tf.cmd.Process != nil {
-		tf.cmd.Process.Kill()
-		tf.cmd.Wait()
-	}
+	// Close PTY first to deliver SIGHUP to child process
 	if tf.pty != nil {
 		tf.pty.Close()
 	}
 	if tf.tty != nil {
 		tf.tty.Close()
+	}
+	if tf.cmd != nil && tf.cmd.Process != nil {
+		tf.cmd.Process.Kill()
+		_, _ = tf.cmd.Process.Wait()
 	}
 	if tf.workspace != "" {
 		os.RemoveAll(tf.workspace)
@@ -229,11 +243,7 @@ func (tf *TUITestFramework) Cleanup() {
 
 // CreateTestWorkspace creates a temporary directory with test Git repositories
 func (tf *TUITestFramework) CreateTestWorkspace() (string, error) {
-	tmpDir, err := os.MkdirTemp("", "gitagrip-test-*")
-	if err != nil {
-		return "", err
-	}
-
+	tmpDir := tf.t.TempDir()
 	tf.workspace = tmpDir
 	return tmpDir, nil
 }
@@ -254,11 +264,8 @@ func (tf *TUITestFramework) CreateTestRepo(name string, options ...RepoOption) (
 		return "", err
 	}
 
-	// Configure Git user
-	if err := tf.runGitCommand(repoPath, "config", "user.email", "test@gitagrip.test"); err != nil {
-		return "", err
-	}
-	if err := tf.runGitCommand(repoPath, "config", "user.name", "GitaGrip Test"); err != nil {
+	// Ensure main branch exists (deterministic branch setup)
+	if err := tf.runGitCommand(repoPath, "checkout", "-b", "main"); err != nil {
 		return "", err
 	}
 
@@ -316,7 +323,18 @@ func (tf *TUITestFramework) runGitCommand(dir string, args ...string) error {
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	return cmd.Run()
+	// Set deterministic git environment
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=GitaGrip Test",
+		"GIT_AUTHOR_EMAIL=test@gitagrip.test",
+		"GIT_COMMITTER_NAME=GitaGrip Test",
+		"GIT_COMMITTER_EMAIL=test@gitagrip.test",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %v failed: %v; out=%s", args, err, out)
+	}
+	return nil
 }
 
 // RepoOption is a function that configures repository creation
@@ -425,8 +443,8 @@ func TestBasicRepositoryDiscovery(t *testing.T) {
 	err = tf.StartApp("-d", workspace)
 	require.NoError(t, err, "Failed to start app")
 
-	// Give TUI time to start up
-	time.Sleep(500 * time.Millisecond)
+	// Wait for TUI to signal ready
+	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
 
 	// Wait for TUI to initialize and show content
 	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
@@ -464,8 +482,8 @@ func TestKeyboardNavigation(t *testing.T) {
 	err = tf.StartApp("-d", workspace)
 	require.NoError(t, err, "Failed to start app")
 
-	// Give TUI time to start up
-	time.Sleep(500 * time.Millisecond)
+	// Wait for TUI to signal ready
+	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
 
 	// Wait for TUI to initialize
 	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
@@ -500,8 +518,8 @@ func TestRepositorySelection(t *testing.T) {
 	err = tf.StartApp("-d", workspace)
 	require.NoError(t, err, "Failed to start app")
 
-	// Give TUI time to start up
-	time.Sleep(500 * time.Millisecond)
+	// Wait for TUI to signal ready
+	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
 
 	// Wait for TUI to initialize
 	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
@@ -537,14 +555,14 @@ func TestConfigFileCreation(t *testing.T) {
 	err = tf.StartApp("-d", workspace)
 	require.NoError(t, err, "Failed to start app")
 
-	// Give TUI time to start up
-	time.Sleep(500 * time.Millisecond)
+	// Wait for TUI to signal ready
+	require.True(t, tf.OutputContains("__READY__", 5*time.Second), "Should receive ready signal")
 
 	// Wait for TUI to initialize
 	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
 
 	// Exit gracefully
-	tf.SendKeys("q")
+	tf.PressQuit()
 	time.Sleep(200 * time.Millisecond)
 
 	// Check if config file was created
@@ -583,8 +601,8 @@ func TestApplicationExit(t *testing.T) {
 	// Wait for TUI to initialize and render
 	require.True(t, tf.OutputContains("gitagrip", 3*time.Second), "Should show gitagrip title")
 
-	// Read and clear any buffered output first
-	tf.ReadOutput(300 * time.Millisecond)
+	// Clear any buffered output first
+	tf.Snapshot()
 
 	// Set up exit monitoring before sending 'q'
 	done := make(chan error, 1)
@@ -594,7 +612,7 @@ func TestApplicationExit(t *testing.T) {
 
 	// Send 'q' to quit
 	t.Logf("Sending 'q' to quit application...")
-	tf.SendKeys("q")
+	tf.PressQuit()
 
 	// Give more time for graceful shutdown
 	select {

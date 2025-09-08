@@ -110,6 +110,11 @@ func main() {
 	// Set program reference in model and gitOps for terminal management
 	uiModel.SetProgram(p)
 
+	// Signal ready for E2E tests (only in test mode)
+	if os.Getenv("GITAGRIP_E2E_TEST") == "1" {
+		fmt.Println("__READY__")
+	}
+
 	// Set up event forwarding to UI
 	eventChan := make(chan eventbus.DomainEvent, 100)
 	bus.Subscribe(eventbus.EventRepoDiscovered, func(e eventbus.DomainEvent) {
