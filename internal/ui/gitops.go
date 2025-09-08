@@ -75,11 +75,18 @@ func (g *GitOps) FetchGitDiff(repoPath string) (string, error) {
 	cmd := exec.Command("git", "diff", "--color=always")
 	cmd.Dir = repoPath
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Check if this is the expected exit code 1 from git diff (indicating changes exist)
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// Exit code 1 with git diff means there are changes - this is expected
+			return string(output), nil
+		}
+		// Any other error is a real problem
 		return "", err
 	}
 
+	// No error means no changes (clean working directory)
 	return string(output), nil
 }
 
