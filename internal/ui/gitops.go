@@ -132,7 +132,7 @@ func (g *GitOps) ShowGitLogInPager(repoPath string) error {
 
 	// Ensure terminal is restored even if ov fails
 	defer func() {
-		g.program.RestoreTerminal()
+		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
 	}()
 
 	// Create git log command
@@ -179,7 +179,7 @@ func (g *GitOps) ShowGitDiffInPager(repoPath string) error {
 
 	// Ensure terminal is restored even if ov fails
 	defer func() {
-		g.program.RestoreTerminal()
+		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
 	}()
 
 	// Create git diff command
