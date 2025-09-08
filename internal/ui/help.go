@@ -27,13 +27,11 @@ func NewHelpRenderer() *HelpRenderer {
 func (r *HelpRenderer) renderHelpContent(height int, scrollOffset int) string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("99")).
-		MarginBottom(1)
+		Foreground(lipgloss.Color("99"))
 
 	sectionStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("39")).
-		MarginTop(1)
+		Foreground(lipgloss.Color("39"))
 
 	keyStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("220"))
@@ -44,8 +42,7 @@ func (r *HelpRenderer) renderHelpContent(height int, scrollOffset int) string {
 	var help strings.Builder
 
 	// Title
-	help.WriteString(titleStyle.Render("GitaGrip Help"))
-	help.WriteString("\n")
+	help.WriteString(titleStyle.Render("gitagrip help"))
 
 	// Navigation section
 	help.WriteString(sectionStyle.Render("Navigation"))

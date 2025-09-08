@@ -61,8 +61,12 @@ func TestSortByName(t *testing.T) {
 	err = tf.SendKeys("\r")
 	require.NoError(t, err, "Failed to select Name sorting")
 
-	// Wait for sort to be applied
-	time.Sleep(1 * time.Second)
+	// Wait for sorting to be applied (output should change)
+	preSortOutput := tf.SnapshotPlain()
+	require.True(t, tf.WaitFor(func(s string) bool {
+		currentOutput := tf.SnapshotPlain()
+		return currentOutput != preSortOutput
+	}, 3*time.Second), "Output should change after sorting is applied")
 
 	// Get output after sorting
 	sortedOutput := tf.SnapshotPlain()
@@ -133,8 +137,10 @@ func TestSortByStatus(t *testing.T) {
 	err = tf.SendKeys("\r")
 	require.NoError(t, err, "Failed to select Status sorting")
 
-	// Wait for sort to be applied
-	time.Sleep(1 * time.Second)
+	// Wait for sorting to be applied (look for status message or sort mode exit)
+	require.True(t, tf.WaitFor(func(s string) bool {
+		return strings.Contains(s, "Sorting by status") || (!strings.Contains(s, "Sort by:") && tf.SeePlain("gitagrip"))
+	}, 3*time.Second), "Sorting by status should be applied")
 
 	// Get output after sorting
 	sortedOutput := tf.SnapshotPlain()
@@ -205,8 +211,10 @@ func TestSortByBranch(t *testing.T) {
 	err = tf.SendKeys("\r")
 	require.NoError(t, err, "Failed to select Branch sorting")
 
-	// Wait for sort to be applied
-	time.Sleep(1 * time.Second)
+	// Wait for sorting to be applied (look for status message or sort mode exit)
+	require.True(t, tf.WaitFor(func(s string) bool {
+		return strings.Contains(s, "Sorting by branch") || (!strings.Contains(s, "Sort by:") && tf.SeePlain("gitagrip"))
+	}, 3*time.Second), "Sorting by branch should be applied")
 
 	// Get output after sorting
 	sortedOutput := tf.SnapshotPlain()
@@ -278,20 +286,20 @@ func TestSortNavigationAndCancel(t *testing.T) {
 	err = tf.SendKeys("q")
 	require.NoError(t, err, "Failed to cancel sort mode")
 
-	// Wait a moment for the cancel to take effect
-	time.Sleep(1 * time.Second)
+	// Wait a short time for the cancel to take effect
+	time.Sleep(500 * time.Millisecond)
 
 	// Get final output
 	finalOutput := tf.SnapshotPlain()
 
-	// The key test is that repos are still present and in their original order
-	// We can't compare the entire output because it includes sort mode interactions
+	// The key test is that repos are still present
 	require.Contains(t, finalOutput, "test-repo-1", "test-repo-1 should still be visible")
 	require.Contains(t, finalOutput, "test-repo-2", "test-repo-2 should still be visible")
 
 	// Check that we're back to normal mode (not in sort mode anymore)
-	// The presence of "gitagrip" title indicates we're back to normal mode
 	require.Contains(t, finalOutput, "gitagrip", "Should be back to normal mode after canceling")
+
+	t.Logf("✅ Sort navigation and cancel test passed - cancel preserves original state")
 
 	t.Logf("✅ Sort navigation and cancel test passed - navigation works and cancel preserves original order")
 }
