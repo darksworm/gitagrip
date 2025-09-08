@@ -8,6 +8,11 @@
 # Test binary
 *.test
 /e2e/gitagrip_e2e
+gitagrip_test
+
+# Test directories
+test-repo/
+e2e/test-repo/
 
 # Output of the go coverage tool
 *.out
