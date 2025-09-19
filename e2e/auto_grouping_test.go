@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -63,6 +64,21 @@ func TestAutomaticGroupCreation(t *testing.T) {
 	// Wait for repositories to be discovered and grouped
 	require.True(t, tf.OutputContainsPlain("frontend", 10), "Should show frontend group")
 	require.True(t, tf.OutputContainsPlain("backend", 10), "Should show backend group")
+
+	// Expand the frontend group (navigate to it and press right arrow)
+	tf.SendKeys("j") // Move down to frontend group
+	time.Sleep(100 * time.Millisecond)
+	tf.SendKeys("\x1b[C") // Right arrow key (ANSI escape sequence)
+	time.Sleep(100 * time.Millisecond)
+
+	// Expand the backend group (move down to it and press right arrow)
+	tf.SendKeys("j") // Move down to backend group
+	time.Sleep(100 * time.Millisecond)
+	tf.SendKeys("\x1b[C") // Right arrow key (ANSI escape sequence)
+	time.Sleep(100 * time.Millisecond)
+
+	// Wait for groups to expand
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify the groups contain the expected repositories
 	output := tf.SnapshotPlain()
