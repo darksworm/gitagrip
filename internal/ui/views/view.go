@@ -114,21 +114,7 @@ func (r *Renderer) Render(state ViewState) string {
 				rightContent = filterText
 			}
 		}
-		// Global error indicator: show if any repository reports an error
-		errCount := 0
-		for _, repo := range state.Repositories {
-			if repo != nil && (repo.HasError || repo.Status.Error != "") {
-				errCount++
-			}
-		}
-		if errCount > 0 {
-			errText := r.styles.StatusError.Render(fmt.Sprintf("⚠ %d", errCount))
-			if rightContent != "" {
-				rightContent = fmt.Sprintf("%s  %s", rightContent, errText)
-			} else {
-				rightContent = errText
-			}
-		}
+		// (Error icon moved to per-repo rows; avoid heavy global counting during render)
 		if state.StatusMessage != "" {
 			statusText := r.styles.Title.Render(fmt.Sprintf("💬 %s", state.StatusMessage))
 			if rightContent != "" {
@@ -501,7 +487,8 @@ func (r *Renderer) RenderHelpContentPlain() string {
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("r"), descStyle.Render("Refresh repository status")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("f"), descStyle.Render("Fetch from remote")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("p"), descStyle.Render("Pull from remote")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info & logs")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("I"), descStyle.Render("View repository command logs")))
 	help.WriteString("\n")
 
 	// Group management section

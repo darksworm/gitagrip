@@ -82,6 +82,11 @@ type OpenLazygitAction struct{}
 
 func (a OpenLazygitAction) Type() string { return "open_lazygit" }
 
+// OpenRepoLogsAction opens the command logs for the current repository
+type OpenRepoLogsAction struct{}
+
+func (a OpenRepoLogsAction) Type() string { return "open_repo_logs" }
+
 type ToggleInfoAction struct{}
 
 func (a ToggleInfoAction) Type() string { return "toggle_info" }

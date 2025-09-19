@@ -224,9 +224,16 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		// Toggle help
 		return []types.Action{types.ToggleHelpAction{}}, true
 
-	case "i", "I":
+	case "i":
 		// Toggle info
 		return []types.Action{types.ToggleInfoAction{}}, true
+
+	case "I":
+		// View repository command logs in pager
+		if ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup() {
+			return []types.Action{types.OpenRepoLogsAction{}}, true
+		}
+		return nil, false
 
 	case "L":
 		// Open log for current repo

@@ -131,6 +131,7 @@ Note: Enter integration requires lazygit to be installed and available in PATH.
 - `f` - Fetch from remote
 - `p` - Pull from remote
 - `i` - Show repository info
+- `I` - View repository command logs (pager)
 
 ### Group Management
 - `z` - Toggle group expansion

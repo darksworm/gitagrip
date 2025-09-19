@@ -829,6 +829,45 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 	return info.String()
 }
 
+// buildRepoLogsContent generates a plain text log report for the repository suitable for pager display
+func (m *Model) buildRepoLogsContent(repo *domain.Repository) string {
+	var b strings.Builder
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).Render("Repository Logs")
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	b.WriteString(fmt.Sprintf("Name: %s\n", repo.Name))
+	b.WriteString(fmt.Sprintf("Path: %s\n", repo.Path))
+	b.WriteString("\n")
+
+	if len(repo.CommandLogs) == 0 {
+		b.WriteString("No command logs yet. Try fetch (f) or pull (p).\n")
+		return b.String()
+	}
+
+	// Show all available logs, most recent first
+	for i := len(repo.CommandLogs) - 1; i >= 0; i-- {
+		entry := repo.CommandLogs[i]
+		status := "OK"
+		if !entry.Success {
+			status = "FAIL"
+		}
+		b.WriteString(fmt.Sprintf("[%s] %s (%dms) — %s\n", entry.Timestamp, entry.Command, entry.Duration, status))
+		if entry.Output != "" {
+			b.WriteString("Output:\n")
+			b.WriteString(strings.TrimSpace(entry.Output))
+			b.WriteString("\n")
+		}
+		if entry.Error != "" {
+			b.WriteString("Error:\n")
+			b.WriteString(strings.TrimSpace(entry.Error))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("Press q to close")
+	return b.String()
+}
+
 // countVisibleItems counts how many items are visible with current filter
 // getCurrentIndexForGroup finds the current display index for a group
 func (m *Model) getCurrentIndexForGroup(groupName string) int {
@@ -1216,6 +1255,16 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		helpContent := m.renderer.RenderHelpContentPlain()
 		// Show help using ov pager
 		return m.fetchHelpPager(helpContent)
+
+	case inputtypes.OpenRepoLogsAction:
+		// Build logs content for the current repo and show in pager
+		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+			if repo, ok := m.state.Repositories[repoPath]; ok {
+				content := m.buildRepoLogsContent(repo)
+				return m.fetchHelpPager(content)
+			}
+		}
+		return nil
 
 	case inputtypes.OpenLazygitAction:
 		// Open lazygit for current repo (if available)
