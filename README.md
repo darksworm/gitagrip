@@ -123,6 +123,7 @@ gitagrip /path/to/repos
 - `Esc` - Clear selection
 
 ### Repository Actions
+Note: Enter integration requires lazygit to be installed and available in PATH.
 - `Enter` - Open lazygit for the selected repository
 - `H` - View git log
 - `D` - View git diff
@@ -184,6 +185,15 @@ Press ? for help
 ### Branch Colors
 - **Bold Green**: main/master branches
 - **Various Colors**: Other branches get consistent colors based on name
+
+## Lazygit Integration
+
+To enable Enter → lazygit, install lazygit:
+- macOS (Homebrew): `brew install lazygit`
+- Linux: `sudo pacman -S lazygit` (Arch) or see release binaries at https://github.com/jesseduffield/lazygit
+- Go install (latest): `go install github.com/jesseduffield/lazygit@latest`
+
+You can override the lazygit binary path via the `GITAGRIP_LAZYGIT_BIN` environment variable for testing.
 
 ## 🛠️ Development
 

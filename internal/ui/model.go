@@ -1223,9 +1223,9 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 			if m.gitOps.IsLazygitAvailable() {
 				return m.fetchLazygit(repoPath)
 			}
-			// If not available, show a status message
-			m.state.StatusMessage = "lazygit not found in PATH"
-			return tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearStatusMsg{} })
+			// If not available, show a helpful status message with guidance
+			m.state.StatusMessage = "lazygit not found. Install with: brew install lazygit (or see github.com/jesseduffield/lazygit). Tip: press H for git log."
+			return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return clearStatusMsg{} })
 		}
 		return nil
 
