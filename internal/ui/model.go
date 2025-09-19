@@ -925,6 +925,21 @@ func (m *Model) fetchHelpPager(helpContent string) tea.Cmd {
 	}
 }
 
+// fetchLazygit returns a command that runs lazygit for the given repo, pausing and resuming rendering
+func (m *Model) fetchLazygit(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		// Pause rendering while external TUI is active
+		m.program.Send(pauseRenderingMsg{})
+
+		err := m.gitOps.RunLazygit(repoPath)
+
+		// Resume rendering afterwards
+		m.program.Send(resumeRenderingMsg{})
+
+		return lazygitExitMsg{repoPath: repoPath, err: err}
+	}
+}
+
 // processAction processes an action from the input handler
 func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	log.Printf("processAction: %T", action)
@@ -1201,6 +1216,18 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 		helpContent := m.renderer.RenderHelpContentPlain()
 		// Show help using ov pager
 		return m.fetchHelpPager(helpContent)
+
+	case inputtypes.OpenLazygitAction:
+		// Open lazygit for current repo (if available)
+		if repoPath := m.getRepoPathAtIndex(m.state.SelectedIndex); repoPath != "" {
+			if m.gitOps.IsLazygitAvailable() {
+				return m.fetchLazygit(repoPath)
+			}
+			// If not available, show a status message
+			m.state.StatusMessage = "lazygit not found in PATH"
+			return tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearStatusMsg{} })
+		}
+		return nil
 
 	case inputtypes.ExpandAllGroupsAction:
 		// Expand all groups (except hidden)
@@ -1728,6 +1755,13 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state.StatusMessage = fmt.Sprintf("Help pager failed: %v", msg.err)
 		}
 		// Pager succeeded, RestoreTerminal() should have restored the screen
+		return m, nil
+
+	case lazygitExitMsg:
+		if msg.err != nil {
+			m.state.StatusMessage = fmt.Sprintf("Failed to run lazygit: %v", msg.err)
+			return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearStatusMsg{} })
+		}
 		return m, nil
 
 	case pauseRenderingMsg:

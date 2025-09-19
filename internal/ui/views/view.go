@@ -480,11 +480,12 @@ func (r *Renderer) RenderHelpContentPlain() string {
 	// Repository actions section
 	help.WriteString(sectionStyle.Render("Repository Actions"))
 	help.WriteString("\n")
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("Enter"), descStyle.Render("Open lazygit for repository")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("View git log")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("D"), descStyle.Render("View git diff")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("r"), descStyle.Render("Refresh repository status")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("f"), descStyle.Render("Fetch from remote")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("p"), descStyle.Render("Pull from remote")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("View git log")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("D"), descStyle.Render("View git diff")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info & logs")))
 	help.WriteString("\n")
 

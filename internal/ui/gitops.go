@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -118,6 +119,57 @@ func (g *GitOps) HasUncommittedChanges(repoPath string) (bool, error) {
 // IsOvAvailable checks if the ov pager is available (always true since we use the library)
 func (g *GitOps) IsOvAvailable() bool {
 	return true
+}
+
+// IsLazygitAvailable checks if the lazygit binary is available
+func (g *GitOps) IsLazygitAvailable() bool {
+	// Allow overriding the binary path for testing via env var
+	if path := os.Getenv("GITAGRIP_LAZYGIT_BIN"); path != "" {
+		if _, err := exec.LookPath(path); err == nil {
+			return true
+		}
+		// If absolute path was provided but not in PATH, it might still be executable
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		return false
+	}
+	_, err := exec.LookPath("lazygit")
+	return err == nil
+}
+
+// RunLazygit launches the lazygit TUI for the given repository
+func (g *GitOps) RunLazygit(repoPath string) error {
+	if g.program == nil {
+		return fmt.Errorf("program not set")
+	}
+
+	// Determine binary
+	bin := os.Getenv("GITAGRIP_LAZYGIT_BIN")
+	if bin == "" {
+		bin = "lazygit"
+	}
+
+	// Release terminal control to run external program
+	if err := g.program.ReleaseTerminal(); err != nil {
+		return err
+	}
+	defer func() {
+		// Clear screen to reduce visual artifacts when returning
+		fmt.Print("\x1b[2J\x1b[H")
+		time.Sleep(150 * time.Millisecond)
+		_ = g.program.RestoreTerminal()
+	}()
+
+	// Spawn lazygit with working directory set to repo
+	cmd := exec.Command(bin)
+	cmd.Dir = repoPath
+	// Inherit stdio so it fully takes over the terminal
+	cmd.Stdout = os.Stdout
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
 
 // configureVimKeyBindings adds vim-like key bindings to the oviewer config

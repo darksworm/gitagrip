@@ -61,9 +61,12 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.NavigateAction{Direction: "end"}}, true
 
 	case tea.KeyEnter:
-		// Enter toggles group; it no longer opens commit history on repositories
+		// Enter toggles group when on a group header; otherwise open lazygit for the repository
 		if ctx.IsOnGroup() {
 			return []types.Action{types.ToggleGroupAction{}}, true
+		}
+		if ctx.CurrentRepositoryPath() != "" {
+			return []types.Action{types.OpenLazygitAction{}}, true
 		}
 		return nil, false
 	}

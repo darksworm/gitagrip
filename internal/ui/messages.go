@@ -40,6 +40,12 @@ type gitDiffPagerMsg struct {
 	err      error
 }
 
+// lazygitExitMsg contains the result of launching lazygit
+type lazygitExitMsg struct {
+	repoPath string
+	err      error
+}
+
 // quitMsg signals that the application should quit
 type quitMsg struct {
 	saveConfig bool

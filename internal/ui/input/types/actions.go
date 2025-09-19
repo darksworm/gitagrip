@@ -77,6 +77,11 @@ type OpenDiffAction struct{}
 
 func (a OpenDiffAction) Type() string { return "open_diff" }
 
+// OpenLazygitAction opens lazygit for the current repository
+type OpenLazygitAction struct{}
+
+func (a OpenLazygitAction) Type() string { return "open_lazygit" }
+
 type ToggleInfoAction struct{}
 
 func (a ToggleInfoAction) Type() string { return "toggle_info" }

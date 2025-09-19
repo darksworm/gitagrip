@@ -123,10 +123,12 @@ gitagrip /path/to/repos
 - `Esc` - Clear selection
 
 ### Repository Actions
+- `Enter` - Open lazygit for the selected repository
+- `H` - View git log
+- `D` - View git diff
 - `r` - Refresh repository status
 - `f` - Fetch from remote
 - `p` - Pull from remote
-- `H` - View git log
 - `i` - Show repository info
 
 ### Group Management
