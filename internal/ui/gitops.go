@@ -1,15 +1,15 @@
 package ui
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"strings"
-	"time"
+    "fmt"
+    "io"
+    "os"
+    "os/exec"
+    "strings"
+    "time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/noborus/ov/oviewer"
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/charmbracelet/lipgloss"
 )
 
 // GitOps handles git operations like log and diff
@@ -118,7 +118,9 @@ func (g *GitOps) HasUncommittedChanges(repoPath string) (bool, error) {
 
 // IsOvAvailable checks if the ov pager is available (always true since we use the library)
 func (g *GitOps) IsOvAvailable() bool {
-	return true
+    // Treat pager availability as presence of `less`
+    _, err := exec.LookPath("less")
+    return err == nil
 }
 
 // IsLazygitAvailable checks if the lazygit binary is available
@@ -172,194 +174,89 @@ func (g *GitOps) RunLazygit(repoPath string) error {
 	return cmd.Run()
 }
 
-// configureVimKeyBindings adds vim-like key bindings to the oviewer config
-func configureVimKeyBindings(config *oviewer.Config) {
-	// Clear existing key bindings to avoid conflicts
-	config.Keybind = make(map[string][]string)
-
-	// Basic movement
-	config.Keybind["down"] = append(config.Keybind["down"], "j")
-	config.Keybind["up"] = append(config.Keybind["up"], "k")
-	config.Keybind["left"] = append(config.Keybind["left"], "h")
-	config.Keybind["right"] = append(config.Keybind["right"], "l")
-
-	// Page movement (vim-style)
-	config.Keybind["page_down"] = append(config.Keybind["page_down"], "ctrl+f")
-	config.Keybind["page_up"] = append(config.Keybind["page_up"], "ctrl+b")
-	config.Keybind["page_half_down"] = append(config.Keybind["page_half_down"], "ctrl+d")
-	config.Keybind["page_half_up"] = append(config.Keybind["page_half_up"], "ctrl+u")
-
-	// Jump to position
-	config.Keybind["top"] = append(config.Keybind["top"], "g", "g")
-	config.Keybind["bottom"] = append(config.Keybind["bottom"], "G")
-
-	// Line navigation
-	config.Keybind["begin_left"] = append(config.Keybind["begin_left"], "0", "^")
-	config.Keybind["end_right"] = append(config.Keybind["end_right"], "$")
-
-	// Word navigation - using existing half_left/half_right for word movement
-	config.Keybind["half_left"] = append(config.Keybind["half_left"], "b")
-	config.Keybind["half_right"] = append(config.Keybind["half_right"], "w")
-
-	// Search
-	config.Keybind["search"] = append(config.Keybind["search"], "/")
-	config.Keybind["backsearch"] = append(config.Keybind["backsearch"], "?")
-	config.Keybind["next_search"] = append(config.Keybind["next_search"], "n")
-	config.Keybind["next_backsearch"] = append(config.Keybind["next_backsearch"], "N")
-
-	// Quit
-	config.Keybind["exit"] = append(config.Keybind["exit"], "q", "ctrl+c")
-}
+// Pager integration: we use external `less -R` and no longer embed a pager
 
 // ShowGitLogInPager shows git log using ov pager
 func (g *GitOps) ShowGitLogInPager(repoPath string) error {
-	if g.program == nil {
-		return fmt.Errorf("program not set")
-	}
-
-	// Release terminal control to run ov
-	if err := g.program.ReleaseTerminal(); err != nil {
-		return err
-	}
-
-	// Ensure terminal is restored even if ov fails
-	defer func() {
-		// Clear screen to prevent flash of previous content
-		fmt.Print("\x1b[2J\x1b[H") // Clear screen and move cursor to top-left
-		// Small delay to ensure ov has fully exited before restoring terminal
-		time.Sleep(150 * time.Millisecond)
-		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
-	}()
-
-	// Create git log command
-	gitCmd := exec.Command("git", "log", "--oneline", "-20", "--color=always", "--decorate")
-	gitCmd.Dir = repoPath
-
-	// Get stdout pipe
-	stdout, err := gitCmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	// Start the command
-	if err := gitCmd.Start(); err != nil {
-		return err
-	}
-
-	// Create oviewer root from the stdout reader
-	root, err := oviewer.NewRoot(stdout)
-	if err != nil {
-		return err
-	}
-
-	// Configure ov to not write on exit (to avoid messing with our screen)
-	config := oviewer.NewConfig()
-	config.IsWriteOnExit = false
-	config.IsWriteOriginal = false
-
-	// Add vim-like navigation
-	configureVimKeyBindings(&config)
-
-	root.SetConfig(config)
-
-	// Run the oviewer (this will take over the terminal)
-	return root.Run()
+    if g.program == nil {
+        return fmt.Errorf("program not set")
+    }
+    gitCmd := exec.Command("git", "log", "--oneline", "-20", "--color=always", "--decorate")
+    gitCmd.Dir = repoPath
+    pr, pw := io.Pipe()
+    gitCmd.Stdout = pw
+    gitCmd.Stderr = os.Stderr
+    if err := gitCmd.Start(); err != nil {
+        _ = pw.Close()
+        _ = pr.Close()
+        return err
+    }
+    pagerErrCh := make(chan error, 1)
+    go func() { pagerErrCh <- g.runPager(pr) }()
+    gitErr := gitCmd.Wait()
+    _ = pw.Close()
+    pagerErr := <-pagerErrCh
+    if gitErr != nil {
+        return gitErr
+    }
+    return pagerErr
 }
 
 // ShowGitDiffInPager shows git diff using ov pager
 func (g *GitOps) ShowGitDiffInPager(repoPath string) error {
-	if g.program == nil {
-		return fmt.Errorf("program not set")
-	}
-
-	// Release terminal control to run ov
-	if err := g.program.ReleaseTerminal(); err != nil {
-		return err
-	}
-
-	// Ensure terminal is restored even if ov fails
-	defer func() {
-		// Clear screen to prevent flash of previous content
-		fmt.Print("\x1b[2J\x1b[H") // Clear screen and move cursor to top-left
-		// Small delay to ensure ov has fully exited before restoring terminal
-		time.Sleep(150 * time.Millisecond)
-		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
-	}()
-
-	// Create git diff command
-	gitCmd := exec.Command("git", "diff", "--color=always")
-	gitCmd.Dir = repoPath
-
-	// Get stdout pipe
-	stdout, err := gitCmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	// Start the command
-	if err := gitCmd.Start(); err != nil {
-		return err
-	}
-
-	// Create oviewer root from the stdout reader
-	root, err := oviewer.NewRoot(stdout)
-	if err != nil {
-		return err
-	}
-
-	// Configure ov to not write on exit (to avoid messing with our screen)
-	config := oviewer.NewConfig()
-	config.IsWriteOnExit = false
-	config.IsWriteOriginal = false
-
-	// Add vim-like navigation
-	configureVimKeyBindings(&config)
-
-	root.SetConfig(config)
-
-	// Run the oviewer (this will take over the terminal)
-	return root.Run()
+    if g.program == nil {
+        return fmt.Errorf("program not set")
+    }
+    gitCmd := exec.Command("git", "diff", "--color=always")
+    gitCmd.Dir = repoPath
+    pr, pw := io.Pipe()
+    gitCmd.Stdout = pw
+    gitCmd.Stderr = os.Stderr
+    if err := gitCmd.Start(); err != nil {
+        _ = pw.Close()
+        _ = pr.Close()
+        return err
+    }
+    pagerErrCh := make(chan error, 1)
+    go func() { pagerErrCh <- g.runPager(pr) }()
+    gitErr := gitCmd.Wait()
+    _ = pw.Close()
+    pagerErr := <-pagerErrCh
+    if gitErr != nil {
+        if ee, ok := gitErr.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+            // git diff returns 1 when there are changes; treat as success
+        } else {
+            return gitErr
+        }
+    }
+    return pagerErr
 }
 
 // ShowHelpInPager shows help content using ov pager
 func (g *GitOps) ShowHelpInPager(helpContent string) error {
-	if g.program == nil {
-		return fmt.Errorf("program not set")
-	}
+    reader := strings.NewReader(helpContent)
+    return g.runPager(reader)
+}
 
-	// Release terminal control to run ov
-	if err := g.program.ReleaseTerminal(); err != nil {
-		return err
-	}
-
-	// Ensure terminal is restored even if ov fails
-	defer func() {
-		// Clear screen to prevent flash of previous content
-		fmt.Print("\x1b[2J\x1b[H") // Clear screen and move cursor to top-left
-		// Small delay to ensure ov has fully exited before restoring terminal
-		time.Sleep(150 * time.Millisecond)
-		_ = g.program.RestoreTerminal() // Ignore error as we're in defer context
-	}()
-
-	// Create a reader from the help content string
-	reader := strings.NewReader(helpContent)
-
-	// Create oviewer root from the reader
-	root, err := oviewer.NewRoot(reader)
-	if err != nil {
-		return err
-	}
-
-	// Configure ov to not write on exit (to avoid messing with our screen)
-	config := oviewer.NewConfig()
-	config.IsWriteOnExit = false
-	config.IsWriteOriginal = false
-
-	// Add vim-like navigation
-	configureVimKeyBindings(&config)
-
-	root.SetConfig(config)
-
-	// Run the oviewer (this will take over the terminal)
-	return root.Run()
+// runPager executes `less -R`, feeding content via r, handling terminal release/restore
+func (g *GitOps) runPager(r io.Reader) error {
+    if g.program == nil {
+        return fmt.Errorf("program not set")
+    }
+    if _, err := exec.LookPath("less"); err != nil {
+        return fmt.Errorf("less not found in PATH")
+    }
+    if err := g.program.ReleaseTerminal(); err != nil {
+        return err
+    }
+    defer func() {
+        fmt.Print("\x1b[2J\x1b[H")
+        time.Sleep(150 * time.Millisecond)
+        _ = g.program.RestoreTerminal()
+    }()
+    lessCmd := exec.Command("less", "-R")
+    lessCmd.Stdin = r
+    lessCmd.Stdout = os.Stdout
+    lessCmd.Stderr = os.Stderr
+    return lessCmd.Run()
 }
