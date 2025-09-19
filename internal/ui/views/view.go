@@ -114,6 +114,21 @@ func (r *Renderer) Render(state ViewState) string {
 				rightContent = filterText
 			}
 		}
+		// Global error indicator: show if any repository reports an error
+		errCount := 0
+		for _, repo := range state.Repositories {
+			if repo != nil && (repo.HasError || repo.Status.Error != "") {
+				errCount++
+			}
+		}
+		if errCount > 0 {
+			errText := r.styles.StatusError.Render(fmt.Sprintf("⚠ %d", errCount))
+			if rightContent != "" {
+				rightContent = fmt.Sprintf("%s  %s", rightContent, errText)
+			} else {
+				rightContent = errText
+			}
+		}
 		if state.StatusMessage != "" {
 			statusText := r.styles.Title.Render(fmt.Sprintf("💬 %s", state.StatusMessage))
 			if rightContent != "" {

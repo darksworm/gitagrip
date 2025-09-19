@@ -1709,7 +1709,14 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitLogMsg:
 		if msg.err != nil {
-			m.state.LogContent = fmt.Sprintf("Error fetching log for %s:\n%v", msg.repoPath, msg.err)
+			// Log error and mark repository error state instead of surfacing at top
+			log.Printf("Error fetching log for %s: %v", msg.repoPath, msg.err)
+			if repo, ok := m.state.Repositories[msg.repoPath]; ok {
+				repo.HasError = true
+				repo.LastError = fmt.Sprintf("log: %v", msg.err)
+			}
+			// Keep popup content minimal or empty; do not set StatusMessage here
+			m.state.LogContent = ""
 		} else {
 			m.state.LogContent = fmt.Sprintf("Git log for %s:\n\n%s", msg.repoPath, msg.content)
 		}
@@ -1717,8 +1724,12 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitDiffMsg:
 		if msg.err != nil {
-			// Show error as status message instead of popup
-			m.state.StatusMessage = fmt.Sprintf("Error fetching diff: %v", msg.err)
+			// Log error and mark repository error state; do not show in status bar
+			log.Printf("Error fetching diff for %s: %v", msg.repoPath, msg.err)
+			if repo, ok := m.state.Repositories[msg.repoPath]; ok {
+				repo.HasError = true
+				repo.LastError = fmt.Sprintf("diff: %v", msg.err)
+			}
 		} else {
 			if msg.content == "" {
 				// No changes - show status message instead of opening popup
@@ -1733,8 +1744,8 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitLogPagerMsg:
 		if msg.err != nil {
-			// Pager failed, fall back to popup
-			m.state.StatusMessage = fmt.Sprintf("Pager failed, falling back to popup: %v", msg.err)
+			// Pager failed, log and fall back to popup silently
+			log.Printf("Log pager failed for %s: %v — falling back to popup", msg.repoPath, msg.err)
 			return m, m.fetchGitLog(msg.repoPath)
 		}
 		// Pager succeeded, RestoreTerminal() should have restored the screen
@@ -1742,8 +1753,8 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitDiffPagerMsg:
 		if msg.err != nil {
-			// Pager failed, fall back to popup
-			m.state.StatusMessage = fmt.Sprintf("Pager failed, falling back to popup: %v", msg.err)
+			// Pager failed, log and fall back to popup silently
+			log.Printf("Diff pager failed for %s: %v — falling back to popup", msg.repoPath, msg.err)
 			return m, m.fetchGitDiff(msg.repoPath)
 		}
 		// Pager succeeded, RestoreTerminal() should have restored the screen
@@ -1751,8 +1762,8 @@ func (m *Model) handleNonKeyboardMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case helpPagerMsg:
 		if msg.err != nil {
-			// Pager failed
-			m.state.StatusMessage = fmt.Sprintf("Help pager failed: %v", msg.err)
+			// Pager failed: log only; do not surface in status bar
+			log.Printf("Help pager failed: %v", msg.err)
 		}
 		// Pager succeeded, RestoreTerminal() should have restored the screen
 		return m, nil

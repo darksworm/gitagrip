@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -51,9 +52,17 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 		h.state.ClearOperationState(e.RepoPath)
 
 	case eventbus.ErrorEvent:
-		h.state.StatusMessage = fmt.Sprintf("Error: %s", e.Message)
-		// If this is a refresh error for a specific repo, we might need to clear its refreshing state
-		// This would require extending the ErrorEvent to include optional repo path
+		// Do not surface raw errors in the top status bar. Log them and rely on
+		// per-repository error indicators in the list.
+		// If needed, extend ErrorEvent to include repo path to mark specific repos.
+		// For now, just log the error via standard logger configured by main.
+		// (No StatusMessage update here.)
+		if e.Err != nil {
+			log.Printf("Error: %s: %v", e.Message, e.Err)
+		} else {
+			log.Printf("Error: %s", e.Message)
+		}
+		// Note: log package is imported at top via fmt; use tea/log? We keep silent here.
 
 	case eventbus.GroupAddedEvent:
 		if _, exists := h.state.Groups[e.Name]; !exists {
@@ -92,7 +101,9 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 		if e.Success {
 			h.state.StatusMessage = fmt.Sprintf("Fetch completed for %s", e.RepoPath)
 		} else {
-			h.state.StatusMessage = fmt.Sprintf("Fetch failed for %s: %v", e.RepoPath, e.Error)
+			// On error, don't show detailed error text in the status bar.
+			// The repository line will be marked with an error icon, and logs capture details.
+			log.Printf("Fetch failed for %s: %v", e.RepoPath, e.Error)
 		}
 
 	case eventbus.PullCompletedEvent:
@@ -103,7 +114,8 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 		if e.Success {
 			h.state.StatusMessage = fmt.Sprintf("Pull completed for %s", e.RepoPath)
 		} else {
-			h.state.StatusMessage = fmt.Sprintf("Pull failed for %s: %v", e.RepoPath, e.Error)
+			// On error, don't surface raw error text in the status bar.
+			log.Printf("Pull failed for %s: %v", e.RepoPath, e.Error)
 		}
 
 	case eventbus.CommandExecutedEvent:
