@@ -126,7 +126,7 @@ gitagrip /path/to/repos
 - `r` - Refresh repository status
 - `f` - Fetch from remote
 - `p` - Pull from remote
-- `l` - View git log
+- `H` - View git log
 - `i` - Show repository info
 
 ### Group Management
@@ -136,7 +136,6 @@ gitagrip /path/to/repos
 - `Shift+R` - Rename group
 - `Shift+J/K` - Move group up/down
 - `d` - Delete group (when on group header)
-- `H` - Hide selected repositories
 
 ### Search & Filter
 - `/` - Search repositories
@@ -228,4 +227,3 @@ Built with:
 - [Lipgloss](https://github.com/charmbracelet/lipgloss) - Terminal styling
 - [Bubble](https://github.com/charmbracelet/bubbles) - TUI components
 - And the amazing Go community 💙
-

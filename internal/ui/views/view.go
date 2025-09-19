@@ -483,7 +483,7 @@ func (r *Renderer) RenderHelpContentPlain() string {
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("r"), descStyle.Render("Refresh repository status")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("f"), descStyle.Render("Fetch from remote")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("p"), descStyle.Render("Pull from remote")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("L"), descStyle.Render("View git log")))
+	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("View git log")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("D"), descStyle.Render("View git diff")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("i"), descStyle.Render("Show repository info & logs")))
 	help.WriteString("\n")
@@ -496,7 +496,6 @@ func (r *Renderer) RenderHelpContentPlain() string {
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("m"), descStyle.Render("Move to group")))
 	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("R"), descStyle.Render("Rename group")))
 	help.WriteString(fmt.Sprintf("  %s      %s\n", keyStyle.Render("Shift+J/K"), descStyle.Render("Move group up/down")))
-	help.WriteString(fmt.Sprintf("  %s            %s\n", keyStyle.Render("H"), descStyle.Render("Hide selected repositories")))
 	help.WriteString("\n")
 
 	// Search & filter section

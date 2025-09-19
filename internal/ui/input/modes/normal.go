@@ -61,11 +61,11 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return []types.Action{types.NavigateAction{Direction: "end"}}, true
 
 	case tea.KeyEnter:
-		// Enter toggles group or opens log on repository
+		// Enter toggles group; it no longer opens commit history on repositories
 		if ctx.IsOnGroup() {
 			return []types.Action{types.ToggleGroupAction{}}, true
 		}
-		return []types.Action{types.OpenLogAction{}}, true
+		return nil, false
 	}
 
 	// Handle string keys
@@ -193,9 +193,9 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return nil, false
 
 	case "H":
-		// Hide selected repos or current repo
-		if ctx.HasSelection() || ctx.CurrentRepositoryPath() != "" {
-			return []types.Action{types.HideAction{}}, true
+		// Open commit history (git log) for the current repository
+		if ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup() {
+			return []types.Action{types.OpenLogAction{}}, true
 		}
 		return nil, false
 
