@@ -2,7 +2,6 @@ package views
 
 import (
     "regexp"
-    "strings"
 
     "github.com/charmbracelet/lipgloss/v2"
 )
@@ -21,75 +20,31 @@ func NewPopupRenderer(styles *Styles) *PopupRenderer {
 
 // RenderPopupOverlay renders a popup overlay on top of main content
 func (pr *PopupRenderer) RenderPopupOverlay(mainContent, popupContent string, height, width int, popupStyle lipgloss.Style) string {
-    // Create a centered modal-style popup
-	// First, measure the popup content
-	lines := strings.Split(popupContent, "\n")
-	contentHeight := len(lines)
-	contentWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > contentWidth {
-			contentWidth = lipgloss.Width(line)
-		}
-	}
+    // Render the popup with its style without forcing width/height – keep it tight
+    styledPopup := popupStyle.Render(popupContent)
 
-	// Ensure minimum sizes
-	if contentWidth < 60 {
-		contentWidth = 60
-	}
-	if contentHeight < 10 {
-		contentHeight = 10
-	}
+    // Compute modal placement using actual rendered size
+    modalW := lipgloss.Width(styledPopup)
+    modalH := lipgloss.Height(styledPopup)
+    if modalW > width-6 { // keep a small margin
+        modalW = width - 6
+    }
+    if modalH > height-4 {
+        modalH = height - 4
+    }
+    x := (width - modalW) / 2
+    y := (height - modalH) / 2
 
-	// Add padding for the border and internal padding
-	popupWidth := contentWidth + 4   // 2 for border, 2 for horizontal padding
-	popupHeight := contentHeight + 2 // 2 for border only
-
-	// Ensure popup fits on screen with generous margins (6 chars each side for safety)
-	maxPopupWidth := width - 12 // 6 chars margin on each side
-	if maxPopupWidth < 60 {
-		maxPopupWidth = 60 // Minimum width
-	}
-	if popupWidth > maxPopupWidth {
-		popupWidth = maxPopupWidth
-	}
-	if popupHeight > height-4 {
-		popupHeight = height - 4
-	}
-
-	// Apply the style with the calculated dimensions
-	styledPopup := popupStyle.
-		Width(popupWidth).
-		Height(popupHeight).
-		MaxWidth(maxPopupWidth).
-		MaxHeight(height - 4).
-		Render(popupContent)
-
-    // Center the popup into a full-screen overlay string
-    centeredPopup := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styledPopup)
-
-    // Desaturate base content to produce a greyscale effect under the modal
+    // Base greyscale layer
     grayBase := desaturateANSI(mainContent)
+    baseLayer := lipgloss.NewLayer(grayBase)
 
-    // Compose overlay over grayscale base: prefer overlay rows when they contain visible content
-    baseLines := strings.Split(grayBase, "\n")
-    overlayLines := strings.Split(centeredPopup, "\n")
-    // Normalize lengths
-    if len(baseLines) < len(overlayLines) {
-        diff := len(overlayLines) - len(baseLines)
-        for i := 0; i < diff; i++ { baseLines = append(baseLines, "") }
-    } else if len(overlayLines) < len(baseLines) {
-        diff := len(baseLines) - len(overlayLines)
-        for i := 0; i < diff; i++ { overlayLines = append(overlayLines, "") }
-    }
-    out := make([]string, len(baseLines))
-    for i := range baseLines {
-        if strings.TrimSpace(overlayLines[i]) != "" {
-            out[i] = overlayLines[i]
-        } else {
-            out[i] = baseLines[i]
-        }
-    }
-    return strings.Join(out, "\n")
+    // Modal layer on top (only its bounding box, not whole lines)
+    modalLayer := lipgloss.NewLayer(styledPopup).X(x).Y(y).Z(1)
+
+    // Compose layers without erasing left/right content
+    canvas := lipgloss.NewCanvas(baseLayer, modalLayer)
+    return canvas.Render()
 }
 
 // ANSI escape sequence regex to strip styles/colors
