@@ -1,15 +1,15 @@
 package ui
 
 import (
-    "fmt"
-    "io"
-    "os"
-    "os/exec"
-    "strings"
-    "time"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
 
-    tea "github.com/charmbracelet/bubbletea/v2"
-    "github.com/charmbracelet/lipgloss/v2"
+	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 )
 
 // GitOps handles git operations like log and diff
@@ -118,9 +118,9 @@ func (g *GitOps) HasUncommittedChanges(repoPath string) (bool, error) {
 
 // IsOvAvailable checks if the ov pager is available (always true since we use the library)
 func (g *GitOps) IsOvAvailable() bool {
-    // Treat pager availability as presence of `less`
-    _, err := exec.LookPath("less")
-    return err == nil
+	// Treat pager availability as presence of `less`
+	_, err := exec.LookPath("less")
+	return err == nil
 }
 
 // IsLazygitAvailable checks if the lazygit binary is available
@@ -178,85 +178,85 @@ func (g *GitOps) RunLazygit(repoPath string) error {
 
 // ShowGitLogInPager shows git log using ov pager
 func (g *GitOps) ShowGitLogInPager(repoPath string) error {
-    if g.program == nil {
-        return fmt.Errorf("program not set")
-    }
-    gitCmd := exec.Command("git", "log", "--oneline", "-20", "--color=always", "--decorate")
-    gitCmd.Dir = repoPath
-    pr, pw := io.Pipe()
-    gitCmd.Stdout = pw
-    gitCmd.Stderr = os.Stderr
-    if err := gitCmd.Start(); err != nil {
-        _ = pw.Close()
-        _ = pr.Close()
-        return err
-    }
-    pagerErrCh := make(chan error, 1)
-    go func() { pagerErrCh <- g.runPager(pr) }()
-    gitErr := gitCmd.Wait()
-    _ = pw.Close()
-    pagerErr := <-pagerErrCh
-    if gitErr != nil {
-        return gitErr
-    }
-    return pagerErr
+	if g.program == nil {
+		return fmt.Errorf("program not set")
+	}
+	gitCmd := exec.Command("git", "log", "--oneline", "-20", "--color=always", "--decorate")
+	gitCmd.Dir = repoPath
+	pr, pw := io.Pipe()
+	gitCmd.Stdout = pw
+	gitCmd.Stderr = os.Stderr
+	if err := gitCmd.Start(); err != nil {
+		_ = pw.Close()
+		_ = pr.Close()
+		return err
+	}
+	pagerErrCh := make(chan error, 1)
+	go func() { pagerErrCh <- g.runPager(pr) }()
+	gitErr := gitCmd.Wait()
+	_ = pw.Close()
+	pagerErr := <-pagerErrCh
+	if gitErr != nil {
+		return gitErr
+	}
+	return pagerErr
 }
 
 // ShowGitDiffInPager shows git diff using ov pager
 func (g *GitOps) ShowGitDiffInPager(repoPath string) error {
-    if g.program == nil {
-        return fmt.Errorf("program not set")
-    }
-    gitCmd := exec.Command("git", "diff", "--color=always")
-    gitCmd.Dir = repoPath
-    pr, pw := io.Pipe()
-    gitCmd.Stdout = pw
-    gitCmd.Stderr = os.Stderr
-    if err := gitCmd.Start(); err != nil {
-        _ = pw.Close()
-        _ = pr.Close()
-        return err
-    }
-    pagerErrCh := make(chan error, 1)
-    go func() { pagerErrCh <- g.runPager(pr) }()
-    gitErr := gitCmd.Wait()
-    _ = pw.Close()
-    pagerErr := <-pagerErrCh
-    if gitErr != nil {
-        if ee, ok := gitErr.(*exec.ExitError); ok && ee.ExitCode() == 1 {
-            // git diff returns 1 when there are changes; treat as success
-        } else {
-            return gitErr
-        }
-    }
-    return pagerErr
+	if g.program == nil {
+		return fmt.Errorf("program not set")
+	}
+	gitCmd := exec.Command("git", "diff", "--color=always")
+	gitCmd.Dir = repoPath
+	pr, pw := io.Pipe()
+	gitCmd.Stdout = pw
+	gitCmd.Stderr = os.Stderr
+	if err := gitCmd.Start(); err != nil {
+		_ = pw.Close()
+		_ = pr.Close()
+		return err
+	}
+	pagerErrCh := make(chan error, 1)
+	go func() { pagerErrCh <- g.runPager(pr) }()
+	gitErr := gitCmd.Wait()
+	_ = pw.Close()
+	pagerErr := <-pagerErrCh
+	if gitErr != nil {
+		if ee, ok := gitErr.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+			// git diff returns 1 when there are changes; treat as success
+		} else {
+			return gitErr
+		}
+	}
+	return pagerErr
 }
 
 // ShowHelpInPager shows help content using ov pager
 func (g *GitOps) ShowHelpInPager(helpContent string) error {
-    reader := strings.NewReader(helpContent)
-    return g.runPager(reader)
+	reader := strings.NewReader(helpContent)
+	return g.runPager(reader)
 }
 
 // runPager executes `less -R`, feeding content via r, handling terminal release/restore
 func (g *GitOps) runPager(r io.Reader) error {
-    if g.program == nil {
-        return fmt.Errorf("program not set")
-    }
-    if _, err := exec.LookPath("less"); err != nil {
-        return fmt.Errorf("less not found in PATH")
-    }
-    if err := g.program.ReleaseTerminal(); err != nil {
-        return err
-    }
-    defer func() {
-        fmt.Print("\x1b[2J\x1b[H")
-        time.Sleep(150 * time.Millisecond)
-        _ = g.program.RestoreTerminal()
-    }()
-    lessCmd := exec.Command("less", "-R")
-    lessCmd.Stdin = r
-    lessCmd.Stdout = os.Stdout
-    lessCmd.Stderr = os.Stderr
-    return lessCmd.Run()
+	if g.program == nil {
+		return fmt.Errorf("program not set")
+	}
+	if _, err := exec.LookPath("less"); err != nil {
+		return fmt.Errorf("less not found in PATH")
+	}
+	if err := g.program.ReleaseTerminal(); err != nil {
+		return err
+	}
+	defer func() {
+		fmt.Print("\x1b[2J\x1b[H")
+		time.Sleep(150 * time.Millisecond)
+		_ = g.program.RestoreTerminal()
+	}()
+	lessCmd := exec.Command("less", "-R")
+	lessCmd.Stdin = r
+	lessCmd.Stdout = os.Stdout
+	lessCmd.Stderr = os.Stderr
+	return lessCmd.Run()
 }

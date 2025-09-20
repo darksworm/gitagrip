@@ -1,8 +1,8 @@
 package viewmodels
 
 import (
-    "github.com/charmbracelet/bubbles/v2/help"
-    "github.com/charmbracelet/bubbles/v2/textinput"
+	"github.com/charmbracelet/bubbles/v2/help"
+	"github.com/charmbracelet/bubbles/v2/textinput"
 
 	"gitagrip/internal/config"
 	"gitagrip/internal/ui/state"

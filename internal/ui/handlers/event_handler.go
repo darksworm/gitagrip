@@ -1,12 +1,12 @@
 package handlers
 
 import (
-    "fmt"
-    "log"
-    "strings"
-    "time"
+	"fmt"
+	"log"
+	"strings"
+	"time"
 
-    tea "github.com/charmbracelet/bubbletea/v2"
+	tea "github.com/charmbracelet/bubbletea/v2"
 
 	"gitagrip/internal/domain"
 	"gitagrip/internal/eventbus"

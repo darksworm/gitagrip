@@ -18,7 +18,7 @@ import (
 	"gitagrip/internal/git"
 	"gitagrip/internal/groups"
 	"gitagrip/internal/ui"
-    tea "github.com/charmbracelet/bubbletea/v2"
+	tea "github.com/charmbracelet/bubbletea/v2"
 )
 
 func main() {

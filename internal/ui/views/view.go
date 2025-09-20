@@ -1,15 +1,15 @@
 package views
 
 import (
-    "fmt"
-    "strings"
-    "time"
+	"fmt"
+	"strings"
+	"time"
 
-    "github.com/charmbracelet/bubbles/v2/help"
-    "github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/bubbles/v2/help"
+	"github.com/charmbracelet/lipgloss/v2"
 
-    "gitagrip/internal/domain"
-    "gitagrip/internal/ui/input/modes"
+	"gitagrip/internal/domain"
+	"gitagrip/internal/ui/input/modes"
 )
 
 // ViewState contains all the state needed for rendering

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-    "github.com/charmbracelet/bubbles/v2/help"
-    "github.com/charmbracelet/bubbles/v2/textinput"
-    tea "github.com/charmbracelet/bubbletea/v2"
-    "github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/bubbles/v2/help"
+	"github.com/charmbracelet/bubbles/v2/textinput"
+	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 
 	"gitagrip/internal/config"
 	"gitagrip/internal/domain"
@@ -741,36 +741,36 @@ func (m *Model) buildRepoInfo(repo *domain.Repository) string {
 	}
 	info.WriteString(fmt.Sprintf("Group: %s\n\n", groupName))
 
-    // Status information
-    info.WriteString(lipgloss.NewStyle().Bold(true).Render("Status:"))
-    info.WriteString("\n")
-    // Colorize branch like in list view
-    branchColor := views.GetBranchColor(repo.Status.Branch)
-    branchStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(branchColor))
-    // Make main/master bold for emphasis
-    if repo.Status.Branch == "main" || repo.Status.Branch == "master" {
-        branchStyled = branchStyled.Bold(true)
-    }
-    info.WriteString("  Branch: ")
-    info.WriteString(branchStyled.Render(repo.Status.Branch))
-    info.WriteString("\n")
+	// Status information
+	info.WriteString(lipgloss.NewStyle().Bold(true).Render("Status:"))
+	info.WriteString("\n")
+	// Colorize branch like in list view
+	branchColor := views.GetBranchColor(repo.Status.Branch)
+	branchStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(branchColor))
+	// Make main/master bold for emphasis
+	if repo.Status.Branch == "main" || repo.Status.Branch == "master" {
+		branchStyled = branchStyled.Bold(true)
+	}
+	info.WriteString("  Branch: ")
+	info.WriteString(branchStyled.Render(repo.Status.Branch))
+	info.WriteString("\n")
 
 	// Clean/Dirty status
-    if repo.Status.IsDirty {
-        // Yellow for changes
-        info.WriteString("  State: ")
-        info.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Dirty (uncommitted changes)"))
-        info.WriteString("\n")
-    } else if repo.Status.HasUntracked {
-        info.WriteString("  State: ")
-        info.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Has untracked files"))
-        info.WriteString("\n")
-    } else {
-        // Green for clean
-        info.WriteString("  State: ")
-        info.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("78")).Render("Clean"))
-        info.WriteString("\n")
-    }
+	if repo.Status.IsDirty {
+		// Yellow for changes
+		info.WriteString("  State: ")
+		info.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Dirty (uncommitted changes)"))
+		info.WriteString("\n")
+	} else if repo.Status.HasUntracked {
+		info.WriteString("  State: ")
+		info.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Has untracked files"))
+		info.WriteString("\n")
+	} else {
+		// Green for clean
+		info.WriteString("  State: ")
+		info.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("78")).Render("Clean"))
+		info.WriteString("\n")
+	}
 
 	// Ahead/Behind
 	if repo.Status.AheadCount > 0 || repo.Status.BehindCount > 0 {

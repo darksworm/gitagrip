@@ -1,7 +1,7 @@
 package views
 
 import (
-    "github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 )
 
 // Styles contains all the style definitions for the UI
@@ -47,11 +47,11 @@ func NewStyles() *Styles {
 			Border(lipgloss.RoundedBorder()).
 			Padding(0, 1).
 			BorderForeground(lipgloss.Color("244")),
-        InfoBox: lipgloss.NewStyle().
-            Border(lipgloss.RoundedBorder()).
-            Padding(0, 1).
-            // Brighter border to make modal pop
-            BorderForeground(lipgloss.Color("51")),
+		InfoBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(0, 1).
+			// Brighter border to make modal pop
+			BorderForeground(lipgloss.Color("51")),
 		Help: lipgloss.NewStyle().Faint(true),
 		Main: lipgloss.NewStyle().
 			Padding(1, 2).

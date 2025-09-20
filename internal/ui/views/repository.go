@@ -1,12 +1,12 @@
 package views
 
 import (
-    "fmt"
-    "strings"
+	"fmt"
+	"strings"
 
-    "github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 
-    "gitagrip/internal/domain"
+	"gitagrip/internal/domain"
 )
 
 // RepositoryRenderer handles rendering of repository items

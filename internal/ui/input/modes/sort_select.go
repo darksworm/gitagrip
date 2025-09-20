@@ -1,8 +1,8 @@
 package modes
 
 import (
-    "gitagrip/internal/ui/input/types"
-    tea "github.com/charmbracelet/bubbletea/v2"
+	"gitagrip/internal/ui/input/types"
+	tea "github.com/charmbracelet/bubbletea/v2"
 )
 
 // SortOptions available for sorting
@@ -55,39 +55,39 @@ func (m *SortSelectMode) Exit(ctx types.Context) []types.Action {
 
 // HandleKey processes key messages for sort selection
 func (m *SortSelectMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, bool) {
-    switch msg.String() {
-    case "esc":
-        // Cancel and restore original sort
-        return []types.Action{
-            types.SortByAction{Criteria: SortOptions[m.originalIndex].Key},
-            types.ChangeModeAction{Mode: types.ModeNormal},
-        }, true
+	switch msg.String() {
+	case "esc":
+		// Cancel and restore original sort
+		return []types.Action{
+			types.SortByAction{Criteria: SortOptions[m.originalIndex].Key},
+			types.ChangeModeAction{Mode: types.ModeNormal},
+		}, true
 
-    case "enter":
-        // Accept current sort and return to normal mode
-        return []types.Action{
-            types.ChangeModeAction{Mode: types.ModeNormal},
-        }, true
+	case "enter":
+		// Accept current sort and return to normal mode
+		return []types.Action{
+			types.ChangeModeAction{Mode: types.ModeNormal},
+		}, true
 
-    case "up", "down":
-        // Navigate through sort options and apply immediately
-        if msg.String() == "up" {
-            m.sortIndex--
-            if m.sortIndex < 0 {
-                m.sortIndex = len(SortOptions) - 1
-            }
-        } else {
-            m.sortIndex++
-            if m.sortIndex >= len(SortOptions) {
-                m.sortIndex = 0
-            }
-        }
-        // Update the UI and apply sort immediately
-        return []types.Action{
-            types.UpdateSortIndexAction{Index: m.sortIndex},
-            types.SortByAction{Criteria: SortOptions[m.sortIndex].Key},
-        }, true
-    }
+	case "up", "down":
+		// Navigate through sort options and apply immediately
+		if msg.String() == "up" {
+			m.sortIndex--
+			if m.sortIndex < 0 {
+				m.sortIndex = len(SortOptions) - 1
+			}
+		} else {
+			m.sortIndex++
+			if m.sortIndex >= len(SortOptions) {
+				m.sortIndex = 0
+			}
+		}
+		// Update the UI and apply sort immediately
+		return []types.Action{
+			types.UpdateSortIndexAction{Index: m.sortIndex},
+			types.SortByAction{Criteria: SortOptions[m.sortIndex].Key},
+		}, true
+	}
 
 	// Handle string keys
 	switch msg.String() {

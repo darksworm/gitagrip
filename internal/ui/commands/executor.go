@@ -1,10 +1,10 @@
 package commands
 
 import (
-    tea "github.com/charmbracelet/bubbletea/v2"
+	tea "github.com/charmbracelet/bubbletea/v2"
 
-    "gitagrip/internal/eventbus"
-    "gitagrip/internal/ui/state"
+	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/state"
 )
 
 // Executor handles command execution

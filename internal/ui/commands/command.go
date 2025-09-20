@@ -1,12 +1,12 @@
 package commands
 
 import (
-    "fmt"
+	"fmt"
 
-    tea "github.com/charmbracelet/bubbletea/v2"
+	tea "github.com/charmbracelet/bubbletea/v2"
 
-    "gitagrip/internal/eventbus"
-    "gitagrip/internal/ui/state"
+	"gitagrip/internal/eventbus"
+	"gitagrip/internal/ui/state"
 )
 
 // Command represents an executable action

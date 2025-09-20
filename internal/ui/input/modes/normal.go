@@ -1,9 +1,9 @@
 package modes
 
 import (
-    "gitagrip/internal/ui/input/types"
-    tea "github.com/charmbracelet/bubbletea/v2"
-    "time"
+	"gitagrip/internal/ui/input/types"
+	tea "github.com/charmbracelet/bubbletea/v2"
+	"time"
 )
 
 type NormalMode struct {
@@ -28,40 +28,40 @@ func (m *NormalMode) Exit(ctx types.Context) []types.Action {
 }
 
 func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, bool) {
-    // Handle string keys
-    switch msg.String() {
-    case "ctrl+c":
-        return []types.Action{types.QuitAction{Force: true}}, true
-    case "esc":
-        // In normal mode, Esc doesn't do anything
-        return nil, false
-    case "up":
-        return []types.Action{types.NavigateAction{Direction: "up"}}, true
-    case "down":
-        return []types.Action{types.NavigateAction{Direction: "down"}}, true
-    case "left":
-        return []types.Action{types.NavigateAction{Direction: "left"}}, true
-    case "right":
-        return []types.Action{types.NavigateAction{Direction: "right"}}, true
-    case "pgup":
-        return []types.Action{types.NavigateAction{Direction: "pageup"}}, true
-    case "pgdown":
-        return []types.Action{types.NavigateAction{Direction: "pagedown"}}, true
-    case "home":
-        return []types.Action{types.NavigateAction{Direction: "home"}}, true
-    case "end":
-        return []types.Action{types.NavigateAction{Direction: "end"}}, true
-    case "enter":
-        // Enter toggles group when on a group header; otherwise open lazygit for the repository
-        if ctx.IsOnGroup() {
-            return []types.Action{types.ToggleGroupAction{}}, true
-        }
-        if ctx.CurrentRepositoryPath() != "" {
-            return []types.Action{types.OpenLazygitAction{}}, true
-        }
-        return nil, false
-    case "j":
-        return []types.Action{types.NavigateAction{Direction: "down"}}, true
+	// Handle string keys
+	switch msg.String() {
+	case "ctrl+c":
+		return []types.Action{types.QuitAction{Force: true}}, true
+	case "esc":
+		// In normal mode, Esc doesn't do anything
+		return nil, false
+	case "up":
+		return []types.Action{types.NavigateAction{Direction: "up"}}, true
+	case "down":
+		return []types.Action{types.NavigateAction{Direction: "down"}}, true
+	case "left":
+		return []types.Action{types.NavigateAction{Direction: "left"}}, true
+	case "right":
+		return []types.Action{types.NavigateAction{Direction: "right"}}, true
+	case "pgup":
+		return []types.Action{types.NavigateAction{Direction: "pageup"}}, true
+	case "pgdown":
+		return []types.Action{types.NavigateAction{Direction: "pagedown"}}, true
+	case "home":
+		return []types.Action{types.NavigateAction{Direction: "home"}}, true
+	case "end":
+		return []types.Action{types.NavigateAction{Direction: "end"}}, true
+	case "enter":
+		// Enter toggles group when on a group header; otherwise open lazygit for the repository
+		if ctx.IsOnGroup() {
+			return []types.Action{types.ToggleGroupAction{}}, true
+		}
+		if ctx.CurrentRepositoryPath() != "" {
+			return []types.Action{types.OpenLazygitAction{}}, true
+		}
+		return nil, false
+	case "j":
+		return []types.Action{types.NavigateAction{Direction: "down"}}, true
 
 	case "k":
 		return []types.Action{types.NavigateAction{Direction: "up"}}, true
@@ -229,9 +229,9 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		}
 		return nil, false
 
-    case "q":
-        // Quit
-        return []types.Action{types.QuitAction{Force: false}}, true
+	case "q":
+		// Quit
+		return []types.Action{types.QuitAction{Force: false}}, true
 
 	case "g":
 		if m.lastKeyWasG && time.Since(m.lastGTime) < 500*time.Millisecond {

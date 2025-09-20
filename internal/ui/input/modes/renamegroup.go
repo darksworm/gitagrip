@@ -1,9 +1,9 @@
 package modes
 
 import (
-    "gitagrip/internal/ui/input/types"
-    "github.com/charmbracelet/bubbles/v2/textinput"
-    tea "github.com/charmbracelet/bubbletea/v2"
+	"gitagrip/internal/ui/input/types"
+	"github.com/charmbracelet/bubbles/v2/textinput"
+	tea "github.com/charmbracelet/bubbletea/v2"
 )
 
 type RenameGroupMode struct {

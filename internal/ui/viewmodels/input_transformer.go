@@ -1,7 +1,7 @@
 package viewmodels
 
 import (
-    "github.com/charmbracelet/bubbles/v2/textinput"
+	"github.com/charmbracelet/bubbles/v2/textinput"
 )
 
 // InputMode represents the different input modes
