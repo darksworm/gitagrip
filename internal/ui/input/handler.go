@@ -30,6 +30,9 @@ func New() *Handler {
 	h.modes[types.ModeMoveToGroup] = modes.NewMoveToGroupMode(h.textInput)
 	h.modes[types.ModeDeleteConfirm] = modes.NewConfirmMode()
 	h.modes[types.ModeSort] = modes.NewSortSelectMode()
+	// Branch operations (text modes)
+	h.modes[types.ModeNewBranch] = modes.NewNewBranchMode(h.textInput)
+	h.modes[types.ModeSwitchBranch] = modes.NewSwitchBranchMode(h.textInput)
 	h.modes[types.ModeRenameGroup] = modes.NewRenameGroupMode(h.textInput)
 
 	return h

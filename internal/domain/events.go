@@ -24,6 +24,8 @@ const (
 	EventConfigChanged          EventType = "ConfigChanged"
 	EventAppReady               EventType = "AppReady"
 	EventCommandExecuted        EventType = "CommandExecuted"
+	EventBranchCreateRequested  EventType = "BranchCreateRequested"
+	EventBranchSwitchRequested  EventType = "BranchSwitchRequested"
 )
 
 // DomainEvent is the interface for all domain events
@@ -176,3 +178,19 @@ type CommandExecutedEvent struct {
 }
 
 func (e CommandExecutedEvent) Type() EventType { return EventCommandExecuted }
+
+// BranchCreateRequestedEvent requests creating a new branch on repositories
+type BranchCreateRequestedEvent struct {
+	RepoPaths []string
+	Name      string
+}
+
+func (e BranchCreateRequestedEvent) Type() EventType { return EventBranchCreateRequested }
+
+// BranchSwitchRequestedEvent requests switching to a branch on repositories
+type BranchSwitchRequestedEvent struct {
+	RepoPaths []string
+	Name      string
+}
+
+func (e BranchSwitchRequestedEvent) Type() EventType { return EventBranchSwitchRequested }

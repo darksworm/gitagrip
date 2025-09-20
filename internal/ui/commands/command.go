@@ -127,6 +127,42 @@ func (c *FullScanCommand) Execute() tea.Cmd {
 	return nil
 }
 
+// CreateBranchCommand creates a new branch on repositories
+type CreateBranchCommand struct {
+	ctx       *CommandContext
+	repoPaths []string
+	name      string
+}
+
+func NewCreateBranchCommand(ctx *CommandContext, repoPaths []string, name string) *CreateBranchCommand {
+	return &CreateBranchCommand{ctx: ctx, repoPaths: repoPaths, name: name}
+}
+
+func (c *CreateBranchCommand) Execute() tea.Cmd {
+	if c.ctx.Bus != nil && c.name != "" {
+		c.ctx.Bus.Publish(eventbus.BranchCreateRequestedEvent{RepoPaths: c.repoPaths, Name: c.name})
+	}
+	return nil
+}
+
+// SwitchBranchCommand switches to an existing branch on repositories
+type SwitchBranchCommand struct {
+	ctx       *CommandContext
+	repoPaths []string
+	name      string
+}
+
+func NewSwitchBranchCommand(ctx *CommandContext, repoPaths []string, name string) *SwitchBranchCommand {
+	return &SwitchBranchCommand{ctx: ctx, repoPaths: repoPaths, name: name}
+}
+
+func (c *SwitchBranchCommand) Execute() tea.Cmd {
+	if c.ctx.Bus != nil && c.name != "" {
+		c.ctx.Bus.Publish(eventbus.BranchSwitchRequestedEvent{RepoPaths: c.repoPaths, Name: c.name})
+	}
+	return nil
+}
+
 // ToggleSelectionCommand toggles repository selection
 type ToggleSelectionCommand struct {
 	ctx      *CommandContext

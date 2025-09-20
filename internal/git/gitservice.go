@@ -155,6 +155,35 @@ func NewGitService(bus eventbus.EventBus) GitService {
 							Success:  false,
 							Error:    err,
 						})
+
+						// Subscribe to branch create requests
+						bus.Subscribe(eventbus.EventBranchCreateRequested, func(e eventbus.DomainEvent) {
+							if event, ok := e.(eventbus.BranchCreateRequestedEvent); ok {
+								go func() {
+									ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+									defer cancel()
+									for _, path := range event.RepoPaths {
+										_ = gs.createBranch(ctx, path, event.Name)
+										// Refresh after branch creation
+										_, _ = gs.RefreshRepo(ctx, path)
+									}
+								}()
+							}
+						})
+
+						// Subscribe to branch switch requests
+						bus.Subscribe(eventbus.EventBranchSwitchRequested, func(e eventbus.DomainEvent) {
+							if event, ok := e.(eventbus.BranchSwitchRequestedEvent); ok {
+								go func() {
+									ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+									defer cancel()
+									for _, path := range event.RepoPaths {
+										_ = gs.switchBranch(ctx, path, event.Name)
+										_, _ = gs.RefreshRepo(ctx, path)
+									}
+								}()
+							}
+						})
 						// Also publish error event for UI notification
 						gs.bus.Publish(eventbus.ErrorEvent{
 							Message: fmt.Sprintf("Pull failed for %s", filepath.Base(repoPath)),
@@ -469,6 +498,36 @@ func (gs *gitService) pullRepo(ctx context.Context, repoPath string) error {
 
 	log.Printf("Pulled %s successfully", repoPath)
 	return nil
+}
+
+// createBranch creates a new branch and checks out to it
+func (gs *gitService) createBranch(ctx context.Context, repoPath, name string) error {
+	start := time.Now()
+	// git checkout -b <name>
+	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", name)
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	dur := time.Since(start).Milliseconds()
+	gs.bus.Publish(eventbus.CommandExecutedEvent{RepoPath: repoPath, Command: "checkout -b", Success: err == nil, Output: string(out), Error: errString(err), Duration: dur})
+	return err
+}
+
+// switchBranch checks out an existing branch
+func (gs *gitService) switchBranch(ctx context.Context, repoPath, name string) error {
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, "git", "checkout", name)
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	dur := time.Since(start).Milliseconds()
+	gs.bus.Publish(eventbus.CommandExecutedEvent{RepoPath: repoPath, Command: "checkout", Success: err == nil, Output: string(out), Error: errString(err), Duration: dur})
+	return err
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // publishStatus publishes a status update event

@@ -155,6 +155,18 @@ func (r *Renderer) Render(state ViewState) string {
 	} else if state.InputMode != "" {
 		if state.InputMode == "sort" {
 			content.WriteString(r.renderSortOptions(state))
+		} else if state.InputMode == "filter" {
+			content.WriteString("Filter: ")
+			content.WriteString(state.TextInput)
+		} else if state.InputMode == "search" {
+			content.WriteString("Search: ")
+			content.WriteString(state.TextInput)
+		} else if state.InputMode == "new-branch" {
+			content.WriteString("New branch name: ")
+			content.WriteString(state.TextInput)
+		} else if state.InputMode == "switch-branch" {
+			content.WriteString("Switch to branch: ")
+			content.WriteString(state.TextInput)
 		} else {
 			content.WriteString(state.TextInput)
 		}

@@ -40,6 +40,18 @@ func (e *Executor) ExecutePull(repoPaths []string) tea.Cmd {
 	return cmd.Execute()
 }
 
+// ExecuteCreateBranch creates a branch on the given repositories
+func (e *Executor) ExecuteCreateBranch(repoPaths []string, name string) tea.Cmd {
+	cmd := NewCreateBranchCommand(e.ctx, repoPaths, name)
+	return cmd.Execute()
+}
+
+// ExecuteSwitchBranch switches to a branch on the given repositories
+func (e *Executor) ExecuteSwitchBranch(repoPaths []string, name string) tea.Cmd {
+	cmd := NewSwitchBranchCommand(e.ctx, repoPaths, name)
+	return cmd.Execute()
+}
+
 // ExecuteFullScan creates and executes a full scan command
 func (e *Executor) ExecuteFullScan(scanPath string) tea.Cmd {
 	cmd := NewFullScanCommand(e.ctx, scanPath)

@@ -146,7 +146,7 @@ func (h *EventHandler) HandleEvent(event eventbus.DomainEvent) tea.Cmd {
 				} else {
 					repo.LastError = e.Error
 				}
-			} else if e.Command == "fetch" || e.Command == "pull" {
+			} else if e.Command == "fetch" || e.Command == "pull" || e.Command == "checkout" || e.Command == "checkout -b" {
 				// Clear error state on successful fetch/pull
 				repo.HasError = false
 				repo.LastError = ""

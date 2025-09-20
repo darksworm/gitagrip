@@ -13,6 +13,8 @@ const (
 	ModeMoveToGroup
 	ModeDeleteConfirm
 	ModeSort
+	ModeNewBranch
+	ModeSwitchBranch
 	ModeRenameGroup
 )
 

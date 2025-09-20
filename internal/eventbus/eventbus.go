@@ -30,6 +30,8 @@ const (
 	EventConfigSaved            = domain.EventConfigSaved
 	EventConfigChanged          = domain.EventConfigChanged
 	EventCommandExecuted        = domain.EventCommandExecuted
+	EventBranchCreateRequested  = domain.EventBranchCreateRequested
+	EventBranchSwitchRequested  = domain.EventBranchSwitchRequested
 )
 
 // Re-export domain event types
@@ -51,6 +53,8 @@ type ConfigLoadedEvent = domain.ConfigLoadedEvent
 type ConfigSavedEvent = domain.ConfigSavedEvent
 type ConfigChangedEvent = domain.ConfigChangedEvent
 type CommandExecutedEvent = domain.CommandExecutedEvent
+type BranchCreateRequestedEvent = domain.BranchCreateRequestedEvent
+type BranchSwitchRequestedEvent = domain.BranchSwitchRequestedEvent
 
 // EventHandler is a function that handles domain events
 type EventHandler func(DomainEvent)

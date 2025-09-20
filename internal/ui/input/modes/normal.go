@@ -204,7 +204,14 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 		return nil, false
 
 	case "s":
-		// Sort mode
+		// Switch to an existing branch
+		if ctx.HasSelection() || (ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup()) {
+			return []types.Action{types.ChangeModeAction{Mode: types.ModeSwitchBranch}}, true
+		}
+		return nil, false
+
+	case "S":
+		// Sort mode moved to Shift+S
 		return []types.Action{types.ChangeModeAction{Mode: types.ModeSort}}, true
 
 	case "?":
@@ -214,6 +221,13 @@ func (m *NormalMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Actio
 	case "i":
 		// Toggle info
 		return []types.Action{types.ToggleInfoAction{}}, true
+
+	case "b":
+		// Create new branch on selected/current repos
+		if ctx.HasSelection() || (ctx.CurrentRepositoryPath() != "" && !ctx.IsOnGroup()) {
+			return []types.Action{types.ChangeModeAction{Mode: types.ModeNewBranch}}, true
+		}
+		return nil, false
 
 	case "I":
 		// View repository command logs in pager

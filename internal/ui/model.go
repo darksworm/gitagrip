@@ -1513,6 +1513,41 @@ func (m *Model) processAction(action inputtypes.Action) tea.Cmd {
 	case inputtypes.SubmitTextAction:
 		// Handle text submission based on mode
 		switch a.Mode {
+		case inputtypes.ModeNewBranch:
+			name := strings.TrimSpace(a.Text)
+			if name == "" {
+				return nil
+			}
+			var repos []string
+			if m.store.GetSelectionCount() > 0 {
+				for path := range m.store.GetSelectedRepositories() {
+					repos = append(repos, path)
+				}
+			} else if rp := m.getRepoPathAtIndex(m.state.SelectedIndex); rp != "" {
+				repos = []string{rp}
+			}
+			if len(repos) > 0 {
+				return m.cmdExecutor.ExecuteCreateBranch(repos, name)
+			}
+			return nil
+
+		case inputtypes.ModeSwitchBranch:
+			name := strings.TrimSpace(a.Text)
+			if name == "" {
+				return nil
+			}
+			var repos []string
+			if m.store.GetSelectionCount() > 0 {
+				for path := range m.store.GetSelectedRepositories() {
+					repos = append(repos, path)
+				}
+			} else if rp := m.getRepoPathAtIndex(m.state.SelectedIndex); rp != "" {
+				repos = []string{rp}
+			}
+			if len(repos) > 0 {
+				return m.cmdExecutor.ExecuteSwitchBranch(repos, name)
+			}
+			return nil
 		case inputtypes.ModeSearch:
 			m.state.SearchQuery = a.Text
 			m.performSearch()
