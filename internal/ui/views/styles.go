@@ -49,7 +49,10 @@ func NewStyles() *Styles {
 			BorderForeground(lipgloss.Color("244")),
 		InfoBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			Padding(0, 1).
+			// Inside padding: 1 up/down, 2 left/right
+			Padding(1, 2).
+			// Outer space around modal so it doesn’t feel squashed
+			Margin(1).
 			// Brighter border to make modal pop
 			BorderForeground(lipgloss.Color("51")),
 		Help: lipgloss.NewStyle().Faint(true),
