@@ -1,6 +1,6 @@
 package types
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "github.com/charmbracelet/bubbletea/v2"
 
 // Mode represents an input mode
 type Mode int

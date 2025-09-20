@@ -1,8 +1,8 @@
 package modes
 
 import (
-	"gitagrip/internal/ui/input/types"
-	tea "github.com/charmbracelet/bubbletea"
+    "gitagrip/internal/ui/input/types"
+    tea "github.com/charmbracelet/bubbletea/v2"
 )
 
 type ConfirmMode struct {
@@ -30,27 +30,23 @@ func (m *ConfirmMode) Exit(ctx types.Context) []types.Action {
 }
 
 func (m *ConfirmMode) HandleKey(msg tea.KeyMsg, ctx types.Context) ([]types.Action, bool) {
-	switch msg.Type {
-	case tea.KeyCtrlC:
-		return []types.Action{types.QuitAction{Force: true}}, true
+    switch msg.String() {
+    case "ctrl+c":
+        return []types.Action{types.QuitAction{Force: true}}, true
+    case "esc":
+        // Cancel and return to normal mode
+        return []types.Action{types.ChangeModeAction{Mode: types.ModeNormal}}, true
+    case "y", "Y":
+        // Confirm deletion
+        return []types.Action{
+            types.DeleteGroupAction{GroupName: m.groupName},
+            types.ChangeModeAction{Mode: types.ModeNormal},
+        }, true
 
-	case tea.KeyEsc:
-		// Cancel and return to normal mode
-		return []types.Action{types.ChangeModeAction{Mode: types.ModeNormal}}, true
-	}
+    case "n", "N":
+        // Cancel deletion
+        return []types.Action{types.ChangeModeAction{Mode: types.ModeNormal}}, true
+    }
 
-	switch msg.String() {
-	case "y", "Y":
-		// Confirm deletion
-		return []types.Action{
-			types.DeleteGroupAction{GroupName: m.groupName},
-			types.ChangeModeAction{Mode: types.ModeNormal},
-		}, true
-
-	case "n", "N":
-		// Cancel deletion
-		return []types.Action{types.ChangeModeAction{Mode: types.ModeNormal}}, true
-	}
-
-	return nil, false
+    return nil, false
 }

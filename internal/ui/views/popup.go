@@ -1,9 +1,10 @@
 package views
 
 import (
-	"strings"
+    "regexp"
+    "strings"
 
-	"github.com/charmbracelet/lipgloss"
+    "github.com/charmbracelet/lipgloss/v2"
 )
 
 // PopupRenderer handles popup/modal rendering
@@ -20,7 +21,7 @@ func NewPopupRenderer(styles *Styles) *PopupRenderer {
 
 // RenderPopupOverlay renders a popup overlay on top of main content
 func (pr *PopupRenderer) RenderPopupOverlay(mainContent, popupContent string, height, width int, popupStyle lipgloss.Style) string {
-	// Create a centered modal-style popup
+    // Create a centered modal-style popup
 	// First, measure the popup content
 	lines := strings.Split(popupContent, "\n")
 	contentHeight := len(lines)
@@ -63,19 +64,39 @@ func (pr *PopupRenderer) RenderPopupOverlay(mainContent, popupContent string, he
 		MaxHeight(height - 4).
 		Render(popupContent)
 
-	// Center the popup safely
-	centeredPopup := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styledPopup)
+    // Center the popup into a full-screen overlay string
+    centeredPopup := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styledPopup)
 
-	// Create a semi-transparent overlay effect by dimming the background
-	mainLines := strings.Split(mainContent, "\n")
-	overlayLines := strings.Split(centeredPopup, "\n")
+    // Desaturate base content to produce a greyscale effect under the modal
+    grayBase := desaturateANSI(mainContent)
 
-	// Ensure we have enough lines
-	for len(overlayLines) < len(mainLines) {
-		overlayLines = append(overlayLines, "")
-	}
+    // Compose overlay over grayscale base: prefer overlay rows when they contain visible content
+    baseLines := strings.Split(grayBase, "\n")
+    overlayLines := strings.Split(centeredPopup, "\n")
+    // Normalize lengths
+    if len(baseLines) < len(overlayLines) {
+        diff := len(overlayLines) - len(baseLines)
+        for i := 0; i < diff; i++ { baseLines = append(baseLines, "") }
+    } else if len(overlayLines) < len(baseLines) {
+        diff := len(baseLines) - len(overlayLines)
+        for i := 0; i < diff; i++ { overlayLines = append(overlayLines, "") }
+    }
+    out := make([]string, len(baseLines))
+    for i := range baseLines {
+        if strings.TrimSpace(overlayLines[i]) != "" {
+            out[i] = overlayLines[i]
+        } else {
+            out[i] = baseLines[i]
+        }
+    }
+    return strings.Join(out, "\n")
+}
 
-	result := overlayLines
+// ANSI escape sequence regex to strip styles/colors
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-	return strings.Join(result, "\n")
+// desaturateANSI strips ANSI color/style codes and recolors text dim gray
+func desaturateANSI(s string) string {
+    plain := ansiRE.ReplaceAllString(s, "")
+    return lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(plain)
 }

@@ -1,10 +1,10 @@
 package input
 
 import (
-	"gitagrip/internal/ui/input/modes"
-	"gitagrip/internal/ui/input/types"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+    "gitagrip/internal/ui/input/modes"
+    "gitagrip/internal/ui/input/types"
+    "github.com/charmbracelet/bubbles/v2/textinput"
+    tea "github.com/charmbracelet/bubbletea/v2"
 )
 
 type Handler struct {

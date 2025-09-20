@@ -1,8 +1,8 @@
 package modes
 
 import (
-	"gitagrip/internal/ui/input/types"
-	"github.com/charmbracelet/bubbles/textinput"
+    "gitagrip/internal/ui/input/types"
+    "github.com/charmbracelet/bubbles/v2/textinput"
 )
 
 type FilterMode struct {
