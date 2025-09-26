@@ -5,6 +5,9 @@
 [![License](https://img.shields.io/github/license/darksworm/gitagrip?style=flat-square)](./LICENSE)
 [![Tests](https://github.com/darksworm/gitagrip/actions/workflows/test.yml/badge.svg)](https://github.com/darksworm/gitagrip/actions/workflows/test.yml)
 
+> [!IMPORTANT] 
+> This project is currently in DEVELOPMENT and is not stable
+
 A fast, keyboard-driven terminal UI for discovering, grouping, and inspecting multiple Git repositories. Written in Go using Bubble Tea for a responsive, efficient experience.
 
 ## ✨ Features
