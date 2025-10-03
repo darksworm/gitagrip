@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.0.0](https://github.com/darksworm/gitagrip/compare/v1.1.0...v2.0.0) (2025-10-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **keybinds:** Enter no longer opens commit history; use Shift+H instead.
+
+### Features
+
+* Add log and diff viewer functionality ([3bc5bdf](https://github.com/darksworm/gitagrip/commit/3bc5bdf7db2382520604d4df2dab5cc06fb57d09))
+* add log-diff viewer with ov pager ([2ac5731](https://github.com/darksworm/gitagrip/commit/2ac5731fc52127ca486cda23ec06a533b27df3bd))
+* Add production-grade Go TUI testing framework ([530b2ff](https://github.com/darksworm/gitagrip/commit/530b2ff6639de5b1aafae647fed21391d10e4e53))
+* **branch:** add new-branch (b) and switch-branch (s) flows; remap sort to Shift+S ([ead40b0](https://github.com/darksworm/gitagrip/commit/ead40b0dd697d0644101e893429804b3cb9ab33f))
+* Convert help system to ov pager with vim-style navigation ([a319d56](https://github.com/darksworm/gitagrip/commit/a319d56fdeca2eb69e94b34d0bd85c0d4f975639))
+* don't open diff pager when there are no changes ([3d03299](https://github.com/darksworm/gitagrip/commit/3d0329945fc42b00074f1dba723b010e84048836))
+* enhance key bindings and add git operations tests ([3d385e8](https://github.com/darksworm/gitagrip/commit/3d385e8d81807b49bc5bd0b498cc9dc972b2ff18))
+* ensure Bubble Tea rendering is paused during ov pager ([b05f966](https://github.com/darksworm/gitagrip/commit/b05f96649843a9dd3e5b876177b6f02b175dac76))
+* **keybinds:** open git log with Shift+H; Enter no longer opens history ([3fa6680](https://github.com/darksworm/gitagrip/commit/3fa66808fe40d3c9c173f5b7dc531688bb2ff2a6))
+* **lazygit:** launch lazygit on Enter and pause rendering ([1f07600](https://github.com/darksworm/gitagrip/commit/1f076004e1234d6a55825a2f4c76f64063e3de44))
+* make status messages more visible and auto-clearing ([e3a1b2e](https://github.com/darksworm/gitagrip/commit/e3a1b2efcc8debeb78034d8e49f09319caffbbeb))
+* Optimize E2E tests with event-driven waiting and ring buffer ([b01baf9](https://github.com/darksworm/gitagrip/commit/b01baf9b771c6784d92cfedda23dd2b3894fc877))
+* **ui/modals:** upgrade to Bubble Tea/Lipgloss v2 betas and use layered grayscale modals ([30bc9f6](https://github.com/darksworm/gitagrip/commit/30bc9f66248882601d31e4bc88f657d1645dc8b5))
+* **ui:** add per-repo logs viewer (Shift+I) and info cleanup; avoid flooding status bar with errors ([3ef7a32](https://github.com/darksworm/gitagrip/commit/3ef7a322224bb6c6e2804e9fa76ccdeb665f1f01))
+
+
+### Bug Fixes
+
+* Handle git diff exit code 1 correctly ([12f5022](https://github.com/darksworm/gitagrip/commit/12f50221374d24b9e7d4c5b12733e15c51eb13cd))
+* handle unchecked error returns in gitops.go ([a250b52](https://github.com/darksworm/gitagrip/commit/a250b52b8f128ee04ae6e1372365e681c0ab094a))
+* reinstate 'd' binding for deleting groups ([cca3fba](https://github.com/darksworm/gitagrip/commit/cca3fba07311bc79ed2710854963e5a260e2e3cb))
+* render status message when no diff ([f3fb59c](https://github.com/darksworm/gitagrip/commit/f3fb59c8a64f58bab2c59074217f72f8c37dd97d))
+* restore vim-style navigation for 'l' key ([d461c9c](https://github.com/darksworm/gitagrip/commit/d461c9c2471a6816a9e5c8366b696dab4d7e10ed))
+* **ui:** stop surfacing error text in status bar; show error icon and log details ([737c45f](https://github.com/darksworm/gitagrip/commit/737c45fbe2c5cb20301f5a1fe624bceb07383a6a))
+
 ## [1.1.0](https://github.com/darksworm/gitagrip/compare/v1.0.6...v1.1.0) (2025-09-07)
 
 
